@@ -141,3 +141,13 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Key material, by extension rather than by filename. The dotenv block above
+# catches .env*, but this repository will hold a funded Base Sepolia signer and a
+# Sepolia attester, and those do not always arrive as an env file. `git rm` is not
+# redaction: once a secret is in a commit it is in the history, and this repository
+# is intended to go public.
+*.key
+*.pem
+*.keystore
+*.p12
