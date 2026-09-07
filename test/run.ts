@@ -188,7 +188,7 @@ async function main() {
   check(last()?.headers.get("cache-control") === "private, no-store", "37 · the paid response is private and not stored");
   check(
     fac.hits.verify === 1 && fac.hits.settle === 1,
-    "38 · a handler that succeeded verifies once and settles once (negative control for 41)",
+    "38 · a handler that succeeded verifies once and settles once (negative control for 42)",
   );
   const served = (paid.body as { windows?: unknown[] })?.windows;
   check(Array.isArray(served) && served.length === 3, "39 · the body is the snapshot, all three windows");
@@ -208,7 +208,11 @@ async function main() {
     String((refused.body as { error?: string })?.error ?? "").includes("no se liquidó"),
     "45 · and says so, rather than returning an empty success",
   );
-  check(fac.hits.settle === 1, "46 · a failed settlement is not retried behind the caller's back");
+  check(
+    refused.paymentStatus === "settle_failed",
+    "46 · the refusal carries the receipt, so the caller learns what happened and not merely that it did not work",
+  );
+  check(fac.hits.settle === 1, "47 · a failed settlement is not retried behind the caller's back");
 
   await fac.close();
 
@@ -216,7 +220,7 @@ async function main() {
   // accident the day the framework is upgraded.
   const wrappers = ["middleware.ts", "src/middleware.ts", "proxy.ts", "src/proxy.ts"];
   const found = wrappers.filter(p => existsSync(p));
-  check(found.length === 0, `47 · no request wrapper exists, so settlement stays visible in the route (${found.join(", ") || "none"})`);
+  check(found.length === 0, `48 · no request wrapper exists, so settlement stays visible in the route (${found.join(", ") || "none"})`);
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;

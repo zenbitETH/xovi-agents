@@ -105,7 +105,15 @@ export async function GET(request: Request) {
   if (!settled.success) {
     // The content is withheld when settlement fails. Serving it anyway would make
     // the payment optional in practice, whatever the 402 said.
-    return refuse(402, "El pago no se liquidó", { reason: settled.errorReason });
+    //
+    // The receipt goes back with it. Without those headers the caller sees a 402
+    // that is neither a challenge nor a receipt, and cannot tell a refusal it should
+    // stop on from one it should retry later. That distinction is the whole of what
+    // a delegated agent needs in order to behave.
+    return NextResponse.json(
+      { error: "El pago no se liquidó", reason: settled.errorReason },
+      { status: 402, headers: { ...settled.headers, ...NO_STORE } },
+    );
   }
 
   return NextResponse.json(payload, { headers: { ...settled.headers, ...NO_STORE } });
