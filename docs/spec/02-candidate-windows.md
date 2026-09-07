@@ -74,6 +74,8 @@ Three decisions, and the second is the one that matters.
 
 The detector's evaluation output lives in a directory the detector's own harness rewrites: the evaluator overwrites its result file unconditionally and the frame harvester rewrites its manifest. Growing that bank is a planned and cheap improvement, so it will happen.
 
+**Choosing the span a fixture comes from is a judgement, and it cannot be made from the JSON.** A calibration span is chosen because it contains the hard cases, which is exactly what makes it the wrong source for a fixture: the span used to develop this shape has two windows whose frames hold an operator's hand and stirred sediment, because the animal in it was under treatment. Nothing in the emitted record says so. A window is a pointer into footage that is already public, so serving one discloses nothing new, but a fixture assembled without opening the frames can put a person in front of a paying caller, and a demonstration cut from it can show a hand while the narration says the detector finds behaviour. Open the frames before a span becomes a fixture, and prefer a span that exercises the refusal path, because a machine declining to identify when it cannot is the strongest thing this endpoint has to show.
+
 **The endpoint must not read that file at request time.** Copy it into this repository's own fixture directory and read the copy, or a routine upgrade on the producer side silently changes what the paid endpoint serves, and the first sign would be a caller noticing before either side did.
 
 The same applies to any figure quoted in public documentation here: pin it to the date and the bank size it was measured on, so a later recount reads as a new measurement rather than a contradiction.
