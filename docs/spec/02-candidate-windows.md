@@ -36,7 +36,7 @@ Every departure from a naive shape exists for a reason that costs something if i
 
 **`specimenAlias` and `candidates` are both nullable.** The detector declines to identify roughly seventy per cent of the time, and a window with an unresolved specimen is still worth a human's attention. `candidates` is what makes that refusal legible rather than an error.
 
-**No window exceeds 120 seconds**, because a candidate window that cannot become a clip is not a candidate.
+**No window exceeds 100 seconds.** The ingest route refuses anything over 120, so 120 is the wall, but 100 is the point at which a span may cross a camera rotation and mix two views of the same tank. On the human capture path a clip past 100 seconds is not refused, it is flagged, and a reviewer sees the warning while analytics can down weight the result. That flag is unavailable here: the ingest route writes `behaviorMetric` as null on the machine path, so an agent cannot carry it and a caution that the human path expresses as a flag has to be expressed as a cap. The detector emits at 100 for that reason.
 
 **Times are exact multiples of one millisecond.** The ingest route quantises to whole milliseconds and the clip hash is computed from that quantised value, so a window carrying finer precision is silently moved before it is stored. Emitting times that are already exact removes the question of whose rounding wins, which matters because the producer rounds in Python and the consumer rounds in JavaScript and those two disagree on a half unless both are made to round half up.
 
