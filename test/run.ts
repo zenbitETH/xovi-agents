@@ -7,13 +7,16 @@
  * accepted, because a gate that refuses everything satisfies every refusal test
  * ever written.
  */
-import { writeFileSync } from "fs";
+import { existsSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { GET } from "../app/api/agent/windows/route";
+import { buildPayer, payingFetch } from "../lib/agent/pay";
 import { applyEmbargo, dropsForEmbargo, embargoedAliases } from "../lib/windows/embargo";
 import { SnapshotUnavailable, loadSnapshot } from "../lib/windows/snapshot";
 import { windowProblems } from "../lib/windows/types";
 import { PaymentMisconfigured, buildServer, paymentHeaderFrom, resetServerForTest } from "../lib/x402";
+import { startFakeFacilitator } from "./facilitator";
 
 let n = 0;
 let bad = 0;
@@ -128,6 +131,92 @@ async function main() {
   check(v1.header === undefined && v1.sentV1Only, "26 · a v1 X-PAYMENT is detected so it can be answered, not ignored in silence");
   const neither = paymentHeaderFrom(new Request("https://x/y"));
   check(neither.header === undefined && !neither.sentV1Only, "27 · no payment header is not mistaken for a v1 client (negative control)");
+
+  console.log("\n  the route, end to end\n");
+
+  // A key that exists to sign and hold nothing. EIP-3009 signing touches no chain,
+  // so this never needs funding and never sees an RPC.
+  const KEY = `0x${"ab".repeat(32)}` as const;
+  const PAY_TO = "0x000000000000000000000000000000000000dEaD";
+  const payer = buildPayer({ AGENT_PRIVATE_KEY: KEY });
+  check(
+    payer.address.toLowerCase() !== PAY_TO.toLowerCase(),
+    "28 · the payer is not the recipient, so a settlement is a payment and not a loop",
+  );
+
+  const fac = await startFakeFacilitator();
+  const ROUTE_URL = "http://127.0.0.1/api/agent/windows";
+  const seen: Response[] = [];
+  // The route handler is called directly rather than through a server. It is the
+  // real exported GET, so this is the first time it runs at all: the 27 checks
+  // above cover the modules it imports and never the handler itself.
+  const routeFetch: typeof fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const res = await GET(new Request(url, init));
+    seen.push(res.clone());
+    return res;
+  };
+  const arrange = (snapshot: string | undefined) => {
+    process.env.X402_PAY_TO = PAY_TO;
+    process.env.X402_NETWORK = "eip155:84532";
+    process.env.X402_FACILITATOR_URL = fac.url;
+    process.env.X402_PRICE = "$0.01";
+    if (snapshot === undefined) delete process.env.WINDOWS_SNAPSHOT;
+    else process.env.WINDOWS_SNAPSHOT = snapshot;
+    // buildServer memoizes at module scope, so without this every case after the
+    // first would run against the first case's configuration and pass for the
+    // wrong reason.
+    resetServerForTest();
+    fac.reset();
+    seen.length = 0;
+  };
+  const last = () => seen[seen.length - 1];
+
+  arrange("fixtures/windows.synthetic.jsonl");
+  const challenge = await GET(new Request(ROUTE_URL));
+  const challengeBody = (await challenge.text()).trim();
+  check(challenge.status === 402, "29 · an unpaid read is refused with 402");
+  check(Boolean(challenge.headers.get("PAYMENT-REQUIRED")), "30 · the requirements travel in PAYMENT-REQUIRED");
+  check(challengeBody === "{}", "31 · the 402 body is empty, because v2 puts the requirements in the header");
+  check(challenge.headers.get("cache-control") === "private, no-store", "32 · the 402 is not cacheable either");
+  check(fac.hits.verify === 0, "33 · an unpaid call never reaches the facilitator");
+
+  const paid = await payingFetch(ROUTE_URL, payer, routeFetch);
+  check(paid.status === 200, "34 · the same read, paid for, returns the windows");
+  check(paid.paymentStatus === "settled", "35 · and the receipt says it settled");
+  check(Boolean(paid.settlement?.transaction), "36 · the receipt carries a transaction");
+  check(last()?.headers.get("cache-control") === "private, no-store", "37 · the paid response is private and not stored");
+  check(
+    fac.hits.verify === 1 && fac.hits.settle === 1,
+    "38 · a handler that succeeded verifies once and settles once (negative control for 41)",
+  );
+  const served = (paid.body as { windows?: unknown[] })?.windows;
+  check(Array.isArray(served) && served.length === 3, "39 · the body is the snapshot, all three windows");
+
+  arrange(undefined);
+  const unavailable = await payingFetch(ROUTE_URL, payer, routeFetch);
+  check(unavailable.status === 503, "40 · a missing snapshot refuses rather than serving an empty list");
+  check(fac.hits.verify === 1, "41 · the payment was verified before the work was attempted");
+  check(fac.hits.settle === 0, "42 · the handler failed, so NOTHING settled, and the caller keeps their money");
+  check(last()?.headers.get("cache-control") === "private, no-store", "43 · the 503 is not cacheable");
+
+  arrange("fixtures/windows.synthetic.jsonl");
+  fac.settleSucceeds = false;
+  const refused = await payingFetch(ROUTE_URL, payer, routeFetch);
+  check(refused.status === 402, "44 · a settlement that fails withholds the content it was for");
+  check(
+    String((refused.body as { error?: string })?.error ?? "").includes("no se liquidó"),
+    "45 · and says so, rather than returning an empty success",
+  );
+  check(fac.hits.settle === 1, "46 · a failed settlement is not retried behind the caller's back");
+
+  await fac.close();
+
+  // Next 16 renames middleware to proxy, so checking one name would pass by
+  // accident the day the framework is upgraded.
+  const wrappers = ["middleware.ts", "src/middleware.ts", "proxy.ts", "src/proxy.ts"];
+  const found = wrappers.filter(p => existsSync(p));
+  check(found.length === 0, `47 · no request wrapper exists, so settlement stays visible in the route (${found.join(", ") || "none"})`);
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;
