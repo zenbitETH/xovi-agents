@@ -34,7 +34,9 @@ Two rails, and they do not overlap. Payments settle on Base Sepolia (`eip155:845
 
 ## Running it
 
-**WIP.** No code has landed yet, so there is nothing to install. Setup instructions, environment variables, and the demo script arrive with the first working leg.
+`npm ci`, then `npm test` for the suite and `npm run check-types` for the types. Both run in CI on every pull request and need no network, no secrets and no funded wallet: the payment checks refuse at configuration time, and the route's end to end checks run against a facilitator faked on localhost.
+
+Running the endpoint needs `X402_PAY_TO` and `WINDOWS_SNAPSHOT`; paying for a read needs `AGENT_PRIVATE_KEY`. Every variable is described in [`.env.example`](./.env.example). Unset, the endpoint answers 503 rather than serving for free, and a missing snapshot answers 503 rather than an empty list, because an empty list is a real answer meaning the detector found nothing.
 
 ## Track and disclosure
 
@@ -48,11 +50,11 @@ Built for ETHOnline 2026 on the Continuity track, which means it extends a proje
 
 ## Status
 
-**WIP.** This repository was created on 2026-09-06 and is being built across the event window. What exists today is the specification and these documents. Each leg lands as its own pull request, so the history shows the order things were actually built in.
+This repository was created on 2026-09-06 and is being built across the event window. Each leg lands as its own pull request, so the history shows the order things were actually built in, and every pull request since #12, which added the workflow, runs its checks in CI.
 
 | Leg | State |
 |---|---|
-| Paid read over x402 | not started |
+| Paid read over x402 | built, and exercised end to end against a faked facilitator |
 | Agent proposes a clip | not started |
 | Proof of human, per person caps | not started |
 | Attestation and onchain anchor | not started |
