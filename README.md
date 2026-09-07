@@ -50,7 +50,7 @@ Built for ETHOnline 2026 on the Continuity track, which means it extends a proje
 
 ## Status
 
-This repository was created on 2026-09-06 and is being built across the event window. Each leg lands as its own pull request, so the history shows the order things were actually built in, and every pull request from the third onward runs its checks in CI.
+This repository was created on 2026-09-06 and is being built across the event window. Each leg lands as its own pull request, so the history shows the order things were actually built in, and every pull request since #12, which added the workflow, runs its checks in CI.
 
 | Leg | State |
 |---|---|
