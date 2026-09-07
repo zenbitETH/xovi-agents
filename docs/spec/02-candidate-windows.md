@@ -50,6 +50,14 @@ Three decisions, and the second is the one that matters.
 
 **Serving nothing is a correct answer.** A paying caller receiving fewer windows learns only that fewer were available, which is true of any detector on any day.
 
+## The evaluation bank is a write target, so snapshot it
+
+The detector's evaluation output lives in a directory the detector's own harness rewrites: the evaluator overwrites its result file unconditionally and the frame harvester rewrites its manifest. Growing that bank is a planned and cheap improvement, so it will happen.
+
+**The endpoint must not read that file at request time.** Copy it into this repository's own fixture directory and read the copy, or a routine upgrade on the producer side silently changes what the paid endpoint serves, and the first sign would be a caller noticing before either side did.
+
+The same applies to any figure quoted in public documentation here: pin it to the date and the bank size it was measured on, so a later recount reads as a new measurement rather than a contradiction.
+
 ## What a caller may not infer
 
 A window is a claim that something was worth a human's attention. It is not a claim that an animal was identified, that a behaviour occurred, or that the confidence corresponds to a probability of anything. The refusal is the product; a caller treating `candidates` as an identification is misreading it, and the endpoint should not be shaped to encourage that.
