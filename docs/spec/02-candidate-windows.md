@@ -17,6 +17,8 @@ Written 2026-09-07, before the endpoint. The shape below came from the detector 
   "specimenAlias": null,
   "candidates": ["…"],
   "behaviorTag": null,
+  "truncatedByCap": false,
+  "continuesPrevious": false,
   "confidence": 620,
   "reason": "sustained motion 3.4 s with floor occlusion; station by 8-frame vote (8/8); phenotype no signal, 5 candidates",
   "detector": "…@0.1.0",
@@ -78,7 +80,13 @@ The same applies to any figure quoted in public documentation here: pin it to th
 
 **The same cut is fully deterministic, and that is what makes a snapshot worth taking.** Re-running the detector over an identical span on a different machine reproduces the windows byte for byte, `windowId` included, verified on 2026-09-07 by regenerating a four window sample from a clean checkout. Instability lives at the boundaries of the cut, not inside it. The distinction matters because a snapshot of a producer that was nondeterministic within one cut would not be a record of anything; it would be one arbitrary result frozen and then sold repeatedly.
 
-**A window cut short by the cap says so, and a window that continues one says so too.** The cap is 100 seconds, so an event that ran longer arrives as two windows. Left unmarked, the first reports a duration that measures the cap rather than the animal, and the second reads as an independent event when it is a tail. Both facts are stated in `reason`, and they are placed ahead of the measurement detail deliberately: if anything is lost to the 280 character limit it should be the detail, not the warning. The consequence for a caller is that consecutive windows are not always independent observations, and counting them as events overcounts.
+**A window cut short by the cap says so, in a field and in the prose.** The cap is 100 seconds, so an event that ran longer arrives as two windows. Left unmarked, the first reports a duration that measures the cap rather than the animal, and the second reads as an independent event when it is a tail. `truncatedByCap` and `continuesPrevious` carry both facts, and `reason` states them again in words, ahead of the measurement detail so that anything lost to the 280 character limit is detail rather than warning.
+
+**Both, rather than either.** The sentence is what a reviewer needs at the moment they are looking, and they read it in their own language. The booleans exist because a caller that aggregates cannot depend on recognising a phrase without coupling to its exact wording, and that coupling breaks the first time somebody rewrites the sentence. A fact that lives only in prose is one rewrite from gone, which is the same reason the embargo gate is not a matter of wording either. `truncatedByCap` follows the name the clip schema already uses for this idea on the human path.
+
+**The split is forced, not a defect, and a reader will assume otherwise.** Two halves of one event cannot be merged back into a single clip, because their combined span exceeds the 120 second refusal the ingest route applies. Proposing them separately is the only representation available. Anyone reading the pair as a detector fault and setting out to join them will be writing code against a wall.
+
+**What the booleans buy beyond not overcounting.** They are what lets a review queue group the two halves and offer the tail when a person rejects the head. At the data layer the two remain separate windows and a refusal on the first does not close the second, which is correct: rejecting the head of an event is not a judgement about its tail. But the interface can turn the second refusal into one click rather than a second discovery, and prose cannot do that.
 
 **The window set is not stable across differently cut runs.** The detection threshold is a percentile of each segment's own series rather than a global constant, so the same footage divided at different boundaries can yield a different set of windows. Each window's identifier is stable for that window; the collection is not. The endpoint therefore serves a stored snapshot rather than recomputing per request, because a caller who pays twice is entitled to a coherent answer.
 
