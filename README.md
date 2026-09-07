@@ -20,7 +20,9 @@ Stated precisely, because the distinction is the sort of thing a reviewer checks
 
 ## Why an agent should have to pay
 
-Computer vision produces candidates, not conclusions. On Zenbit's own bank of 164 frames the model reads the station correctly 159 times and identifies 6 of 13 clips. At frame level it gets 50 right, 0 wrong, and refers 114 to a human. It declines to decide about seventy per cent of the time, and that refusal is the useful part.
+Computer vision produces candidates, not conclusions. Measured on 2026-08-28 against a fixed bank of 164 frames drawn from 13 verified clips: the model reads the station correctly 159 times and identifies 6 of the 13. At frame level it gets 50 right, 0 wrong, and refers 114 to a human. It declines to decide about seventy per cent of the time, and that refusal is the useful part.
+
+The date and the bank size are part of the claim, not decoration. That bank grows as more footage is verified, so a later figure is a new measurement rather than a correction of this one, and a reader who finds a different number should be able to tell which.
 
 So the thing worth selling is not the observation. Observations are public: confirmed water readings are rendered on a live overlay over a public stream, and the biological record is headed for open scientific archives under CC BY. What is scarce is derivation and provenance. The candidate windows are never public. The join between an onchain anchor and the human confirmation behind it cannot be reconstructed from a video frame. That join is the product.
 

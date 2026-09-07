@@ -5,7 +5,8 @@ ETHOnline asks spec-driven projects to publish the artifacts that directed the w
 | File | What it fixes |
 |---|---|
 | [`01-agent-layer.md`](./01-agent-layer.md) | The loop, the invariant, the surfaces, and the refusals each one owes |
-| `02-*` onward | Added as each leg is specified |
+| [`02-candidate-windows.md`](./02-candidate-windows.md) | The shape the paid read serves, and why an embargoed window is dropped whole rather than redacted |
+| `03-*` onward | Added as each leg is specified |
 
 **How corrections are recorded.** When building overtakes a claim, the original wording stays and a dated note is appended under it. Nothing here is edited to look as though it was right the first time. A note that says an invariant is still unproven is doing its job.
 
