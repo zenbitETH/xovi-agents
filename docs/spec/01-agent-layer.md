@@ -40,9 +40,24 @@ A person delegates to an agent identified by an ENS name. The agent pays USDC ov
 
 > **Note, 2026-09-06.** The grep does not exist, so I4 is presently a commitment and not a mechanism.
 
+> **Note, 2026-09-07.** Still owed. The grep lands with the agent client, which is the first code that could import a payment module into an authorisation path.
+
 ### I5. Names resolve to roles, not to subjects
 
 An agent's ENS records may name a role and a payment endpoint. No record resolves to an individual animal or a registry of them. Note the enforcement honestly: name access control authorises *writers*, not *values*, so this is a commitment Zenbit keeps, not a property the resolver enforces.
+
+### I6. A payment settles only for work that succeeded
+
+Added 2026-09-07. The property was stated in the surfaces table below from the first day and was never an invariant, which meant it had no named mechanism and no test. It has two mechanisms, and the second was found rather than designed.
+
+- **Mechanism A, the call order.** Verification and settlement are two separate calls on the resource server, with the work between them, so a handler that throws returns before settlement is reached. Written in the route rather than in a wrapper, which is the reason this is a route handler and not middleware.
+- **What defeats A:** moving the paid set into a request wrapper, where settlement becomes a property of the wrapper and the ordering is no longer visible where the work happens. Next 16 renames middleware to proxy, so a check that knows only one name passes by accident on the day of the upgrade.
+- **Test for A, seen to fail:** a fake facilitator on an ephemeral port counts hits per path. With a valid snapshot the paid read verifies once and settles once. With the snapshot unset the route answers 503, verify is 1 and **settle is 0**. Moving the settlement call above the work turns that check red, reading *the handler failed, so NOTHING settled, and the caller keeps their money*.
+- **Mechanism B, the type system.** The result of processing the request is a discriminated union on `result.type`, and `paymentPayload` exists only on the verified branch. Settlement cannot be written above the narrowing that produces it.
+- **What defeats B:** a cast, or widening the union so the field is always present.
+- **Test for B, seen to fail:** performing the same reordering raises two compiler errors before any test runs. Mechanism B was discovered while proving mechanism A, by observing that the deliberate defect would not typecheck.
+
+A property the compiler refuses and the suite catches is a stronger claim than either alone. It is worth stating that neither mechanism proves a real facilitator rejects a forged signature, or that any value moves. The fake believes what it is told.
 
 ## Surfaces
 
@@ -69,6 +84,8 @@ An agent's ENS records may name a role and a payment endpoint. No record resolve
 - x402 v2 uses **three** headers (challenge, payment, receipt) and the 402 body is empty. The v1 header name is silently ignored by a v2 server, which is the worst failure to debug.
 - The anchoring call **reverts on a repeat**. Anchoring the same hash twice fails, and a batch fails wholly if one element is stale. Guard by reading the existing timestamp first and treating a hit as success. Do not rehearse a demo with the fixture you intend to use live.
 - The attestation contract on this testnet reports an older version than the published one, and its registry event has a different signature. Take interface definitions from the deployment, not from the package's default branch.
+- A settlement reply must carry a transaction and a network **even when it reports failure**. The schema requires both fields in both cases, so a facilitator refusal that omits them is rejected as malformed and the caller sees a parse error instead of the refusal it was handed. Anything standing in for a facilitator has to honour that or it tests the wrong failure.
+- There is no fetch wrapper in the installed packages. The helper most integrations use ships in a separate package that is not a dependency here, so a paying client is assembled from the HTTP client directly. Note also that the scheme registration function has the same name on the client and the server and takes a different number of arguments in each; nothing catches the confusion.
 
 ## Explicitly out of scope
 
