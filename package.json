@@ -8,7 +8,8 @@
     "start": "next start",
     "check-types": "tsc --noEmit",
     "test": "tsx test/run.ts",
-    "agent": "tsx bin/agent.ts"
+    "agent": "tsx bin/agent.ts",
+    "probe": "tsx bin/probe.ts"
   },
   "dependencies": {
     "@x402/core": "2.25.0",
