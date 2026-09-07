@@ -31,7 +31,11 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          # Matches the Vercel build runtime the demo url will run on, so a green
+          # check is a signal about the deploy build rather than about a different
+          # major. @types/node stays at 22 for now and moves together with an
+          # engines field once this repository actually has a Vercel project.
+          node-version: 24
           cache: npm
 
       - run: npm ci
