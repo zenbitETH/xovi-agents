@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { CandidateWindow } from "../windows/types";
 
 /**
@@ -28,16 +28,22 @@ export type Ledger = {
 export const DEFAULT_LEDGER_PATH = ".agent-ledger.json";
 
 function readFile(path: string): Record<string, string> {
-  if (!existsSync(path)) return {};
+  // No prototype. A window id is a hash and will not collide with __proto__ by
+  // accident, but a plain object literal would silently drop that key instead of
+  // storing it, and a ledger that silently drops a refusal is the one failure this
+  // file exists to prevent.
+  const empty = () => Object.create(null) as Record<string, string>;
+  if (!existsSync(path)) return empty();
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8"));
     // A ledger that cannot be read is treated as empty rather than as a reason to
     // stop. The consequence is a repeated 409, which the server answers correctly;
     // the alternative, refusing to run, would let a corrupt local file halt an
     // agent whose actual authority lives on the other side.
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return empty();
+    return Object.assign(empty(), parsed);
   } catch {
-    return {};
+    return empty();
   }
 }
 
@@ -50,7 +56,15 @@ export function loadLedger(path: string = DEFAULT_LEDGER_PATH): Ledger {
       // Written here rather than at the end of a run. A refusal recorded only in
       // memory is indistinguishable from one that was never issued the moment the
       // process stops, and the next run would propose the same window again.
-      writeFileSync(path, `${JSON.stringify(entries, null, 2)}\n`);
+      //
+      // Through a temporary file and a rename, because the write is not append-only:
+      // it rewrites the whole map every time, so a process dying mid-write would
+      // truncate every refusal ever recorded rather than lose the newest one. A
+      // rename within a directory is atomic, so a reader sees the old file or the
+      // new one and never a half of either.
+      const staging = `${path}.tmp`;
+      writeFileSync(staging, `${JSON.stringify(entries, null, 2)}\n`);
+      renameSync(staging, path);
     },
     size: () => Object.keys(entries).length,
   };
