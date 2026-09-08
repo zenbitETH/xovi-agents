@@ -8,7 +8,7 @@ Ten fields go. The names match what the ingest route already calls them, so noth
 
 | window | proposal | note |
 |---|---|---|
-| `channelId`, `videoId`, `startTime`, `endTime`, `stationId`, `speciesCode`, `specimenAlias`, `confidence` | the same | unchanged, including a null alias, which is a real answer meaning the station has no sole occupant and the phenotype did not resolve one |
+| `channelId`, `videoId`, `startTime`, `endTime`, `stationId`, `speciesCode`, `specimenAlias`, `confidence` | the same | unchanged, including a null alias, which is a real answer meaning the station has no sole occupant and the appearance signal did not resolve one |
 | `behaviorTag` | `"other"`, unconditionally | the enum belongs to the receiving route and the detector cannot classify behaviour, so a tag the producer invented is deliberately **not** forwarded: it would put a word from one vocabulary into a field governed by another. It also keeps the note always required and always persisted, since that route force-nulls the note for catalog tags |
 | `reason` | `behaviorNote` | required at three characters or more precisely because the tag is `other`, and capped at 280 on both sides |
 
