@@ -242,7 +242,7 @@ async function main() {
     "52 · a window that does carry a tag keeps it (negative control)");
   check(toProposal(win({ specimenAlias: null }) as never).specimenAlias === null,
     "53 · a null alias survives as a station only tag, because null is a real answer");
-  check(toProposal(win({ specimenAlias: "Remo" }) as never).specimenAlias === "Remo",
+  check(toProposal(win({ specimenAlias: "Gamma" }) as never).specimenAlias === "Gamma",
     "54 · and a named one survives too (negative control)");
   let tooShort = false;
   try { toProposal(win({ reason: "ab" }) as never); } catch (e) { tooShort = e instanceof UnproposableWindow; }
