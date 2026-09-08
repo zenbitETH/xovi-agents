@@ -1,6 +1,6 @@
 import { resolveWindowsEndpoint } from "../lib/agent/ens";
 import { DEFAULT_LEDGER_PATH, loadLedger, unrefused } from "../lib/agent/ledger";
-import { buildPayer, payingFetch } from "../lib/agent/pay";
+import { assertRecipient, buildPayer, payingFetch } from "../lib/agent/pay";
 import { UnproposableWindow, propose } from "../lib/agent/propose";
 import { windowProblems } from "../lib/windows/types";
 import type { CandidateWindow } from "../lib/windows/types";
@@ -33,6 +33,12 @@ async function main() {
   console.log(`  windows    ${windowsUrl}`);
   console.log(`  ledger     ${ledgerPath} (${ledger.size()} refused)`);
 
+  // Checked before paying, and this endpoint may have come from a record anyone
+  // with the name's write role can change, so the recipient is not something this
+  // process can assume it already knows.
+  const payTo = await assertRecipient(windowsUrl, payer);
+  console.log(`  payTo      ${payTo}`);
+
   const read = await payingFetch(windowsUrl, payer);
   if (read.status !== 200) throw new Error(`the paid read returned ${read.status}: ${JSON.stringify(read.body)}`);
   if (read.settlement) console.log(`  paid       ${read.settlement.transaction}`);
@@ -53,6 +59,8 @@ async function main() {
   if (!dryRun && (!url || !key)) throw new Error("XOVI_INGEST_URL and XOVI_INGEST_KEY are needed to propose");
 
   let sent = 0;
+  let refusals = 0;
+  let stopped = "";
   for (const w of fresh) {
     if (sent >= limit) break;
     if (dryRun) {
@@ -83,13 +91,40 @@ async function main() {
         // cannot lose the refusal and make the next run ask again.
         console.log(`  refused    ${w.windowId}  a person said no, and this window is now closed`);
         break;
+      case "throttled":
+        // Belongs to the credential, not to this window, so walking on would spend
+        // the rest of the snapshot earning the same answer.
+        refusals++;
+        stopped = `rate limited, retry after ${result.retryAfterSeconds}s`;
+        break;
       case "refused":
+        refusals++;
         console.log(`  error      ${w.windowId}  ${result.status} ${result.error}`);
         if (result.hint) console.log(`             ${result.hint}`);
+        if (result.issues) console.log(`             ${JSON.stringify(result.issues)}`);
+        // 401 is the credential, and a 403 that is not about station coverage is
+        // the credential too: a revoked or under-scoped key answers every window
+        // the same way, so the next attempt is not new information. A 400, a 422
+        // or the station 403 are about this window, and the run walks on.
+        if (result.status === 401 || (result.status === 403 && !result.hint)) {
+          stopped = `the credential was refused: ${result.error}`;
+        }
         break;
     }
+    if (stopped) break;
   }
-  console.log(`\n  ${sent} window(s) handled. Confirmation is a human action and this agent has no path to it.`);
+  if (stopped) console.log(`\n  stopped early: ${stopped}`);
+  console.log(`\n  ${sent} window(s) handled, ${refusals} refused. Confirmation is a human action and this agent has no path to it.`);
+
+  // A run in which nothing was proposed is not a success, and neither is one where
+  // every proposal was refused. A rotated credential answers 401 to everything, and
+  // exiting zero would make that indistinguishable to whatever schedules this from
+  // a night on which the detector simply found nothing.
+  if (stopped || refusals > 0) process.exitCode = 1;
+  else if (sent === 0) {
+    console.log("  nothing was proposed, which is a result and not a success");
+    process.exitCode = 1;
+  }
 }
 
 main().catch(err => {
