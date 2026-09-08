@@ -7,7 +7,7 @@
  * accepted, because a gate that refuses everything satisfies every refusal test
  * ever written.
  */
-import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { GET } from "../app/api/agent/windows/route";
@@ -238,8 +238,8 @@ async function main() {
   check(!("source" in mapped) && !("submitterAddress" in mapped), "50 · and never source or submitterAddress");
   check(mapped.behaviorTag === "other" && mapped.behaviorNote === good().reason,
     "51 · no behaviour tag becomes other, with the detector's reason as the note");
-  check(toProposal(win({ behaviorTag: "swim" }) as never).behaviorTag === "swim",
-    "52 · a window that does carry a tag keeps it (negative control)");
+  check(toProposal(win({ behaviorTag: "swim" }) as never).behaviorTag === "other",
+    "52 · a tag the producer invented is NOT forwarded, because the enum is the route's");
   check(toProposal(win({ specimenAlias: null }) as never).specimenAlias === null,
     "53 · a null alias survives as a station only tag, because null is a real answer");
   check(toProposal(win({ specimenAlias: "Gamma" }) as never).specimenAlias === "Gamma",
@@ -260,6 +260,8 @@ async function main() {
   // second run, which is the shape of a check that is green in CI forever.
   const ledgerPath = join(tmpdir(), "xovi-agent-ledger-checks.json");
   if (existsSync(ledgerPath)) rmSync(ledgerPath);
+  const ledgerPath2 = join(tmpdir(), "xovi-agent-ledger-checks-2.json");
+  if (existsSync(ledgerPath2)) rmSync(ledgerPath2);
   const stub: Ledger = { has: () => false, remember: () => {}, size: () => 0 };
   const cfg = (l = stub) => ({ url: ing.url, key: "xvi_000000000000_secret", ledger: l });
 
@@ -309,20 +311,98 @@ async function main() {
   try { await resolveWindowsEndpoint({}); } catch (e) { noneSet = e instanceof EndpointUnresolvable; }
   check(noneSet, "70 · with neither set it refuses rather than guessing");
 
-  // Comments are stripped first: this file names the route it is looking for, and
-  // so does the module it checks, so a naive grep would find its own explanation.
+  // Comments are stripped first: this file names the routes it looks for, and so do
+  // the modules it checks, so a naive grep would find its own explanation.
   const strip = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-  const agentSources = ["lib/agent/pay.ts", "lib/agent/propose.ts", "lib/agent/ledger.ts", "lib/agent/ens.ts", "bin/agent.ts", "bin/probe.ts"];
-  const reaching = agentSources.filter(f => /\/api\/(verify|curate)/.test(strip(readFileSync(f, "utf8"))));
+  // Walked rather than listed. A hand written list of six files silently stops
+  // covering the seventh, and the seventh is the one somebody adds in a hurry.
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap(e =>
+      e.isDirectory() ? walk(join(dir, e.name)) : e.name.endsWith(".ts") ? [join(dir, e.name)] : [],
+    );
+  const agentSources = [...walk("lib/agent"), ...walk("bin")];
+  check(agentSources.length >= 6, `71 · the walk found the agent's files, so this is not a list that stops covering new ones (${agentSources.length})`);
+  const reaching = agentSources.filter(f => /\/api\/(verify|curate|confirm)/.test(strip(readFileSync(f, "utf8"))));
   check(reaching.length === 0,
-    `71 · nothing the agent runs reaches a decision route (${reaching.join(", ") || "none"})`);
-  // Payment cannot become authorisation on this side because the module that
-  // proposes cannot see the module that pays: no proposal can be conditioned on
-  // having paid, since it has no way to ask. The other half of that invariant is
-  // enforced in the repository this one cannot change.
-  const proposeSource = readFileSync("lib/agent/propose.ts", "utf8");
-  check(!/from\s+"\.\/pay"/.test(proposeSource) && !/payingFetch|buildPayer/.test(strip(proposeSource)),
-    "72 · the proposing module cannot see the paying one, so a proposal cannot be conditioned on payment");
+    `72 · nothing the agent runs reaches a decision route (${reaching.join(", ") || "none"})`);
+
+  // Asserted on the module graph rather than on one file's text, because an
+  // indirect import through a third module would satisfy a grep and still put the
+  // payer one call away.
+  const specifiers = (file: string) =>
+    [...strip(readFileSync(file, "utf8")).matchAll(/from\s+"([^"]+)"/g)].map(m => m[1]);
+  const reachable = (entry: string) => {
+    const seen = new Set<string>();
+    const queue = [entry];
+    while (queue.length > 0) {
+      const file = queue.shift() as string;
+      if (seen.has(file)) continue;
+      seen.add(file);
+      for (const spec of specifiers(file)) {
+        if (!spec.startsWith(".")) continue;
+        const target = `${join(file, "..", spec)}.ts`;
+        if (existsSync(target)) queue.push(target);
+      }
+    }
+    return seen;
+  };
+  const graph = reachable("lib/agent/propose.ts");
+  check(!graph.has("lib/agent/pay.ts"),
+    `73 · the payer is not reachable from the proposing module by any import path (${[...graph].join(", ")})`);
+
+
+  console.log("\n  the answers nobody planned for\n");
+
+  const ing2 = await startFakeIngest();
+  const cfg2 = (l = stub) => ({ url: ing2.url, key: "xvi_000000000000_secret", ledger: l });
+  const ledgerB = loadLedger(ledgerPath2);
+
+  ing2.reset(); ing2.outcome = "oddConflict";
+  const odd = await propose(win() as never, cfg2(ledgerB));
+  check(odd.kind === "refused" && odd.status === 409,
+    "74 · a 409 with no retryable flag is refused, not read as a person's decision");
+  check(ledgerB.size() === 0,
+    "75 · and nothing is written, so a proxy cannot permanently close a window no reviewer saw");
+
+  ing2.reset(); ing2.outcome = "throttled";
+  const throttled = await propose(win() as never, cfg2(ledgerB));
+  check(throttled.kind === "throttled" && throttled.retryAfterSeconds === 3600,
+    "76 · a 429 is its own answer, carrying how long to wait");
+  check(ledgerB.size() === 0, "77 · and belongs to the credential, so no window is marked by it");
+
+  for (const [outcome, label] of [["created", "a 201"], ["noTarget", "a 422"], ["badStation", "a station 403"]] as const) {
+    ing2.reset(); ing2.outcome = outcome;
+    await propose(win() as never, cfg2(ledgerB));
+  }
+  check(ledgerB.size() === 0, "78 · a 201, a 422 and a station 403 all leave the ledger untouched (negative controls)");
+
+  ing2.reset(); ing2.outcome = "rejected";
+  await propose(win() as never, cfg2(ledgerB));
+  check(ledgerB.size() === 1, "79 · and only the flagged rejection writes to it (positive control for 78)");
+  await ing2.close();
+
+  console.log("\n  the name, when there is one\n");
+
+  const raises = async (fn: () => Promise<unknown>) => {
+    try { await fn(); return false; } catch (e) { return e instanceof EndpointUnresolvable; }
+  };
+  const named = { AGENT_ENS_NAME: "agent.example.eth", WINDOWS_URL: "https://fallback/never" };
+  check(await raises(() => resolveWindowsEndpoint(named, async () => { throw new Error("no rpc"); })),
+    "80 · a name that will not resolve raises, and the url is NOT used as a fallback");
+  check(await raises(() => resolveWindowsEndpoint(named, async () => null)),
+    "81 · a name with no record raises too, because resolving to nothing is not permission to read elsewhere");
+  check(await raises(() => resolveWindowsEndpoint(named, async () => "http://plain/windows")),
+    "82 · a record naming http is refused, because a bearer credential travels against it");
+  check(await resolveWindowsEndpoint(named, async () => "https://named/windows") === "https://named/windows",
+    "83 · and a record that does resolve is used (negative control for 80 to 82)");
+
+  console.log("\n  what the route would refuse, refused here first\n");
+
+  check(windowProblems(win({ startTime: -1, endTime: 5 })).length > 0, "84 · a negative start time");
+  check(windowProblems(win({ startTime: 86395, endTime: 86500 })).length > 0, "85 · a time past the recording ceiling");
+  check(windowProblems(win({ specimenAlias: "" })).length > 0, "86 · an empty alias, which is not the same as none");
+  check(windowProblems(win({ videoId: "has spaces" })).length > 0, "87 · a video id outside the character set");
+  check(windowProblems(win({ specimenAlias: null })).length === 0, "88 · while a null alias is still fine (negative control)");
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;

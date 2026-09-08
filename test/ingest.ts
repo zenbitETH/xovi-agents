@@ -19,7 +19,7 @@ export type FakeIngest = {
   /** Every body received, parsed. Absence assertions read this. */
   bodies: Record<string, unknown>[];
   /** What the next request gets. Defaults to a created clip. */
-  outcome: "created" | "rejected" | "duplicate" | "badStation" | "noTarget" | "badKey";
+  outcome: "created" | "rejected" | "duplicate" | "badStation" | "noTarget" | "badKey" | "throttled" | "oddConflict";
   reset(): void;
   close(): Promise<void>;
 };
@@ -52,7 +52,7 @@ export async function startFakeIngest(): Promise<FakeIngest> {
         res.end(JSON.stringify(payload));
       };
 
-      if (!(req.headers.authorization ?? "").startsWith("Bearer ")) {
+      if (!/^bearer\s/i.test(req.headers.authorization ?? "")) {
         return send(401, { error: "Clave de ingesta inválida" });
       }
       // Reproduced from the real route rather than invented. A machine claiming
@@ -64,6 +64,13 @@ export async function startFakeIngest(): Promise<FakeIngest> {
         });
       }
       switch (state.outcome) {
+        case "throttled":
+          res.writeHead(429, { "content-type": "application/json", "retry-after": "3600" });
+          return res.end(JSON.stringify({ error: "Demasiadas solicitudes" }));
+        case "oddConflict":
+          // A 409 from something that is not this route: a proxy, a gateway, a
+          // firewall. No retryable flag, so no decision may be inferred from it.
+          return send(409, { error: "conflict" });
         case "badKey":
           return send(401, { error: "Clave de ingesta inválida" });
         case "badStation":
@@ -86,6 +93,9 @@ export async function startFakeIngest(): Promise<FakeIngest> {
     });
   });
 
+  // Unreferenced so a throw between listen and close fails the suite fast instead
+  // of holding the event loop open and looking like a hang.
+  server.unref();
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("fake ingest did not bind a port");

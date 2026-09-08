@@ -71,6 +71,9 @@ export async function startFakeFacilitator(): Promise<FakeFacilitator> {
     res.end(JSON.stringify({ error: `no route for ${path}` }));
   });
 
+  // Unreferenced so a throw between listen and close fails the suite fast instead
+  // of holding the event loop open and looking like a hang.
+  server.unref();
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("fake facilitator did not bind a port");
