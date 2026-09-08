@@ -42,3 +42,15 @@ export function freeReadsPerDay(env: Record<string, string | undefined> = proces
   const raw = Number(env.HUMAN_FREE_READS_PER_DAY);
   return Number.isInteger(raw) && raw >= 0 ? raw : 20;
 }
+
+/**
+ * The store, or null when none is configured.
+ *
+ * Null is not a failure and not a stub: with no database there is no allowance, so
+ * every read settles, which is exactly what this endpoint did before the cap
+ * existed. The Postgres backed implementation lands with the schema.
+ */
+export function storeFrom(env: Record<string, string | undefined> = process.env): HumanStore | null {
+  if (!env.DATABASE_URL) return null;
+  return null;
+}

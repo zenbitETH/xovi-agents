@@ -22,6 +22,8 @@ Kept current. Files appear here as they land.
 | `lib/agent/propose.ts`, `lib/agent/ledger.ts`, `lib/agent/ens.ts` | Model-drafted after reading the receiving route rather than from documentation; keying the ledger on the window id alone, and writing it before the call returns, are Zenbit decisions carried from the rejection semantics that route already had |
 | `bin/agent.ts` | Model-drafted; that it has no confirmation path is inherited from the credential design rather than decided here |
 | `test/ingest.ts` | Model-drafted; every refusal shape was copied from the receiving route, which lives in a repository this one cannot change, so the copy is deliberate and kept in one place |
+| `lib/human/registry.ts`, `lib/human/store.ts`, `lib/human/cap.ts` | Model-drafted; the order of the steps in the route, that every failure collapses to paying, and the storage shape are Zenbit decisions, and the registry facts the code relies on were measured against the deployed contract |
+| `test/human.ts` | Model-drafted; the fakes model a property measured on chain rather than one invented for the checks, and the checks say so |
 | `docs/spec/04-proof-of-human.md` | Model-drafted; the semantics of the allowance, the order of the steps in the route and the storage shape are Zenbit decisions it was told to encode, and the registry findings in it were measured against the deployed contract rather than read from documentation |
 | `docs/spec/03-proposal.md` | Model-drafted from the code, which is the reverse of the order the other two specs were written in, and the document says so |
 | `bin/probe.ts` | Model-drafted; reading the recipient from the live challenge rather than the environment, and refusing when it is unreadable, are Zenbit review decisions |

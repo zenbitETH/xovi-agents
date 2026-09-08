@@ -26,12 +26,15 @@ export type FakeRegistry = {
   reset(): void;
 };
 
-export function fakeRegistry(): FakeRegistry {
+export function fakeRegistry(overrides?: Record<string, bigint>): FakeRegistry {
   const state = { hits: 0, mode: "ok" as FakeRegistry["mode"] };
+  // The default table is two agents of one person and a third of another. A caller
+  // can supply its own when the addresses have to be real ones derived from keys.
   const table: Record<string, bigint> = {
     [AGENT_ONE]: HUMAN_A,
     [AGENT_TWO]: HUMAN_A,
     [AGENT_OTHER]: HUMAN_B,
+    ...(overrides ?? {}),
   };
   return {
     read: async agent => {

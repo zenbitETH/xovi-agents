@@ -25,6 +25,7 @@ import { PaymentMisconfigured, buildServer, paymentHeaderFrom, resetServerForTes
 import { startFakeFacilitator } from "./facilitator";
 import { startFakeIngest } from "./ingest";
 import { AGENT_ONE, AGENT_OTHER, AGENT_TWO, AGENT_UNREGISTERED, HUMAN_A, fakeRegistry, fakeStore } from "./human";
+import { setCapForTest } from "../lib/human/cap";
 
 let n = 0;
 let bad = 0;
@@ -451,6 +452,64 @@ async function main() {
     "102 · the free count has a default and can be turned down for a demo");
   check(freeReadsPerDay({ HUMAN_FREE_READS_PER_DAY: "banana" }) === 20 && freeReadsPerDay({ HUMAN_FREE_READS_PER_DAY: "-1" }) === 20,
     "103 · and a value that is not a count falls back rather than becoming one");
+
+
+  console.log("\n  one human, one cap, through the route\n");
+
+  const fac2 = await startFakeFacilitator();
+  const seen2: Response[] = [];
+  const routeFetch2: typeof fetch = async (input, init) => {
+    const u = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const res = await GET(new Request(u, init));
+    seen2.push(res.clone());
+    return res;
+  };
+  process.env.X402_PAY_TO = PAY_TO;
+  process.env.X402_NETWORK = "eip155:84532";
+  process.env.X402_FACILITATOR_URL = fac2.url;
+  process.env.X402_PRICE = "$0.01";
+  process.env.WINDOWS_SNAPSHOT = "fixtures/windows.synthetic.jsonl";
+  resetServerForTest();
+  fac2.reset();
+
+  // Two payers, two keys, both belonging to one person in the registry. That is
+  // the whole of criterion two and it cannot be checked with one keypair.
+  const payerA = buildPayer({ AGENT_PRIVATE_KEY: `0x${"a1".repeat(32)}` });
+  const payerB = buildPayer({ AGENT_PRIVATE_KEY: `0x${"b2".repeat(32)}` });
+  check(payerA.address !== payerB.address, "104 · the two agents are different addresses (negative control)");
+  const capStore = fakeStore();
+  setCapForTest({
+    registry: fakeRegistry({ [payerA.address]: HUMAN_A, [payerB.address]: HUMAN_A }).read,
+    store: capStore,
+    freePerDay: 2,
+  });
+
+  const free1 = await payingFetch(ROUTE_URL, payerA, routeFetch2);
+  const free2 = await payingFetch(ROUTE_URL, payerA, routeFetch2);
+  check(free1.status === 200 && free2.status === 200, "105 · a verified human's reads are served");
+  check(fac2.hits.settle === 0, "106 · and nothing settled, so the allowance really is free");
+  check(capStore.counted === 2, "107 · two free reads are counted against the human, not the address");
+
+  const third = await payingFetch(ROUTE_URL, payerB, routeFetch2);
+  check(third.status === 200, "108 · the second agent is still served");
+  check(
+    fac2.hits.settle === 1,
+    "109 · but it SETTLES, because the budget belongs to the human and the first agent already spent it",
+  );
+  check(capStore.receipts.length === 1 && capStore.receipts[0].source === "route",
+    "110 · and the settlement leaves exactly one receipt");
+  check(capStore.counted === 2, "111 · a paid read adds nothing to the free count (negative control for 107)");
+
+  // A payer the registry does not know pays like anyone else.
+  const stranger = buildPayer({ AGENT_PRIVATE_KEY: `0x${"c3".repeat(32)}` });
+  const before2 = fac2.hits.settle;
+  const strangerRead = await payingFetch(ROUTE_URL, stranger, routeFetch2);
+  check(strangerRead.status === 200 && fac2.hits.settle === before2 + 1,
+    "112 · an agent nobody has registered settles every time, which is the rail this was laid on");
+
+  setCapForTest(null);
+  await fac2.close();
+  void seen2;
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;
