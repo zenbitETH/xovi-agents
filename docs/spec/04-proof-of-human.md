@@ -48,6 +48,13 @@ The registration function puts the agent address and a nonce into the World ID *
 - **What defeats it:** treating an error as an allowance, which fails open to unlimited free reads, or treating it as a refusal, which fails closed and takes the paid endpoint down when an rpc has a bad afternoon. Both are worse than paying.
 - **Test, seen to fail:** a fake registry that throws, and one that returns the unregistered value, both settle. A fake that hangs settles too, and takes about two seconds rather than the request's lifetime.
 
+### P3b. What "counted once" guarantees, stated as a guarantee rather than as a hope
+
+- **At most once, for every receipt that was written.** Two unique indexes carry it, the authorization nonce and the settlement transaction hash, and P2 is the check.
+- **At least once is best effort.** A receipt write that fails is logged and not retried, and the request still succeeds, because the caller has been charged and served and failing them over a bookkeeping write would be the larger wrong.
+- **What that can lose, precisely.** Bookkeeping, and only bookkeeping. Never money and never a served read. The authorization nonce is consumed on chain when the settlement goes through, so the settlement itself cannot be replayed whatever this database remembers; a lost receipt is a row missing from a ledger, not a payment that can happen twice.
+- **What it costs.** A ledger that disagrees with the chain, with no record of when it started disagreeing, which is why the failure is logged rather than swallowed in silence.
+
 ### P4. The registry is last writer wins, and the cap inherits that
 
 - **Mechanism:** none, and that is the point of writing it down. `lookupHuman[agent] = nullifierHash` is an unconditional overwrite, so anyone able to produce a valid proof for the signal made of an agent address and its next nonce can rebind an agent that is not theirs. The nonce prevents replay, not rebinding.
@@ -61,5 +68,7 @@ The registration function puts the agent address and a nonce into the World ID *
 The identifier is a World ID nullifier. It is anonymous in the sense that it names no person, and it is a stable link across every registration one human makes under this action, which is exactly what makes it useful here and exactly why it does not belong in public text. No real identifier goes into this repository, a pull request body, a comment, or this file. Fixtures use invented values. Logs print it truncated. The founder's is the founder's.
 
 ## Storage
+
+**The free path is unreachable in production until the schema lands.** With no database configured there is no allowance, so every read settles and the endpoint behaves exactly as it did before this feature. That is the correct degradation rather than a stub, and it has one consequence worth planning around: a demonstration of a free read needs the database to exist before the recording, not before the submission.
 
 Two tables in one database that belongs to this repository. `human_usage` keyed on the identifier and a window, holding the count of free reads served. `receipts` holding settlements, with unique indexes on the authorization nonce and on the settlement transaction hash, and with the payer, the recipient, the amount, the network, the time, and a `source` column that says where the row came from. The receipts table is the one the anchoring milestone reuses, which is why it carries those columns before anything needs them.

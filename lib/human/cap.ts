@@ -79,8 +79,14 @@ export async function recordSettlement(receipt: Receipt, env: EnvLike = process.
   if (!cap.store) return;
   try {
     await cap.store.recordReceipt(receipt);
-  } catch {
-    // Deliberately swallowed. The caller has been charged and served; losing the
-    // bookkeeping is a smaller wrong than refusing them what they paid for.
+  } catch (err) {
+    // Swallowed on purpose and never silently. The caller has been charged and
+    // served, so failing their request over a bookkeeping write would be the
+    // larger wrong, but a receipt that went missing has to be findable afterwards
+    // or the ledger quietly disagrees with the chain and nobody knows when it
+    // started.
+    console.error(
+      `receipt not recorded for settlement ${receipt.transactionHash}: ${err instanceof Error ? err.message : "unknown"}`,
+    );
   }
 }
