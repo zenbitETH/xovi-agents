@@ -78,7 +78,8 @@ export function toProposal(w: CandidateWindow): Proposal {
     speciesCode: w.speciesCode,
     stationId: w.stationId,
     // Null is a real answer meaning the station has no sole occupant and the
-    // phenotype did not resolve one. The route accepts it as a station-only tag.
+    // appearance signal did not resolve one. The route accepts it as a station
+    // only tag.
     specimenAlias: w.specimenAlias,
     confidence: w.confidence,
   };

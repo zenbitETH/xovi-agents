@@ -23,7 +23,7 @@ function refuse(status: number, error: string, extra: Record<string, unknown> = 
  * attention, and declined to say what caused the motion.
  *
  * The endpoint does not claim behaviour, and the wording matters because the
- * detector cannot tell an animal from an operator's hand: the phenotype signal
+ * detector cannot tell an animal from an operator's hand: the appearance signal
  * reads the same for both. A window may contain a person.
  */
 export async function GET(request: Request) {
