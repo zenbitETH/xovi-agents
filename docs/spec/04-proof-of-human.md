@@ -8,7 +8,7 @@ Nothing. A limit tied to an address is defeated by generating addresses, and gen
 
 ## The shape, and why the degraded path needs no code
 
-A verified human's agents get a number of free reads per day. Past that number, and for anyone the registry does not know, every read settles exactly as it does today. So the cap is an allowance laid on top of a rail that already works, and the fallback is not a branch somebody has to remember to write: it is the behaviour that existed before this document. The route's existing no-payment-required arm is where a free read belongs, because that arm already means served without settlement.
+A verified human's agents get a number of free reads per day. Past that number, and for anyone the registry does not know, every read settles exactly as it does today. So the cap is an allowance laid on top of a rail that already works, and the fallback is not a branch somebody has to remember to write: it is the behaviour that existed before this document. A free read returns the same response as the no-payment-required arm, because that is what it is: served, with nothing owed and nothing settled.
 
 The knobs are `HUMAN_FREE_READS_PER_DAY`, default 20, counted per UTC day, and the registry's address and rpc in `AGENTBOOK_ADDRESS` and `AGENTBOOK_RPC_URL`. The demo sets the free count to 3, so exhausting one agent's share and watching the second settle takes about a minute on camera.
 
@@ -33,14 +33,16 @@ The registration function puts the agent address and a nonce into the World ID *
 ### P1. The cap keys on the registry's identifier, and no client field can claim one
 
 - **Mechanism:** the identifier is read from the registry using the payer address out of the verified payment. Nothing in the request body reaches it. Counters and receipts store the identifier, never the address.
-- **What defeats it:** keying the usage row on the payer address instead. Two agents of one person would then hold two budgets, which is the failure this feature exists to prevent, and it would look like it worked.
+- **What defeats it:** keying the usage row on the payer address instead. Two agents of one person would then hold two budgets, which is the failure this feature exists to prevent, and it would look like it worked. It is also defeated by asking how many reads are left and then taking one, because two requests from a person at the limit minus one both read the same number and both go free. The count and the limit therefore travel into a single statement, whose where clause carries the limit and which returns nothing when there was nothing to take.
+- **Test for the second half, seen to fail:** two takes raced at the last free read yield exactly one. Putting a single await between the read and the write in the store makes both succeed, which is a cap that holds in every sequential test and gives way the moment somebody uses it properly.
 - **Test, seen to fail:** exhaust the allowance from one payer address and read from a second address the fake registry maps to the same identifier. The second read must settle. Keying on the address turns it green in the wrong direction, and the check goes red when the keying is changed back.
 
 ### P2. A settlement is counted once
 
-- **Mechanism:** the receipt insert and the usage update are one statement, a common table expression that inserts the receipt with on conflict do nothing and updates the count only when the insert returned a row. Two unique indexes carry it: the authorization nonce and the settlement transaction hash.
-- **What defeats it:** doing the two writes as separate statements over an http driver that offers no interactive transaction, where a crash between them counts a payment nobody received or receives one nobody counted.
-- **Test, seen to fail:** replay the same settlement twice and observe one row and one increment. Splitting the statement makes it two.
+- **Mechanism:** the receipt insert alone, on conflict do nothing, returning the row. Two unique indexes carry it, the authorization nonce and the settlement transaction hash, and counted once means one row: the call reports whether the row was new rather than whether a write happened.
+- **What defeats it:** dropping either index. The nonce catches a replayed authorization and the transaction hash catches the same settlement arriving by another route, and neither one covers both.
+- **Test, seen to fail:** record the same settlement twice and observe one row, then again under a different nonce and observe the transaction hash still catching it. Removing the uniqueness makes each attempt a row.
+- **An earlier draft of this said the insert also updates a count, in one statement.** It does not, and it cannot: a receipt is written on settlement and usage on a free read, and nothing writes both, so there was no count for that insert to update. The single statement that idea was reaching for belongs in P1, where the comparison and the increment genuinely must not be separable.
 
 ### P3. A lookup that fails degrades to pay per request
 
@@ -62,6 +64,12 @@ The registration function puts the agent address and a nonce into the World ID *
 - **What it does enable:** griefing. Rebinding somebody's agent onto an exhausted identifier stops their reads being free.
 - **Why that is survivable, and this is a property of the shape rather than a mitigation:** the fallback is pay per request, so a hostile rebinding costs the victim the ordinary price of a read and never their access. Nothing defends against this and nothing needs to.
 - Noticed while reading and recorded so the next reader does not have to: the mapping is written before the proof is verified. A revert unwinds it, so it is harmless, and it is the ordering a reviewer will stop on.
+
+## The order the demonstration has to run in
+
+The free path and the evidence for the paid read contradict each other on purpose, and the contradiction has to be scheduled rather than discovered. Once the founder's payer is a registered human and the database exists, that payer's reads are free, so the probe that produces a settlement transaction for the paid read finds a 200 with no receipt and reports that nothing settled. The endpoint is working; the probe is asking for the one thing this feature exists to prevent.
+
+So the explorer evidence is produced first, either before the payer is registered or with the free count set to zero, which `HUMAN_FREE_READS_PER_DAY=0` does because zero is a valid count rather than a missing one. The cap is turned on afterwards, for the demonstration that shows a free read and a second agent settling. The probe says so in its own failure message, so somebody meeting this at three in the morning is told the cause rather than left to find it.
 
 ## Privacy
 
