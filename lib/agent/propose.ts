@@ -66,11 +66,14 @@ export function toProposal(w: CandidateWindow): Proposal {
     videoId: w.videoId,
     startTime: w.startTime,
     endTime: w.endTime,
-    // The detector emits no behaviour tag and the route's enum is required, so the
-    // proposal says "other" and puts the detector's reasoning in the note. That is
-    // the honest shape: a window marks where something moved, and claiming a
-    // behaviour would be claiming the thing this pipeline cannot do.
-    behaviorTag: w.behaviorTag ?? "other",
+    // Always "other", and a tag the producer supplies is deliberately not
+    // forwarded. The enum belongs to the receiving route and the detector cannot
+    // classify behaviour, so forwarding a value it invented would put a word from
+    // one vocabulary into a field governed by another. A window marks where
+    // something moved; claiming a behaviour would be claiming the thing this
+    // pipeline cannot do. It also keeps the note always required and always
+    // persisted, because that route force-nulls the note for catalog tags.
+    behaviorTag: "other",
     behaviorNote: note,
     speciesCode: w.speciesCode,
     stationId: w.stationId,
@@ -87,7 +90,10 @@ export type ProposeResult =
   | { kind: "duplicate"; clipHash: string }
   /** A person looked at this window and said no. Stop, do not back off. */
   | { kind: "rejected"; clipHash: string }
-  | { kind: "refused"; status: number; error: string; hint?: string };
+  /** Rate limited, or the limiter itself failed closed. Belongs to the credential
+   *  rather than to this window, so a caller should stop rather than walk on. */
+  | { kind: "throttled"; retryAfterSeconds: number }
+  | { kind: "refused"; status: number; error: string; hint?: string; issues?: unknown };
 
 export type ProposeConfig = {
   url: string;
@@ -103,10 +109,19 @@ export async function propose(w: CandidateWindow, cfg: ProposeConfig): Promise<P
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${cfg.key}` },
     body: JSON.stringify(body),
+    // A scheduled run that hangs is worse than one that fails, because nothing
+    // reports it.
+    signal: AbortSignal.timeout(30_000),
   });
   const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
 
   if (response.status === 201) {
+    // A 201 that does not carry these is not this route answering, whatever sent
+    // it. Reporting "proposed" on the strength of a status line would record a
+    // clip id of NaN and a status of "undefined" as a success.
+    if (payload.id === undefined || payload.clipHash === undefined || payload.status === undefined) {
+      return { kind: "refused", status: 201, error: "a created response arrived without an id, a hash or a status" };
+    }
     return {
       kind: "proposed",
       id: Number(payload.id),
@@ -115,15 +130,29 @@ export async function propose(w: CandidateWindow, cfg: ProposeConfig): Promise<P
     };
   }
 
+  if (response.status === 429) {
+    const header = Number(response.headers.get("retry-after"));
+    return { kind: "throttled", retryAfterSeconds: Number.isFinite(header) && header > 0 ? header : 3600 };
+  }
+
   if (response.status === 409) {
     const clipHash = String(payload.clipHash ?? "");
-    // retryable is the whole of the difference between the two 409s, and reading
-    // it as merely truthy would treat an absent field as retryable. An absent
-    // field here means the response is not one this client understands, so the
-    // safe reading is the one that stops.
+    // The flag is the whole of the difference between the two 409s, and each value
+    // is required to be literally present. Reading "not true" as a rejection would
+    // let any 409 from anywhere become a permanent bar: a proxy, a gateway or a
+    // firewall answering 409 with a body this client cannot parse would close a
+    // window no reviewer ever saw, and the ledger would record that a person
+    // decided it. Stopping is still right; claiming a human decision is not.
     if (payload.retryable === true) return { kind: "duplicate", clipHash };
-    cfg.ledger.remember(w.windowId, `rejected by a person: ${String(payload.error ?? "no reason given")}`);
-    return { kind: "rejected", clipHash };
+    if (payload.retryable === false) {
+      cfg.ledger.remember(w.windowId, `rejected by a person: ${String(payload.error ?? "no reason given")}`);
+      return { kind: "rejected", clipHash };
+    }
+    return {
+      kind: "refused",
+      status: 409,
+      error: "a 409 arrived without the flag that says whether it can be retried, so no decision is recorded for it",
+    };
   }
 
   const error = String(payload.error ?? `HTTP ${response.status}`);
@@ -135,5 +164,8 @@ export async function propose(w: CandidateWindow, cfg: ProposeConfig): Promise<P
     response.status === 403 && error.includes("no cubre la estación")
       ? `the credential's station scope is matched literally: it must be the string the detector emits, "${w.stationId}", spaces included`
       : undefined;
-  return { kind: "refused", status: response.status, error, hint };
+  // Carried through so an operator sees which field, rather than a bare
+  // "validación fallida" that names nothing.
+  const issues = response.status === 400 ? payload.issues : undefined;
+  return { kind: "refused", status: response.status, error, hint, issues };
 }
