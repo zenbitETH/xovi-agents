@@ -19,6 +19,7 @@ Kept current. Files appear here as they land.
 | `lib/agent/pay.ts` | Model-drafted; reviewed by Zenbit, which removed a flag that answered two questions with one value and made the payer a parameter |
 | `test/run.ts`, `test/facilitator.ts` | Model-drafted; the standard every check is held to, that it has been seen to fail and that a refusal is paired with a negative control, is Zenbit's and predates the file |
 | `fixtures/windows.synthetic.jsonl`, `fixtures/README.md` | Model-generated synthetic data. No real window, no real video id, and deliberately not the calibration span, which contains an operator's hands |
+| `fixtures/windows.v9pFMid2BOs.jsonl` | Detector output over public footage, verbatim and not model output: two windows from video `v9pFMid2BOs` 03:27:55 to 03:30:45, station AM 3; the span was chosen by Zenbit and inspected frame by frame before it became a fixture |
 | `lib/agent/propose.ts`, `lib/agent/ledger.ts`, `lib/agent/ens.ts` | Model-drafted after reading the receiving route rather than from documentation; keying the ledger on the window id alone, and writing it before the call returns, are Zenbit decisions carried from the rejection semantics that route already had |
 | `bin/agent.ts` | Model-drafted; that it has no confirmation path is inherited from the credential design rather than decided here |
 | `test/ingest.ts` | Model-drafted; every refusal shape was copied from the receiving route, which lives in a repository this one cannot change, so the copy is deliberate and kept in one place |
