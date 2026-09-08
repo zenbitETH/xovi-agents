@@ -24,7 +24,11 @@ Usage is written only when a read was served free. A receipt is written only whe
 
 ## What the registry actually says
 
-Measured on 2026-09-07 against the deployment on Base Sepolia, not read from a summary. `lookupHuman(address)` returns `0` for an address that has never registered, and does not revert. A deliberately wrong selector on the same contract does revert, which is what makes those zeros evidence rather than an artefact of a contract that answers everything with zero.
+Measured against the deployment rather than read from a summary. `lookupHuman(address)` returns `0` for an address that has never registered, and does not revert. A deliberately wrong selector on the same contract does revert, which is what makes those zeros evidence rather than an artefact of a contract that answers everything with zero.
+
+**The chain it is read on is not the chain the payments settle on, and getting that wrong is silent.** The registration tool writes World Chain, chain 480, and only that: the published version rejects a network flag outright. The contract sits at the same address on Base Sepolia with byte identical code, verified by hashing the deployed bytecode on both, and separate state. So a lookup pointed at the payment chain returns zero for an agent that is registered, the cap fails closed, every read settles, and the feature can never fire while looking exactly like a world in which nobody has registered. The first measurements in this document were taken on Base Sepolia, which is why they were all zeros and why the zeros were not the whole story.
+
+The consequence is worth stating plainly rather than leaving in a config file. **This system now touches two chains and one of them is a mainnet:** payments settle on Base Sepolia, and the identity read happens on World Chain. The read moves nothing, holds nothing and needs no key, but a reviewer counting chains should find that written down rather than discover it.
 
 The registration function puts the agent address and a nonce into the World ID *signal* and uses a contract wide constant as the external nullifier. A World ID nullifier is deterministic on the identity and the external nullifier, so one person produces the same value whichever agent they register, and the agent address changes the signal instead. There is no set of used nullifiers in the contract and nothing rejects a repeat. One human to many agents is therefore the construction rather than a hope, which is what makes a shared budget testable at all.
 
