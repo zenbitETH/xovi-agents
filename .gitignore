@@ -159,3 +159,6 @@ next-env.d.ts
 # quotes what the server said when a person refused a window.
 .agent-ledger.json
 .agent-ledger.json.tmp
+
+# Local Vercel project link and build output.
+.vercel
