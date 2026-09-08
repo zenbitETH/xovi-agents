@@ -63,6 +63,7 @@ The registration function puts the agent address and a nonce into the World ID *
 
 ### P4. The registry is last writer wins, and the cap inherits that
 
+- **This is documented behaviour of a third party system, not a defect in it.** The registry works as its authors built it; what follows is what our design inherits from that, written so the next reader does not have to derive it.
 - **Mechanism:** none, and that is the point of writing it down. `lookupHuman[agent] = nullifierHash` is an unconditional overwrite, so anyone able to produce a valid proof for the signal made of an agent address and its next nonce can rebind an agent that is not theirs. The nonce prevents replay, not rebinding.
 - **What it does not defeat:** the cap. A person has one identifier, and registering more agents only divides the same allowance, which is what sybil resistance means here.
 - **What it does enable:** griefing. Rebinding somebody's agent onto an exhausted identifier stops their reads being free.
