@@ -16,7 +16,7 @@ A person delegates to an agent identified by an ENS name. The agent pays USDC ov
 
 > **Note, 2026-09-06.** The test has not been run, because no machine path exists yet to run it against. By this file's own rule, I1 is specified and not proven until it has been seen to go red.
 
-> **Note, 2026-09-07.** The machine path now exists, and the client half is proven. A check strips comments from every file the agent runs and fails if any of them names a decision route; it was seen to fail by adding a call with no comment around it. That is a second mechanism rather than the one above: it proves the agent never asks, where the original proves the server never answers. The server half still cannot be run from here, because it needs an issued credential and a route in a repository this one does not contain. Saying which half is proven is the point of writing both.
+> **Note, 2026-09-07.** The machine path now exists, and the client half is proven. A check enumerates the agent's files by walking its two directories, rather than from a list that would stop covering whatever is added next, strips comments so it cannot match its own explanation, and fails if any of them names a decision route. Seen to fail by adding a call with no comment around it. That is a second mechanism rather than the one above: it proves the agent never asks, where the original proves the server never answers. The server half still cannot be run from here, because it needs an issued credential and a route in a repository this one does not contain. Saying which half is proven is the point of writing both.
 
 ### I2. A machine may never claim human provenance
 
@@ -46,7 +46,11 @@ A person delegates to an agent identified by an ENS name. The agent pays USDC ov
 
 > **Note, 2026-09-06.** The grep does not exist, so I4 is presently a commitment and not a mechanism.
 
-> **Note, 2026-09-07.** The agent half now has a mechanism. The module that builds a proposal cannot see the module that pays: it neither imports it nor names its functions, checked after comments are stripped, so no proposal can be conditioned on having paid because it has no way to ask. Seen to fail by adding that import. The half this does not reach is the server's, where a capability resolver could read a balance, and that code is in a repository this one does not contain. The invariant is therefore half mechanism and half commitment, and the commitment half is the one worth naming out loud.
+> **Note, 2026-09-07.** The agent half now has a mechanism. The module that builds a proposal cannot reach the module that pays by any import path: the check follows the specifiers out of the proposing module and through everything they lead to, rather than grepping one file, because an indirect import through a third module would satisfy a grep and still leave the payer one call away. So no proposal can be conditioned on having paid, because it has no way to ask. Seen to fail by adding the import.
+>
+> *What defeats it:* a specifier the check cannot see. It reads text, so a dynamic import, a path assembled at runtime, or a value passed in from a caller would all pass. That bounds the claim to static imports, which is what it should say rather than implying more.
+>
+> The half this does not reach is the server's, where a capability resolver could read a balance, and that code is in a repository this one does not contain. The invariant is therefore half mechanism and half commitment, and the commitment half is the one worth naming out loud.
 
 ### I5. Names resolve to roles, not to subjects
 
