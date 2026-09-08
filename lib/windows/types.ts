@@ -63,6 +63,10 @@ export function windowProblems(w: unknown): string[] {
   if (typeof s !== "number" || typeof e !== "number") p.push("times are not numbers");
   else {
     if (e <= s) p.push("endTime is not after startTime");
+    // The route's own bounds, checked here so a window that could never become a
+    // proposal is refused at the boundary rather than at the far end of a paid read.
+    if (s < 0) p.push(`startTime ${s} is negative`);
+    if (s > 86400 || e > 86400) p.push("a time is past the 24 hour recording ceiling");
     // The producer guarantees whole milliseconds so that neither side's rounding
     // can move an instant. A window that arrives without that guarantee has been
     // through something that did not honour it, and the endpoint should not be
@@ -73,6 +77,14 @@ export function windowProblems(w: unknown): string[] {
     if (e - s > 100) p.push(`duration ${(e - s).toFixed(1)}s over the 100s cap`);
   }
   if (o.specimenAlias !== null && typeof o.specimenAlias !== "string") p.push("specimenAlias is neither string nor null");
+  // An alias of "" is not "no alias": null is how a window says the station has no
+  // sole occupant, and an empty string would be refused at the far end as a name.
+  else if (typeof o.specimenAlias === "string" && (o.specimenAlias.length < 1 || o.specimenAlias.length > 64)) {
+    p.push(`specimenAlias is ${o.specimenAlias.length} characters, outside 1 to 64`);
+  }
+  if (typeof o.videoId === "string" && !/^[A-Za-z0-9_-]+$/.test(o.videoId)) {
+    p.push("videoId is outside the character set a video id may use");
+  }
   if (o.candidates !== null && !Array.isArray(o.candidates)) p.push("candidates is neither array nor null");
   if (o.behaviorTag !== null && typeof o.behaviorTag !== "string") p.push("behaviorTag is neither string nor null");
   return p;
