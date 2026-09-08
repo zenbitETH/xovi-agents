@@ -20,12 +20,18 @@ export type Receipt = {
 
 export type HumanStore = {
   /**
-   * Free reads already served to this identifier in this window.
-   * The identifier is a World ID nullifier: it is stored, never logged whole.
+   * Take one free read, or refuse. **One operation, and that is the point.**
+   *
+   * Reading the count and then incrementing it is two operations, and two requests
+   * from one person arriving at the limit minus one both read the same number,
+   * both pass the comparison and both go free. The cap would then hold in every
+   * sequential test and fail exactly when somebody uses it properly.
+   *
+   * The database form is one statement whose WHERE clause carries the limit, so
+   * the comparison and the increment cannot be separated by anything. The identifier
+   * is a World ID nullifier: it is stored, never logged whole.
    */
-  freeReadsUsed(identifier: string, window: string): Promise<number>;
-  /** Records one free read. Called only when a read was served without settling. */
-  countFreeRead(identifier: string, window: string): Promise<void>;
+  tryTakeFreeRead(identifier: string, window: string, limit: number): Promise<boolean>;
   /**
    * Records a settlement, once. Returns false when the receipt was already there,
    * which is what makes a replay observable rather than merely harmless.

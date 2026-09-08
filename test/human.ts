@@ -73,9 +73,16 @@ export function fakeStore(): FakeStore {
   const usage = new Map<string, number>();
   const key = (identifier: string, window: string) => `${identifier}:${window}`;
   return {
-    freeReadsUsed: async (identifier, window) => usage.get(key(identifier, window)) ?? 0,
-    countFreeRead: async (identifier, window) => {
-      usage.set(key(identifier, window), (usage.get(key(identifier, window)) ?? 0) + 1);
+    // Check and increment in one step, with no await between them, so the fake is
+    // not more forgiving than the statement it stands in for. Split these and two
+    // takes racing at the limit both succeed, which is the bug this shape exists
+    // to make impossible.
+    tryTakeFreeRead: async (identifier, window, limit) => {
+      const k = key(identifier, window);
+      const used = usage.get(k) ?? 0;
+      if (used >= limit) return false;
+      usage.set(k, used + 1);
+      return true;
     },
     recordReceipt: async receipt => {
       const clash = receipts.some(r => r.nonce === receipt.nonce || r.transactionHash === receipt.transactionHash);

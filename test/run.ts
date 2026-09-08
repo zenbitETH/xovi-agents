@@ -437,6 +437,19 @@ async function main() {
   check(await humanBehind(AGENT_ONE, reg.read) === HUMAN_A, "95 · then answers again (negative control for 93 and 94)");
 
   const store = fakeStore();
+  check(await store.tryTakeFreeRead("h", "2026-09-07", 2) === true, "95b · a free read is taken");
+  check(await store.tryTakeFreeRead("h", "2026-09-07", 2) === true, "95c · and a second, under the limit");
+  check(await store.tryTakeFreeRead("h", "2026-09-07", 2) === false, "95d · the third is refused at the limit");
+  check(store.counted === 2, "95e · and the refused one did not move the count");
+  // The comparison and the increment are one step, so two takes arriving together
+  // at the limit minus one cannot both be told there is one left. Split them in the
+  // fake and this goes green in the wrong direction, which is the whole reason the
+  // interface takes the limit rather than answering how many are left.
+  const raced = fakeStore();
+  const both = await Promise.all([raced.tryTakeFreeRead("h", "d", 1), raced.tryTakeFreeRead("h", "d", 1)]);
+  check(both.filter(Boolean).length === 1 && raced.counted === 1,
+    "95f · two takes racing at the last free read yield exactly one");
+
   const receipt = { nonce: "0xnonce", transactionHash: "0xtx", payer: "0xp", payTo: "0xr", amount: "10000", network: "eip155:84532", source: "route" as const };
   check(await store.recordReceipt(receipt) === true, "96 · a settlement is recorded");
   check(await store.recordReceipt(receipt) === false, "97 · and the same one again is not, so a replay is counted once");

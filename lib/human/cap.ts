@@ -40,8 +40,12 @@ export type Authorization = { from: string; to: string; value: string; nonce: st
 export function authorizationFrom(paymentPayload: { payload?: unknown }): Authorization | null {
   const inner = (paymentPayload.payload ?? {}) as { authorization?: Partial<Authorization> };
   const a = inner.authorization;
+  // All four or nothing. Filling a missing field with an empty string would put a
+  // receipt in the ledger recording a payment to nobody of no amount, which is
+  // worse than the missing row: a wrong record is believed, an absent one is not.
   if (!a || typeof a.from !== "string" || typeof a.nonce !== "string") return null;
-  return { from: a.from, to: String(a.to ?? ""), value: String(a.value ?? ""), nonce: a.nonce };
+  if (typeof a.to !== "string" || typeof a.value !== "string") return null;
+  return { from: a.from, to: a.to, value: a.value, nonce: a.nonce };
 }
 
 /**
@@ -59,14 +63,11 @@ export async function takeFreeRead(payer: string, env: EnvLike = process.env, no
   try {
     const identifier = await humanBehind(payer as `0x${string}`, cap.registry);
     if (identifier === null) return false;
-    const key = identifier.toString();
-    const window = utcDay(now);
-    if ((await cap.store.freeReadsUsed(key, window)) >= cap.freePerDay) return false;
-    // Counted before the read is served. A count that fails means the read is paid
-    // for, which is the safe direction to fail in: the alternative gives away reads
-    // it cannot remember giving away.
-    await cap.store.countFreeRead(key, window);
-    return true;
+    // One call, because the comparison and the increment must not be separable.
+    // Asking how many are left and then taking one is two operations, and two
+    // requests from the same person at the limit minus one would both be told
+    // there was one left. The limit travels into the statement instead.
+    return await cap.store.tryTakeFreeRead(identifier.toString(), utcDay(now), cap.freePerDay);
   } catch {
     return false;
   }
