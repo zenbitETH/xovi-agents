@@ -43,7 +43,12 @@ export function registryFrom(env: EnvLike = process.env): HumanRegistry {
   const address = (env.AGENTBOOK_ADDRESS ?? AGENTBOOK_BASE_SEPOLIA) as `0x${string}`;
   const client = createPublicClient({
     chain: baseSepolia,
-    transport: http(env.AGENTBOOK_RPC_URL || undefined),
+    // The race below gives up after the timeout, but the request underneath it
+    // would keep going: viem defaults to three retries over a ten second
+    // transport timeout, so an abandoned lookup would still be in flight long
+    // after the read it was holding up had been served. These make the fetch
+    // stop when the race does.
+    transport: http(env.AGENTBOOK_RPC_URL || undefined, { timeout: LOOKUP_TIMEOUT_MS, retryCount: 0 }),
   });
   return agent =>
     client.readContract({
