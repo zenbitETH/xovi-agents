@@ -45,6 +45,8 @@ These are in the Xovi repository rather than this one, and they are disclosed he
 
 The last item predates the agent layer conceptually and was outstanding work on the existing project; it is listed because it was written inside the event window, not because it is claimed as a new feature.
 
+These changes are published in this repository under `upstream/xovi-changes/`, copied from the private repository at the commit named in that directory's README, with two kinds of comment redacted and marked. During the event window Zenbit also added to Xovi a migration for anchoring water-quality summaries, inert and with no callers; it remains private because it belongs to the water-quality monitoring layer and not to the agents rail, and it is declared here rather than published for that reason.
+
 ## What is deliberately not here
 
 Cut before the event, and named so the scope is legible: an onchain agent-identity registry, weekly Merkle batching of attestations, additional attestation schemas, usage metering, and any paid tier over the six read feeds that are currently free and are staying free.
