@@ -58,5 +58,8 @@ export function freeReadsPerDay(env: Record<string, string | undefined> = proces
  */
 export function storeFrom(env: Record<string, string | undefined> = process.env): HumanStore | null {
   if (!env.DATABASE_URL) return null;
-  return null;
+  // Required lazily so the module can be imported, and the checks run, without the
+  // driver reaching for a connection string that is not there.
+  const { postgresStore } = require("./postgres") as typeof import("./postgres");
+  return postgresStore(env.DATABASE_URL);
 }

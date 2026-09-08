@@ -441,6 +441,14 @@ async function main() {
   check(await store.tryTakeFreeRead("h", "2026-09-07", 2) === true, "95c · and a second, under the limit");
   check(await store.tryTakeFreeRead("h", "2026-09-07", 2) === false, "95d · the third is refused at the limit");
   check(store.counted === 2, "95e · and the refused one did not move the count");
+  // Zero is the switch that forces settlement so the paid read can be demonstrated
+  // by a payer who is registered, so it is the one limit that must not misbehave.
+  // The obvious database statement gets this wrong: ON CONFLICT ... WHERE guards the
+  // update and says nothing about the insert, so the first take against an empty row
+  // would succeed against a cap that forbids every read.
+  const atZero = fakeStore();
+  check(await atZero.tryTakeFreeRead("h", "d", 0) === false && atZero.counted === 0,
+    "95g · a limit of zero takes nothing, including the first one");
   // The comparison and the increment are one step, so two takes arriving together
   // at the limit minus one cannot both be told there is one left. Split them in the
   // fake and this goes green in the wrong direction, which is the whole reason the

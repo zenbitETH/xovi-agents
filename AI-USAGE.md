@@ -24,6 +24,9 @@ Kept current. Files appear here as they land.
 | `test/ingest.ts` | Model-drafted; every refusal shape was copied from the receiving route, which lives in a repository this one cannot change, so the copy is deliberate and kept in one place |
 | `lib/human/registry.ts`, `lib/human/store.ts`, `lib/human/cap.ts` | Model-drafted; the order of the steps in the route, that every failure collapses to paying, and the storage shape are Zenbit decisions, and the registry facts the code relies on were measured against the deployed contract |
 | `test/human.ts` | Model-drafted; the fakes model a property measured on chain rather than one invented for the checks, and the checks say so |
+| `lib/human/postgres.ts`, `sql/0001_receipts.sql`, `sql/0002_human_usage.sql` | Model-drafted; the two tables and their columns are Zenbit's specification, and the single statement with the limit inside it is the fix for a race Zenbit's review found |
+| `scripts/migrate.ts` | Model-drafted and written fresh rather than adapted from the private project's runner |
+| `bin/db-probe.ts` | Model-drafted; it exists because a fake agrees with whoever wrote it and a unique index does not |
 | `docs/spec/04-proof-of-human.md` | Model-drafted; the semantics of the allowance, the order of the steps in the route and the storage shape are Zenbit decisions it was told to encode, and the registry findings in it were measured against the deployed contract rather than read from documentation |
 | `docs/spec/03-proposal.md` | Model-drafted from the code, which is the reverse of the order the other two specs were written in, and the document says so |
 | `bin/probe.ts` | Model-drafted; reading the recipient from the live challenge rather than the environment, and refusing when it is unreadable, are Zenbit review decisions |
