@@ -7,16 +7,21 @@
  * accepted, because a gate that refuses everything satisfies every refusal test
  * ever written.
  */
-import { existsSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { GET } from "../app/api/agent/windows/route";
+import { EndpointUnresolvable, resolveWindowsEndpoint } from "../lib/agent/ens";
+import type { Ledger } from "../lib/agent/ledger";
+import { loadLedger, unrefused } from "../lib/agent/ledger";
 import { buildPayer, payingFetch } from "../lib/agent/pay";
+import { PROPOSAL_KEYS, UnproposableWindow, propose, toProposal } from "../lib/agent/propose";
 import { applyEmbargo, dropsForEmbargo, embargoedAliases } from "../lib/windows/embargo";
 import { SnapshotUnavailable, loadSnapshot } from "../lib/windows/snapshot";
 import { windowProblems } from "../lib/windows/types";
 import { PaymentMisconfigured, buildServer, paymentHeaderFrom, resetServerForTest } from "../lib/x402";
 import { startFakeFacilitator } from "./facilitator";
+import { startFakeIngest } from "./ingest";
 
 let n = 0;
 let bad = 0;
@@ -221,6 +226,183 @@ async function main() {
   const wrappers = ["middleware.ts", "src/middleware.ts", "proxy.ts", "src/proxy.ts"];
   const found = wrappers.filter(p => existsSync(p));
   check(found.length === 0, `48 · no request wrapper exists, so settlement stays visible in the route (${found.join(", ") || "none"})`);
+
+  console.log("\n  window to proposal\n");
+
+  const win = (over: Record<string, unknown> = {}) => ({ ...good(), ...over });
+  const mapped = toProposal(win() as never);
+  check(
+    JSON.stringify(Object.keys(mapped).sort()) === JSON.stringify([...PROPOSAL_KEYS].sort()),
+    "49 · a proposal carries exactly the ten keys the route accepts",
+  );
+  check(!("source" in mapped) && !("submitterAddress" in mapped), "50 · and never source or submitterAddress");
+  check(mapped.behaviorTag === "other" && mapped.behaviorNote === good().reason,
+    "51 · no behaviour tag becomes other, with the detector's reason as the note");
+  check(toProposal(win({ behaviorTag: "swim" }) as never).behaviorTag === "other",
+    "52 · a tag the producer invented is NOT forwarded, because the enum is the route's");
+  check(toProposal(win({ specimenAlias: null }) as never).specimenAlias === null,
+    "53 · a null alias survives as a station only tag, because null is a real answer");
+  check(toProposal(win({ specimenAlias: "Gamma" }) as never).specimenAlias === "Gamma",
+    "54 · and a named one survives too (negative control)");
+  let tooShort = false;
+  try { toProposal(win({ reason: "ab" }) as never); } catch (e) { tooShort = e instanceof UnproposableWindow; }
+  check(tooShort, "55 · a reason too short to be a note is refused here, not sent to earn a 400");
+  let tooLong = false;
+  try { toProposal(win({ startTime: 0, endTime: 121 }) as never); } catch (e) { tooLong = e instanceof UnproposableWindow; }
+  check(tooLong, "56 · a span over the route's cap is refused here too");
+
+  console.log("\n  proposing, against the ingest route faked\n");
+
+  const ing = await startFakeIngest();
+  // Removed first, and this is not tidiness. The ledger is a file that survives the
+  // process, so a run that leaves it behind makes the next run start with the
+  // refusal already recorded: check 61 passed on a clean machine and failed on the
+  // second run, which is the shape of a check that is green in CI forever.
+  const ledgerPath = join(tmpdir(), "xovi-agent-ledger-checks.json");
+  if (existsSync(ledgerPath)) rmSync(ledgerPath);
+  const ledgerPath2 = join(tmpdir(), "xovi-agent-ledger-checks-2.json");
+  if (existsSync(ledgerPath2)) rmSync(ledgerPath2);
+  const stub: Ledger = { has: () => false, remember: () => {}, size: () => 0 };
+  const cfg = (l = stub) => ({ url: ing.url, key: "xvi_000000000000_secret", ledger: l });
+
+  ing.reset();
+  const created = await propose(win() as never, cfg());
+  check(created.kind === "proposed" && created.status === "pending",
+    "57 · a proposal lands pending, and the status came from the server rather than the client");
+  const sentBody = ing.bodies[0] ?? {};
+  check(!("source" in sentBody) && !("submitterAddress" in sentBody),
+    "58 · neither field arrived at the route, asserted where the request lands");
+  check(JSON.stringify(Object.keys(sentBody).sort()) === JSON.stringify([...PROPOSAL_KEYS].sort()),
+    "59 · and exactly the ten keys did, because zod strips extras in silence");
+
+  ing.reset(); ing.outcome = "duplicate";
+  const ledgerA = loadLedger(ledgerPath);
+  const dup = await propose(win() as never, cfg(ledgerA));
+  check(dup.kind === "duplicate", "60 · a retryable 409 is a duplicate, not an error");
+  check(!ledgerA.has(good().windowId), "61 · and is not written to the ledger (negative control for 63)");
+
+  ing.reset(); ing.outcome = "rejected";
+  const rejected = await propose(win() as never, cfg(ledgerA));
+  check(rejected.kind === "rejected", "62 · a 409 marked not retryable is a person saying no");
+  check(ledgerA.has(good().windowId), "63 · written to the ledger before the call returned");
+  const hitsAfterRefusal = ing.hits;
+  for (const again of unrefused([win() as never], ledgerA)) await propose(again, cfg(ledgerA));
+  check(ing.hits === hitsAfterRefusal, "64 · a second run over the same snapshot proposes nothing for that window");
+  check(loadLedger(ledgerPath).has(good().windowId), "65 · and the refusal survives a reload, so a restart does not re-ask");
+
+  ing.reset(); ing.outcome = "noTarget";
+  const noTarget = await propose(win() as never, cfg());
+  check(noTarget.kind === "refused" && noTarget.status === 422, "66 · a target that does not exist is a 422");
+
+  ing.reset(); ing.outcome = "badStation";
+  const badStation = await propose(win() as never, cfg());
+  check(badStation.kind === "refused" && badStation.status === 403 && Boolean(badStation.hint),
+    "67 · the station refusal carries the hint, because it reads like permissions and is spelling");
+  check(badStation.kind === "refused" && String(badStation.hint).includes(good().stationId),
+    "68 · and the hint names the literal string the detector emits, spaces included");
+
+  await ing.close();
+
+  console.log("\n  the endpoint, and the way in\n");
+
+  check(await resolveWindowsEndpoint({ WINDOWS_URL: "https://h/w" }) === "https://h/w",
+    "69 · with no name configured the endpoint is the configured url");
+  let noneSet = false;
+  try { await resolveWindowsEndpoint({}); } catch (e) { noneSet = e instanceof EndpointUnresolvable; }
+  check(noneSet, "70 · with neither set it refuses rather than guessing");
+
+  // Comments are stripped first: this file names the routes it looks for, and so do
+  // the modules it checks, so a naive grep would find its own explanation.
+  const strip = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  // Walked rather than listed. A hand written list of six files silently stops
+  // covering the seventh, and the seventh is the one somebody adds in a hurry.
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap(e =>
+      e.isDirectory() ? walk(join(dir, e.name)) : e.name.endsWith(".ts") ? [join(dir, e.name)] : [],
+    );
+  const agentSources = [...walk("lib/agent"), ...walk("bin")];
+  check(agentSources.length >= 6, `71 · the walk found the agent's files, so this is not a list that stops covering new ones (${agentSources.length})`);
+  const reaching = agentSources.filter(f => /\/api\/(verify|curate|confirm)/.test(strip(readFileSync(f, "utf8"))));
+  check(reaching.length === 0,
+    `72 · nothing the agent runs reaches a decision route (${reaching.join(", ") || "none"})`);
+
+  // Asserted on the module graph rather than on one file's text, because an
+  // indirect import through a third module would satisfy a grep and still put the
+  // payer one call away.
+  const specifiers = (file: string) =>
+    [...strip(readFileSync(file, "utf8")).matchAll(/from\s+"([^"]+)"/g)].map(m => m[1]);
+  const reachable = (entry: string) => {
+    const seen = new Set<string>();
+    const queue = [entry];
+    while (queue.length > 0) {
+      const file = queue.shift() as string;
+      if (seen.has(file)) continue;
+      seen.add(file);
+      for (const spec of specifiers(file)) {
+        if (!spec.startsWith(".")) continue;
+        const target = `${join(file, "..", spec)}.ts`;
+        if (existsSync(target)) queue.push(target);
+      }
+    }
+    return seen;
+  };
+  const graph = reachable("lib/agent/propose.ts");
+  check(!graph.has("lib/agent/pay.ts"),
+    `73 · the payer is not reachable from the proposing module by any import path (${[...graph].join(", ")})`);
+
+
+  console.log("\n  the answers nobody planned for\n");
+
+  const ing2 = await startFakeIngest();
+  const cfg2 = (l = stub) => ({ url: ing2.url, key: "xvi_000000000000_secret", ledger: l });
+  const ledgerB = loadLedger(ledgerPath2);
+
+  ing2.reset(); ing2.outcome = "oddConflict";
+  const odd = await propose(win() as never, cfg2(ledgerB));
+  check(odd.kind === "refused" && odd.status === 409,
+    "74 · a 409 with no retryable flag is refused, not read as a person's decision");
+  check(ledgerB.size() === 0,
+    "75 · and nothing is written, so a proxy cannot permanently close a window no reviewer saw");
+
+  ing2.reset(); ing2.outcome = "throttled";
+  const throttled = await propose(win() as never, cfg2(ledgerB));
+  check(throttled.kind === "throttled" && throttled.retryAfterSeconds === 3600,
+    "76 · a 429 is its own answer, carrying how long to wait");
+  check(ledgerB.size() === 0, "77 · and belongs to the credential, so no window is marked by it");
+
+  for (const [outcome, label] of [["created", "a 201"], ["noTarget", "a 422"], ["badStation", "a station 403"]] as const) {
+    ing2.reset(); ing2.outcome = outcome;
+    await propose(win() as never, cfg2(ledgerB));
+  }
+  check(ledgerB.size() === 0, "78 · a 201, a 422 and a station 403 all leave the ledger untouched (negative controls)");
+
+  ing2.reset(); ing2.outcome = "rejected";
+  await propose(win() as never, cfg2(ledgerB));
+  check(ledgerB.size() === 1, "79 · and only the flagged rejection writes to it (positive control for 78)");
+  await ing2.close();
+
+  console.log("\n  the name, when there is one\n");
+
+  const raises = async (fn: () => Promise<unknown>) => {
+    try { await fn(); return false; } catch (e) { return e instanceof EndpointUnresolvable; }
+  };
+  const named = { AGENT_ENS_NAME: "agent.example.eth", WINDOWS_URL: "https://fallback/never" };
+  check(await raises(() => resolveWindowsEndpoint(named, async () => { throw new Error("no rpc"); })),
+    "80 · a name that will not resolve raises, and the url is NOT used as a fallback");
+  check(await raises(() => resolveWindowsEndpoint(named, async () => null)),
+    "81 · a name with no record raises too, because resolving to nothing is not permission to read elsewhere");
+  check(await raises(() => resolveWindowsEndpoint(named, async () => "http://plain/windows")),
+    "82 · a record naming http is refused, because a bearer credential travels against it");
+  check(await resolveWindowsEndpoint(named, async () => "https://named/windows") === "https://named/windows",
+    "83 · and a record that does resolve is used (negative control for 80 to 82)");
+
+  console.log("\n  what the route would refuse, refused here first\n");
+
+  check(windowProblems(win({ startTime: -1, endTime: 5 })).length > 0, "84 · a negative start time");
+  check(windowProblems(win({ startTime: 86395, endTime: 86500 })).length > 0, "85 · a time past the recording ceiling");
+  check(windowProblems(win({ specimenAlias: "" })).length > 0, "86 · an empty alias, which is not the same as none");
+  check(windowProblems(win({ videoId: "has spaces" })).length > 0, "87 · a video id outside the character set");
+  check(windowProblems(win({ specimenAlias: null })).length === 0, "88 · while a null alias is still fine (negative control)");
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;

@@ -46,7 +46,7 @@ Built for ETHOnline 2026 on the Continuity track, which means it extends a proje
 |---|---|
 | [`DISCLOSURE.md`](./DISCLOSURE.md) | What existed before 2026-09-04 and what was built during the event |
 | [`AI-USAGE.md`](./AI-USAGE.md) | Where AI tools were used, and which parts are not model output |
-| [`docs/spec/`](./docs/spec/) | The specifications that directed the work, written before the code |
+| [`docs/spec/`](./docs/spec/) | The specifications that directed the work. The first two were written before the code; the third records a mapping derived by reading the receiving route, and says so in its first line |
 
 ## Status
 
@@ -55,7 +55,7 @@ This repository was created on 2026-09-06 and is being built across the event wi
 | Leg | State |
 |---|---|
 | Paid read over x402 | built, and exercised end to end against a faked facilitator |
-| Agent proposes a clip | not started |
+| Agent proposes a clip | built, and exercised against the ingest route faked from its own contract |
 | Proof of human, per person caps | not started |
 | Attestation and onchain anchor | not started |
 | Subgraph and paid query | not started |

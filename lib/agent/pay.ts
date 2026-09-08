@@ -56,6 +56,35 @@ export function buildPayer(env: EnvLike = process.env): Payer {
   return { address: account.address, http: new x402HTTPClient(core) };
 }
 
+/**
+ * The recipient named in the live challenge, checked before paying it.
+ *
+ * Read from the challenge rather than from the environment, because reading it
+ * locally compares the payer against what the operator believes the server charges
+ * to, and that belief is exactly the value that is wrong on the day this matters.
+ * An unreadable recipient raises rather than being skipped: the case where the two
+ * addresses might silently be the same is the case where reading one of them failed.
+ *
+ * Shared by the probe and the agent instead of copied into both, which is how the
+ * first version of this check came to exist in one of them and not the other.
+ */
+export async function assertRecipient(
+  url: string,
+  payer: Payer,
+  fetchImpl: typeof fetch = fetch,
+): Promise<`0x${string}`> {
+  const challenge = await fetchImpl(url, { headers: { accept: "application/json" } });
+  if (challenge.status !== 402) throw new Error(`expected a 402 naming a recipient, got ${challenge.status}`);
+  const body = await challenge.json().catch(() => ({}));
+  const required = payer.http.getPaymentRequiredResponse(name => challenge.headers.get(name), body);
+  const payTo = required.accepts[0]?.payTo;
+  if (!payTo) throw new Error("the challenge names no recipient, so the payer cannot be compared against it");
+  if (payTo.toLowerCase() === payer.address.toLowerCase()) {
+    throw new Error("payer and payTo are the same address: a self payment settles and proves nothing");
+  }
+  return payTo as `0x${string}`;
+}
+
 export type PaidRead = {
   status: number;
   body: unknown;

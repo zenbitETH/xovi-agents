@@ -19,6 +19,10 @@ Kept current. Files appear here as they land.
 | `lib/agent/pay.ts` | Model-drafted; reviewed by Zenbit, which removed a flag that answered two questions with one value and made the payer a parameter |
 | `test/run.ts`, `test/facilitator.ts` | Model-drafted; the standard every check is held to, that it has been seen to fail and that a refusal is paired with a negative control, is Zenbit's and predates the file |
 | `fixtures/windows.synthetic.jsonl`, `fixtures/README.md` | Model-generated synthetic data. No real window, no real video id, and deliberately not the calibration span, which contains an operator's hands |
+| `lib/agent/propose.ts`, `lib/agent/ledger.ts`, `lib/agent/ens.ts` | Model-drafted after reading the receiving route rather than from documentation; keying the ledger on the window id alone, and writing it before the call returns, are Zenbit decisions carried from the rejection semantics that route already had |
+| `bin/agent.ts` | Model-drafted; that it has no confirmation path is inherited from the credential design rather than decided here |
+| `test/ingest.ts` | Model-drafted; every refusal shape was copied from the receiving route, which lives in a repository this one cannot change, so the copy is deliberate and kept in one place |
+| `docs/spec/03-proposal.md` | Model-drafted from the code, which is the reverse of the order the other two specs were written in, and the document says so |
 | `bin/probe.ts` | Model-drafted; reading the recipient from the live challenge rather than the environment, and refusing when it is unreadable, are Zenbit review decisions |
 | `app/layout.tsx`, `next.config.mjs`, `tsconfig.json`, `package.json`, `.env.example` | Framework scaffolding, model-written to the minimum the app needs; the dependency pins and the prose in `.env.example` are Zenbit's |
 | `.github/workflows/ci.yml` | Model-drafted from a specification Zenbit wrote, including the sha pins, the node major and the decision to omit lint; the action shas were resolved against the GitHub API rather than copied |

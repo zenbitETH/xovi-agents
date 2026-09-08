@@ -16,6 +16,8 @@ A person delegates to an agent identified by an ENS name. The agent pays USDC ov
 
 > **Note, 2026-09-06.** The test has not been run, because no machine path exists yet to run it against. By this file's own rule, I1 is specified and not proven until it has been seen to go red.
 
+> **Note, 2026-09-07.** The machine path now exists, and the client half is proven. A check enumerates the agent's files by walking its two directories, rather than from a list that would stop covering whatever is added next, strips comments so it cannot match its own explanation, and fails if any of them names a decision route. Seen to fail by adding a call with no comment around it. That is a second mechanism rather than the one above: it proves the agent never asks, where the original proves the server never answers. The server half still cannot be run from here, because it needs an issued credential and a route in a repository this one does not contain. Saying which half is proven is the point of writing both.
+
 ### I2. A machine may never claim human provenance
 
 - **Mechanism:** the ingest route rejects a submitted source of `manual` or `user` with 403; provenance is derived server-side from the credential, never read from the request body.
@@ -23,6 +25,8 @@ A person delegates to an agent identified by an ENS name. The agent pays USDC ov
 - **Test:** a proposal claiming human provenance returns 403; an insert omitting status raises a not-null violation rather than succeeding.
 
 > **Note, 2026-09-06.** Half proven. Migration `0024` dropped the default and is applied on the development database; an insert omitting `status` now raises `23502`, observed rather than assumed. The provenance column landed with it under a real CHECK constraint, so for `clips.source` the closed set genuinely is a database guarantee, unlike the capability list in I1. The 403 half is still unrun: the ingest route does not exist.
+
+> **Note, 2026-09-07.** The route exists now, and the client side is stronger than the invariant asks for: the proposal never sends a source at all, so there is nothing for the route to refuse. Absence is asserted where the request lands rather than where it is built, because a field can be added anywhere between the two. Seen to fail by adding a source to the payload and watching four checks go red. The real 403 remains unrun here; it needs an issued credential.
 
 ### I3. Identity binds to the credential, not to the address
 
@@ -32,6 +36,8 @@ A person delegates to an agent identified by an ENS name. The agent pays USDC ov
 
 > **Note, 2026-09-06.** Not built. Neither the credential columns nor the guard change exist, so the failing-open behaviour described above is the current live behaviour, not a hazard that has been closed.
 
+> **Note, 2026-09-07.** Superseded. The credential columns and the guard both exist, and the guard resolves the responsible human through the credential rather than through a wallet lookup, so the failing-open behaviour described above is no longer live. The test still has to be run against an issued credential, which does not exist yet.
+
 ### I4. Payment never becomes authorisation
 
 - **Mechanism:** no capability resolver reads a balance; no tier confirms faster.
@@ -40,7 +46,11 @@ A person delegates to an agent identified by an ENS name. The agent pays USDC ov
 
 > **Note, 2026-09-06.** The grep does not exist, so I4 is presently a commitment and not a mechanism.
 
-> **Note, 2026-09-07.** Still owed. The grep lands with the agent client, which is the first code that could import a payment module into an authorisation path.
+> **Note, 2026-09-07.** The agent half now has a mechanism. The module that builds a proposal cannot reach the module that pays by any import path: the check follows the specifiers out of the proposing module and through everything they lead to, rather than grepping one file, because an indirect import through a third module would satisfy a grep and still leave the payer one call away. So no proposal can be conditioned on having paid, because it has no way to ask. Seen to fail by adding the import.
+>
+> *What defeats it:* a specifier the check cannot see. It reads text, so a dynamic import, a path assembled at runtime, or a value passed in from a caller would all pass. That bounds the claim to static imports, which is what it should say rather than implying more.
+>
+> The half this does not reach is the server's, where a capability resolver could read a balance, and that code is in a repository this one does not contain. The invariant is therefore half mechanism and half commitment, and the commitment half is the one worth naming out loud.
 
 ### I5. Names resolve to roles, not to subjects
 
