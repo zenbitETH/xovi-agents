@@ -25,7 +25,8 @@ import { PaymentMisconfigured, buildServer, paymentHeaderFrom, resetServerForTes
 import { startFakeFacilitator } from "./facilitator";
 import { startFakeIngest } from "./ingest";
 import { AGENT_ONE, AGENT_OTHER, AGENT_TWO, AGENT_UNREGISTERED, HUMAN_A, fakeRegistry, fakeStore } from "./human";
-import { setCapForTest } from "../lib/human/cap";
+import { RETENTION_DAYS, setCapForTest, takeFreeRead } from "../lib/human/cap";
+import { NoDerivationKey, deriveIdentifier } from "../lib/human/derive";
 
 let n = 0;
 let bad = 0;
@@ -490,6 +491,9 @@ async function main() {
   process.env.X402_FACILITATOR_URL = fac2.url;
   process.env.X402_PRICE = "$0.01";
   process.env.WINDOWS_SNAPSHOT = "fixtures/windows.synthetic.jsonl";
+  // Obviously not a real key. Without one there is no derivation, so there is no
+  // allowance and every read settles, which is checked separately below.
+  process.env.HUMAN_ID_KEY = "0".repeat(64);
   resetServerForTest();
   fac2.reset();
 
@@ -531,6 +535,34 @@ async function main() {
   setCapForTest(null);
   await fac2.close();
   void seen2;
+
+
+  console.log("\n  what the table is allowed to hold\n");
+
+  const DKEY = { HUMAN_ID_KEY: "a".repeat(64) };
+  const raw = 111111111111111111111111n;
+  const digest = deriveIdentifier(raw, DKEY);
+  check(digest !== raw.toString(), "119 · what is stored is not the identifier");
+  check(!raw.toString().startsWith(digest) && !digest.startsWith(raw.toString()),
+    "120 · and is not a prefix of it either, so it cannot be matched by truncation");
+  check(/^[0-9a-f]{64}$/.test(digest), "121 · it is a fixed width lowercase hex digest, so its length says nothing");
+  check(deriveIdentifier(raw, DKEY) === digest,
+    "122 · the derivation is deterministic, which is what keeps two agents of one person on one row");
+  check(deriveIdentifier(raw, { HUMAN_ID_KEY: "b".repeat(64) }) !== digest,
+    "123 · and it is keyed, so the same person derives differently under a different key");
+  let noKey = false;
+  try { deriveIdentifier(raw, {}); } catch (e) { noKey = e instanceof NoDerivationKey; }
+  check(noKey, "124 · a missing key throws rather than falling back to storing the identifier");
+  check(await takeFreeRead("0x1", { HUMAN_ID_KEY: "" }, new Date()) === false,
+    "125 · and with no key nothing is taken, so every read settles");
+
+  const kept = fakeStore();
+  const today = new Date("2026-09-08T12:00:00Z");
+  await kept.tryTakeFreeRead("d", "2026-09-08", 5);
+  await kept.tryTakeFreeRead("d", "2026-07-01", 5);
+  check(kept.counted === 2, "126 · two days of usage exist (negative control)");
+  await kept.forgetOlderThan(RETENTION_DAYS, today);
+  check(kept.counted === 1, `127 · and the one past ${RETENTION_DAYS} days is forgotten, without a scheduler`);
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;

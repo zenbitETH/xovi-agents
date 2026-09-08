@@ -27,12 +27,21 @@ export function postgresStore(connectionString: string): HumanStore {
      */
     tryTakeFreeRead: async (identifier, window, limit) => {
       const rows = await sql`
-        INSERT INTO human_usage (identifier, window_day, used)
+        INSERT INTO human_usage (identifier_digest, window_day, used)
         SELECT ${identifier}, ${window}::date, 1 WHERE ${limit}::int > 0
-        ON CONFLICT (identifier, window_day) DO UPDATE SET used = human_usage.used + 1
+        ON CONFLICT (identifier_digest, window_day) DO UPDATE SET used = human_usage.used + 1
         WHERE human_usage.used < ${limit}::int
         RETURNING used`;
       return rows.length > 0;
+    },
+
+    /**
+     * Forget usage rows past the declared period. One extra statement per request
+     * and no scheduler, so the retention is a property of the code path rather than
+     * of infrastructure somebody has to remember to set up.
+     */
+    forgetOlderThan: async (days: number) => {
+      await sql`DELETE FROM human_usage WHERE window_day < current_date - ${days}::int`;
     },
 
     /**

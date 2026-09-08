@@ -77,10 +77,20 @@ So the explorer evidence is produced first, either before the payer is registere
 
 ## Privacy
 
-The identifier is a World ID nullifier. It is anonymous in the sense that it names no person, and it is a stable link across every registration one human makes under this action, which is exactly what makes it useful here and exactly why it does not belong in public text. No real identifier goes into this repository, a pull request body, a comment, or this file. Fixtures use invented values. Logs print it truncated. The founder's is the founder's.
+The identifier is a World ID nullifier. It names no person, and it is the same value across every registration one human makes under this action, which is what makes it useful for a per person cap and what makes it **personal data rather than anonymous data**: a stable link is still a link. An audit ruled it pseudonymised personal data under Mexican federal law, and the rest of this section is what that ruling requires.
+
+**The declared purpose is one thing: administering a daily free quota per verified person.** Any other use needs its own basis. Nothing is stored about which window was served, at what time within the day, or from which address.
+
+**What is stored is never the identifier.** It is an HMAC-SHA256 derivation under a server secret that lives outside this repository, written as fixed width lowercase hex so its length says nothing either. That the underlying value is readable by anyone on chain does not make storing it in the clear harmless: what the derivation reduces is the linkability of **this** database, not of the contract, so a copy of the usage table on its own says only that some person took some free reads on some day. With no key there is no derivation, so there is no allowance and every read settles, which is the direction everything else here fails in.
+
+**Retention is thirty days, and it is a delete on the request path rather than a schedule.** One extra statement before each take, so a period declared in a privacy notice does not depend on a cron somebody can switch off without anyone noticing, and a day with no reads at all is purged by the next read there is.
+
+**The identifier never appears in a log, not truncated and not whole.** The code has always complied; this sentence used to say truncated, which promised less than the code delivered, and a document that misdescribes its own code in either direction is the thing an audit exists to catch.
+
+No real identifier goes into this repository, a pull request body, a comment, or this file. Fixtures use invented values. The founder's is the founder's.
 
 ## Storage
 
 **The free path is unreachable in production until the schema lands.** With no database configured there is no allowance, so every read settles and the endpoint behaves exactly as it did before this feature. That is the correct degradation rather than a stub, and it has one consequence worth planning around: a demonstration of a free read needs the database to exist before the recording, not before the submission.
 
-Two tables in one database that belongs to this repository. `human_usage` keyed on the identifier and a window, holding the count of free reads served. `receipts` holding settlements, with unique indexes on the authorization nonce and on the settlement transaction hash, and with the payer, the recipient, the amount, the network, the time, and a `source` column that says where the row came from. The receipts table is the one the anchoring milestone reuses, which is why it carries those columns before anything needs them.
+Two tables in one database that belongs to this repository. `human_usage` keyed on the **derived** identifier and a UTC day, holding the count of free reads served, with rows past the retention period deleted before each take. `receipts` holding settlements, with unique indexes on the authorization nonce and on the settlement transaction hash, and with the payer, the recipient, the amount, the network, the time, and a `source` column that says where the row came from. The receipts table is the one the anchoring milestone reuses, which is why it carries those columns before anything needs them.

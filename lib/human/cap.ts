@@ -1,4 +1,5 @@
 import type { EnvLike } from "../agent/pay";
+import { deriveIdentifier } from "./derive";
 import { type HumanRegistry, humanBehind, registryFrom } from "./registry";
 import { type HumanStore, type Receipt, freeReadsPerDay, storeFrom, utcDay } from "./store";
 
@@ -13,6 +14,9 @@ import { type HumanStore, type Receipt, freeReadsPerDay, storeFrom, utcDay } fro
  * anyone's free reads by naming them, which is why the order in the route is not
  * a matter of taste.
  */
+/** Declared in the privacy notice, and enforced on the write path. */
+export const RETENTION_DAYS = 30;
+
 export type Cap = {
   registry: HumanRegistry;
   store: HumanStore | null;
@@ -63,11 +67,24 @@ export async function takeFreeRead(payer: string, env: EnvLike = process.env, no
   try {
     const identifier = await humanBehind(payer as `0x${string}`, cap.registry);
     if (identifier === null) return false;
+    // Never the raw nullifier. What is stored is a keyed derivation of it, so a
+    // copy of that table on its own cannot be matched against on chain
+    // registrations. A missing key throws and lands in the catch below, which
+    // settles: no key, no allowance, same direction as every other failure here.
+    const stored = deriveIdentifier(identifier, env);
+
+    // Retention runs before the take rather than after it, and on the request path
+    // rather than on a schedule. Before, so a request that takes nothing still
+    // purges; on the request path, so the declared period does not depend on a cron
+    // somebody can switch off without anyone noticing. A day with no reads at all
+    // purges on the next read there is.
+    await cap.store.forgetOlderThan(RETENTION_DAYS, now);
+
     // One call, because the comparison and the increment must not be separable.
     // Asking how many are left and then taking one is two operations, and two
     // requests from the same person at the limit minus one would both be told
     // there was one left. The limit travels into the statement instead.
-    return await cap.store.tryTakeFreeRead(identifier.toString(), utcDay(now), cap.freePerDay);
+    return await cap.store.tryTakeFreeRead(stored, utcDay(now), cap.freePerDay);
   } catch {
     return false;
   }

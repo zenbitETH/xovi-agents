@@ -84,6 +84,10 @@ export function fakeStore(): FakeStore {
       usage.set(k, used + 1);
       return true;
     },
+    forgetOlderThan: async (days, now) => {
+      const cutoff = new Date(now.getTime() - days * 86_400_000).toISOString().slice(0, 10);
+      for (const k of [...usage.keys()]) if (k.split(":")[1] < cutoff) usage.delete(k);
+    },
     recordReceipt: async receipt => {
       const clash = receipts.some(r => r.nonce === receipt.nonce || r.transactionHash === receipt.transactionHash);
       if (clash) return false;

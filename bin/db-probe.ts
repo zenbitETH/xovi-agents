@@ -56,11 +56,11 @@ async function main() {
 
   const { neon } = await import("@neondatabase/serverless");
   const sql = neon(url);
-  const rows = await sql`SELECT used FROM human_usage WHERE identifier = ${`${MARK}-shared`}`;
+  const rows = await sql`SELECT used FROM human_usage WHERE identifier_digest = ${`${MARK}-shared`}`;
   check(rows.length === 1 && Number(rows[0].used) === 2, "and they are ONE row with a count of two, not two rows");
 
   await sql`DELETE FROM receipts WHERE payer LIKE ${MARK + "%"}`;
-  await sql`DELETE FROM human_usage WHERE identifier LIKE ${MARK + "%"}`;
+  await sql`DELETE FROM human_usage WHERE identifier_digest LIKE ${MARK + "%"}`;
   console.log(`\n  ${bad === 0 ? "all green" : `${bad} FAILED`}, probe rows removed`);
   process.exitCode = bad ? 1 : 0;
 }

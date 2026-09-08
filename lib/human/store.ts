@@ -32,6 +32,16 @@ export type HumanStore = {
    * is a World ID nullifier: it is stored, never logged whole.
    */
   tryTakeFreeRead(identifier: string, window: string, limit: number): Promise<boolean>;
+
+  /**
+   * Delete usage rows older than the retention period.
+   *
+   * On the write path rather than on a schedule, because a schedule is a thing that
+   * can be switched off without anybody noticing and this one is a declared period
+   * in a privacy notice. A row is per person per day and is useless the moment its
+   * day has passed, so the period is an outer bound rather than a need.
+   */
+  forgetOlderThan(days: number, now: Date): Promise<void>;
   /**
    * Records a settlement, once. Returns false when the receipt was already there,
    * which is what makes a replay observable rather than merely harmless.
