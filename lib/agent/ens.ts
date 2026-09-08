@@ -25,7 +25,37 @@ export const WINDOWS_RECORD_KEY = "x402:windows";
 
 export class EndpointUnresolvable extends Error {}
 
-export async function resolveWindowsEndpoint(env: EnvLike = process.env): Promise<string> {
+/** The lookup, injectable so the branch that must raise can be checked without a
+ *  chain. Built inline it had no test, which for a fail-closed path is the same as
+ *  not having the path. */
+export type TextResolver = (name: string, key: string, env: EnvLike) => Promise<string | null>;
+
+const viemResolver: TextResolver = (name, key, env) =>
+  createPublicClient({ chain: sepolia, transport: http(env.AGENT_ENS_RPC_URL || undefined) }).getEnsText({
+    name,
+    key,
+  });
+
+/** https only, and parsed rather than pattern matched. The endpoint may come from a
+ *  record anyone with the name's write role can change, and a bearer credential is
+ *  sent against whatever it names. */
+function requireHttps(url: string, where: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new EndpointUnresolvable(`${where} is not a url: ${url}`);
+  }
+  if (parsed.protocol !== "https:") {
+    throw new EndpointUnresolvable(`${where} must be https, got ${parsed.protocol.replace(":", "")}`);
+  }
+  return parsed.toString();
+}
+
+export async function resolveWindowsEndpoint(
+  env: EnvLike = process.env,
+  resolver: TextResolver = viemResolver,
+): Promise<string> {
   const name = (env.AGENT_ENS_NAME ?? "").trim();
   if (!name) {
     const url = (env.WINDOWS_URL ?? "").trim();
@@ -33,18 +63,16 @@ export async function resolveWindowsEndpoint(env: EnvLike = process.env): Promis
     return url;
   }
 
-  const client = createPublicClient({
-    chain: sepolia,
-    transport: http(env.AGENT_ENS_RPC_URL || undefined),
-  });
   let record: string | null;
   try {
-    record = await client.getEnsText({ name, key: WINDOWS_RECORD_KEY });
+    record = await resolver(name, WINDOWS_RECORD_KEY, env);
   } catch (err) {
     throw new EndpointUnresolvable(`${name} could not be resolved: ${err instanceof Error ? err.message : "unknown"}`);
   }
   if (!record) {
-    throw new EndpointUnresolvable(`${name} has no ${WINDOWS_RECORD_KEY} record, and a name that resolves to nothing is not a reason to read from elsewhere`);
+    throw new EndpointUnresolvable(
+      `${name} has no ${WINDOWS_RECORD_KEY} record, and a name that resolves to nothing is not a reason to read from elsewhere`,
+    );
   }
-  return record;
+  return requireHttps(record, `the ${WINDOWS_RECORD_KEY} record on ${name}`);
 }
