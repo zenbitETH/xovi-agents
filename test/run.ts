@@ -16,12 +16,15 @@ import type { Ledger } from "../lib/agent/ledger";
 import { loadLedger, unrefused } from "../lib/agent/ledger";
 import { buildPayer, payingFetch } from "../lib/agent/pay";
 import { PROPOSAL_KEYS, UnproposableWindow, propose, toProposal } from "../lib/agent/propose";
+import { humanBehind } from "../lib/human/registry";
+import { freeReadsPerDay, utcDay } from "../lib/human/store";
 import { applyEmbargo, dropsForEmbargo, embargoedAliases } from "../lib/windows/embargo";
 import { SnapshotUnavailable, loadSnapshot } from "../lib/windows/snapshot";
 import { windowProblems } from "../lib/windows/types";
 import { PaymentMisconfigured, buildServer, paymentHeaderFrom, resetServerForTest } from "../lib/x402";
 import { startFakeFacilitator } from "./facilitator";
 import { startFakeIngest } from "./ingest";
+import { AGENT_ONE, AGENT_OTHER, AGENT_TWO, AGENT_UNREGISTERED, HUMAN_A, fakeRegistry, fakeStore } from "./human";
 
 let n = 0;
 let bad = 0;
@@ -403,6 +406,51 @@ async function main() {
   check(windowProblems(win({ specimenAlias: "" })).length > 0, "86 · an empty alias, which is not the same as none");
   check(windowProblems(win({ videoId: "has spaces" })).length > 0, "87 · a video id outside the character set");
   check(windowProblems(win({ specimenAlias: null })).length === 0, "88 · while a null alias is still fine (negative control)");
+
+
+  console.log("\n  the human behind the agent\n");
+
+  // What these check, and what they do not. The fake models a property of the real
+  // registry that was established by reading the deployed contract: the agent
+  // address sits in the World ID signal while the external nullifier is a contract
+  // wide constant, so one person yields one identifier across every agent they
+  // register. Check 90 proves the fake models that and the code relies on it. It is
+  // not evidence about World, and the spec says where that evidence came from.
+  const reg = fakeRegistry();
+  check(await humanBehind(AGENT_ONE, reg.read) === HUMAN_A, "89 · a registered agent resolves to its human");
+  check(await humanBehind(AGENT_TWO, reg.read) === HUMAN_A,
+    "90 · and a SECOND agent of the same person resolves to the SAME identifier, which is what a shared budget rests on");
+  check(await humanBehind(AGENT_OTHER, reg.read) !== HUMAN_A,
+    "91 · while a different person's agent does not (negative control)");
+  check(await humanBehind(AGENT_UNREGISTERED, reg.read) === null,
+    "92 · an unregistered agent is null, because the registry answers zero rather than reverting");
+
+  reg.mode = "throws";
+  check(await humanBehind(AGENT_ONE, reg.read) === null, "93 · a lookup that throws is null, never an allowance");
+  reg.mode = "hangs";
+  const before = Date.now();
+  const hung = await humanBehind(AGENT_ONE, reg.read, 50);
+  check(hung === null && Date.now() - before < 1000,
+    "94 · and one that hangs gives up on its own, inside the request rather than at the end of it");
+  reg.reset();
+  check(await humanBehind(AGENT_ONE, reg.read) === HUMAN_A, "95 · then answers again (negative control for 93 and 94)");
+
+  const store = fakeStore();
+  const receipt = { nonce: "0xnonce", transactionHash: "0xtx", payer: "0xp", payTo: "0xr", amount: "10000", network: "eip155:84532", source: "route" as const };
+  check(await store.recordReceipt(receipt) === true, "96 · a settlement is recorded");
+  check(await store.recordReceipt(receipt) === false, "97 · and the same one again is not, so a replay is counted once");
+  check(await store.recordReceipt({ ...receipt, nonce: "0xother" }) === false,
+    "98 · a replay under a different nonce is still caught by the transaction hash");
+  check(await store.recordReceipt({ ...receipt, nonce: "0xother", transactionHash: "0xother" }) === true,
+    "99 · while a genuinely different settlement is recorded (negative control)");
+  check(store.receipts.length === 2, "100 · so two rows exist after four attempts");
+
+  check(utcDay(new Date("2026-09-07T23:59:59Z")) === "2026-09-07" && utcDay(new Date("2026-09-08T00:00:01Z")) === "2026-09-08",
+    "101 · the window turns over at UTC midnight, not at whoever is watching");
+  check(freeReadsPerDay({}) === 20 && freeReadsPerDay({ HUMAN_FREE_READS_PER_DAY: "3" }) === 3,
+    "102 · the free count has a default and can be turned down for a demo");
+  check(freeReadsPerDay({ HUMAN_FREE_READS_PER_DAY: "banana" }) === 20 && freeReadsPerDay({ HUMAN_FREE_READS_PER_DAY: "-1" }) === 20,
+    "103 · and a value that is not a count falls back rather than becoming one");
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;

@@ -1,0 +1,94 @@
+import type { HumanRegistry } from "../lib/human/registry";
+import type { HumanStore, Receipt } from "../lib/human/store";
+
+/**
+ * A registry and a store, faked, so the paths that only run when something is
+ * wrong can be run.
+ *
+ * The identifiers below are invented. A real one is a World ID nullifier, which
+ * links every registration one person makes under this action, so it belongs in a
+ * database and never in a repository.
+ */
+export const HUMAN_A = 111111111111111111111111n;
+export const HUMAN_B = 222222222222222222222222n;
+
+/** Two of these belong to one person, which is the whole of criterion two. */
+export const AGENT_ONE = "0x1111111111111111111111111111111111111111" as const;
+export const AGENT_TWO = "0x2222222222222222222222222222222222222222" as const;
+export const AGENT_OTHER = "0x3333333333333333333333333333333333333333" as const;
+export const AGENT_UNREGISTERED = "0x4444444444444444444444444444444444444444" as const;
+
+export type FakeRegistry = {
+  read: HumanRegistry;
+  hits: number;
+  /** "ok" answers from the table; the others are the ways a lookup goes wrong. */
+  mode: "ok" | "throws" | "hangs";
+  reset(): void;
+};
+
+export function fakeRegistry(): FakeRegistry {
+  const state = { hits: 0, mode: "ok" as FakeRegistry["mode"] };
+  const table: Record<string, bigint> = {
+    [AGENT_ONE]: HUMAN_A,
+    [AGENT_TWO]: HUMAN_A,
+    [AGENT_OTHER]: HUMAN_B,
+  };
+  return {
+    read: async agent => {
+      state.hits++;
+      if (state.mode === "throws") throw new Error("rpc said no");
+      // Longer than the lookup's own patience, so the timeout is what ends it.
+      if (state.mode === "hangs") return new Promise(() => {});
+      return table[agent] ?? 0n;
+    },
+    get hits() {
+      return state.hits;
+    },
+    get mode() {
+      return state.mode;
+    },
+    set mode(v: FakeRegistry["mode"]) {
+      state.mode = v;
+    },
+    reset() {
+      state.hits = 0;
+      state.mode = "ok";
+    },
+  };
+}
+
+export type FakeStore = HumanStore & {
+  receipts: Receipt[];
+  counted: number;
+  reset(): void;
+};
+
+export function fakeStore(): FakeStore {
+  // Uniqueness held here the way the database will hold it, so a replay is
+  // observable in the checks rather than merely absent from them.
+  let receipts: Receipt[] = [];
+  const usage = new Map<string, number>();
+  const key = (identifier: string, window: string) => `${identifier}:${window}`;
+  return {
+    freeReadsUsed: async (identifier, window) => usage.get(key(identifier, window)) ?? 0,
+    countFreeRead: async (identifier, window) => {
+      usage.set(key(identifier, window), (usage.get(key(identifier, window)) ?? 0) + 1);
+    },
+    recordReceipt: async receipt => {
+      const clash = receipts.some(r => r.nonce === receipt.nonce || r.transactionHash === receipt.transactionHash);
+      if (clash) return false;
+      receipts.push(receipt);
+      return true;
+    },
+    get receipts() {
+      return receipts;
+    },
+    get counted() {
+      return [...usage.values()].reduce((a, b) => a + b, 0);
+    },
+    reset() {
+      receipts = [];
+      usage.clear();
+    },
+  };
+}
