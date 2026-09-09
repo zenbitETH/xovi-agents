@@ -28,7 +28,7 @@ So the thing worth selling is not the observation. Observations are public: conf
 
 ## How it works
 
-**WIP.** The detailed architecture, the wire formats, and the endpoint contracts are not written here yet. The design that governs them is in [`docs/spec/01-agent-layer.md`](./docs/spec/01-agent-layer.md), which lists each invariant with its mechanism, what defeats it, and the test that proves it.
+The design is in [`docs/spec/`](./docs/spec/), five documents: the agent layer and its invariants, the candidate window shape and the embargo rule, the proposal mapping, the proof of human allowance, and the anchor and paid query. [`01-agent-layer.md`](./docs/spec/01-agent-layer.md) lists each invariant with its mechanism, what defeats it, and the check that holds it.
 
 Two rails, and they do not overlap. Payments settle on Base Sepolia (`eip155:84532`). Attestations anchor on Ethereum Sepolia (`11155111`). Nothing touches mainnet and nothing handles real funds.
 
