@@ -23,4 +23,6 @@ Every invariant in this repository names three things or it is not recorded:
 2. **What defeats it.** Every mechanism has an edge. If nothing is written here, the invariant has not been thought about.
 3. **A test that proves it, and that has been seen to fail** on the bug it was written for. A check never observed to go red is not evidence.
 
+**A counter must count the quantity that differs under the defect.** Not the one that is convenient to count, and not the one the feature is named after. The retry work is the clearest case: a retry that re-signs sends the right number of requests and creates the wrong number of signatures, so a check counting sends passes with the bug in place and a check counting signatures fails. The same mistake would make a duplicate-write check count writes rather than transactions, or an idempotency check count calls rather than side effects. Before writing a counter, say out loud what the bug would change, and count that.
+
 This rule exists because an audit of the plan found seven critical issues and six of them were the same shape: a security property asserted in prose that the code did not provide. The rule is the correction.
