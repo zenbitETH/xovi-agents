@@ -1,4 +1,8 @@
--- One row per anchored confirmation, and the two unique indexes are the guard.
+-- One row per confirmation this has STARTED anchoring, which is not the same as one
+-- per anchored confirmation. The row is written before the first transaction and
+-- `attest_tx` is filled last, so a row with a timestamp and no attestation is a
+-- resumable half, not a finished one. The two unique indexes are the guard against
+-- duplication; `attest_tx` is the marker for completion.
 --
 -- Keyed on the clip identifier and NOT on the clip hash, which is the correction
 -- that matters here. The reviewing application's uniqueness on the hash is

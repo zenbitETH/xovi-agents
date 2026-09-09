@@ -6,11 +6,11 @@ import type { SignedObservation } from "./offchain";
  * An interface rather than a client, for the same reason the cap has one: the
  * checks need a store whose uniqueness they can watch without a database.
  *
- * The row is written BEFORE the transaction is sent and completed after it returns.
- * A record whose transaction was sent and never recorded is the failure worth
- * planning for, because the chain would hold an anchor that this side would try to
- * make again; the contract refuses a repeat, so the guard catches it, but the row
- * is what stops the attempt from being made at all.
+ * The row is written BEFORE the first transaction and completed after EACH leg, not
+ * after both. A row therefore means the clip has been started here, never that it
+ * finished, and `attest_tx` is the completion marker because it is written last.
+ * Reading existence as completion is what stranded a half anchored clip: the second
+ * leg threw, the row survived, and every rerun skipped it.
  */
 export type AnchorRow = {
   clipId: number;
@@ -26,9 +26,38 @@ export type AnchorRow = {
   onchainUid?: string;
 };
 
+/**
+ * What a claim found, and why it is not a boolean.
+ *
+ * A boolean was the High finding. `claim` answered "did I insert a row", the caller
+ * read that as "is this clip done", and the two differ for exactly the window that
+ * matters: a row written before the first transaction and never completed, because
+ * the second leg threw. Every rerun then read the surviving row as already anchored
+ * and skipped the clip forever. Returning the row makes the caller decide from what
+ * is actually recorded rather than from whether it was the one who recorded it.
+ */
+export type Claim = { fresh: boolean; row: AnchorRow };
+
+/** What still has to happen for a clip, derived from the row alone. */
+export type NextAction = "done" | "resume-attest" | "anchor-both";
+
+/**
+ * The decision the High finding got wrong, in one place that can be tested.
+ *
+ * `attest_tx` is the completion marker rather than the row's existence, because it
+ * is written last. A row with a timestamp and no attestation is a half finished
+ * anchor and is resumable; the timestamp leg is idempotent at the contract, so
+ * redoing it sends nothing.
+ */
+export function nextAction(row: AnchorRow | null): NextAction {
+  if (!row) return "anchor-both";
+  return row.attestTx ? "done" : "resume-attest";
+}
+
 export type AnchorStore = {
-  /** Returns false when this clip is already anchored, which is not an error. */
-  claim(row: AnchorRow): Promise<boolean>;
+  /** Inserts, or returns the row that was already there. Never a bare boolean. */
+  claim(row: AnchorRow): Promise<Claim>;
+  byClipId(clipId: number): Promise<AnchorRow | null>;
   complete(
     uid: string,
     tx: { timestampTx?: string; timestampedAt?: bigint; attestTx?: string; onchainUid?: string },
@@ -72,7 +101,21 @@ export function deserialiseSigned(v: any): SignedObservation {
   };
 }
 
+/**
+ * A seam, so the endpoint's own behaviour can be exercised without a database.
+ *
+ * Named for what it is. Without it the only reachable path in a check is the one
+ * where nothing is configured, which is the branch that needs proving least, and
+ * the outage branch that the audit found serving 500 could not be reached at all.
+ */
+let injected: AnchorStore | null | undefined;
+
+export function setStoreForTest(store: AnchorStore | null | undefined) {
+  injected = store;
+}
+
 export function storeFrom(env: Record<string, string | undefined> = process.env): AnchorStore | null {
+  if (injected !== undefined) return injected;
   if (!env.DATABASE_URL) return null;
   const { postgresAnchorStore } = require("./postgres") as typeof import("./postgres");
   return postgresAnchorStore(env.DATABASE_URL);

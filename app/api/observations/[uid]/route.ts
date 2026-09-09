@@ -28,7 +28,18 @@ export async function GET(_request: Request, context: { params: Promise<{ uid: s
     return NextResponse.json({ error: "no anchor store is configured" }, { status: 503 });
   }
 
-  const row = await store.byUid(uid.toLowerCase());
+  // A store that is configured and cannot answer is an outage, not a missing
+  // record, and the two must not share a status. Production has a database and no
+  // anchors table until the migration runs, so an uncaught read throws
+  // `relation "anchors" does not exist` and the framework serves 500: an error page
+  // where the contract says a record is unavailable.
+  let row;
+  try {
+    row = await store.byUid(uid.toLowerCase());
+  } catch (err) {
+    console.error(`observations: the anchor store failed: ${err instanceof Error ? err.message : "unknown"}`);
+    return NextResponse.json({ error: "the anchor store is unavailable" }, { status: 503 });
+  }
   if (!row) return NextResponse.json({ error: "no such attestation" }, { status: 404 });
 
   // Built field by field rather than spread, so a column added to the table later

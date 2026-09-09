@@ -134,6 +134,17 @@ export const SCHEMA_REGISTRY_ABI = [
 
 export class WrongChain extends Error {}
 
+/**
+ * Chains the escape hatch does not open onto, whatever flag is passed.
+ *
+ * `--any-chain` exists for a fork, and a fork of Ethereum Sepolia reports 11155111
+ * anyway. What it must never do is let a mistyped endpoint register a schema or
+ * write an attestation on a mainnet, which is irreversible and is the one outcome
+ * no amount of care further up prevents. Ethereum, Base, World Chain, Optimism and
+ * Arbitrum, being the mainnets this project has endpoints for.
+ */
+export const NEVER_WRITE = [1, 8453, 480, 10, 42161];
+
 export function publicClientFor(rpcUrl: string) {
   return createPublicClient({ transport: http(rpcUrl) });
 }
@@ -154,6 +165,11 @@ export async function requireAnchorChain(
   allowAnyChain = false,
 ): Promise<number> {
   const id = await client.getChainId();
+  // Refused before the flag is even consulted. An override that can reach a mainnet
+  // is not an override, it is the absence of a guard with a longer name.
+  if (NEVER_WRITE.includes(id)) {
+    throw new WrongChain(`chain ${id} is a mainnet and this never writes to one, flag or no flag`);
+  }
   if (!allowAnyChain && id !== ANCHOR_CHAIN_ID) {
     throw new WrongChain(`connected to chain ${id}, and this writes only to ${ANCHOR_CHAIN_ID}`);
   }

@@ -23,7 +23,7 @@ import { signedBy } from "../lib/anchor/confirmation";
 import { encodeObservation, toObservation } from "../lib/anchor/observation";
 import { OFFCHAIN_DOMAIN_NAME, ZERO_ADDRESS, ZERO_BYTES32, randomSalt, signObservation } from "../lib/anchor/offchain";
 import { UnanchorableClip, schemaUid } from "../lib/anchor/schema";
-import { storeFrom } from "../lib/anchor/store";
+import { nextAction, storeFrom } from "../lib/anchor/store";
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -106,9 +106,10 @@ async function main() {
       verifyingContract: EAS_ADDRESS,
     }, message);
 
-    // Claimed before anything is sent. A row that exists means this clip has been
-    // through here, whatever the chain says.
-    const claimed = await store.claim({
+    // The row decides what is left, not whether this run wrote it. A row exists
+    // from before the first transaction, so treating its existence as completion is
+    // what stranded a half anchored clip permanently.
+    const claim = await store.claim({
       clipId: o.clipId,
       uid: signed.uid,
       clipHash: o.clipHash,
@@ -116,21 +117,33 @@ async function main() {
       attester: account.address,
       signed,
     });
-    if (!claimed) {
-      console.log(`  skip  clip ${o.clipId}: already anchored`);
+    const record = claim.row;
+    const next = nextAction(record);
+    if (next === "done") {
+      console.log(`  skip  clip ${o.clipId}: already anchored, attest tx ${record.attestTx}`);
       continue;
     }
+    if (!claim.fresh) {
+      console.log(`  resume clip ${o.clipId}: a row exists with no attestation`);
+    }
 
+    // The PERSISTED object, never the one just signed. Signing again produces a new
+    // salt and therefore a new identifier, so resuming against a fresh signature
+    // would anchor a second record for one confirmation and leave the first
+    // unfindable.
+    const persisted = record.signed;
     const wallet = walletClientFor(rpc, account);
-    const anchored = await anchorTimestamp(pub, wallet, signed.uid);
-    const onchain = await attestOnchain(pub, wallet, schema, message.data);
-    await store.complete(signed.uid, {
-      timestampTx: anchored.txHash,
-      timestampedAt: anchored.at,
-      attestTx: onchain.txHash,
-      onchainUid: onchain.uid,
-    });
-    console.log(`  clip ${o.clipId}  uid ${signed.uid}`);
+
+    // Completed after each leg rather than after both. The timestamp is idempotent
+    // at the contract, so a rerun of this half sends nothing; the attestation is
+    // not, and it is the one that must not be repeated.
+    const anchored = await anchorTimestamp(pub, wallet, persisted.uid);
+    await store.complete(persisted.uid, { timestampTx: anchored.txHash, timestampedAt: anchored.at });
+
+    const onchain = await attestOnchain(pub, wallet, schema, persisted.message.data);
+    await store.complete(persisted.uid, { attestTx: onchain.txHash, onchainUid: onchain.uid });
+
+    console.log(`  clip ${o.clipId}  uid ${persisted.uid}`);
     console.log(`    timestamp ${anchored.alreadyAnchored ? "already at" : "at"} ${anchored.at}${anchored.txHash ? `, tx ${anchored.txHash}` : ""}`);
     console.log(`    attest    tx ${onchain.txHash}, uid ${onchain.uid}`);
   }

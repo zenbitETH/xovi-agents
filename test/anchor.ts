@@ -4,7 +4,7 @@ import { decodeAbiParameters, encodePacked, keccak256 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { GET as observationsGET } from "../app/api/observations/[uid]/route";
 import { confirmationMessage, recoverConfirmer, signedBy } from "../lib/anchor/confirmation";
-import { EAS_ADDRESS } from "../lib/anchor/eas";
+import { EAS_ADDRESS, NEVER_WRITE } from "../lib/anchor/eas";
 import { OBSERVATION_ABI, encodeObservation, toObservation } from "../lib/anchor/observation";
 import {
   OFFCHAIN_DOMAIN_NAME,
@@ -17,7 +17,7 @@ import {
   verifyObservation,
 } from "../lib/anchor/offchain";
 import { SCHEMA, UnanchorableClip, decisionCode, schemaUid } from "../lib/anchor/schema";
-import { serialiseSigned } from "../lib/anchor/store";
+import { type AnchorRow, type AnchorStore, nextAction, serialiseSigned, setStoreForTest } from "../lib/anchor/store";
 import { sdkAccepts, sdkUid } from "./oracle";
 
 type Check = (ok: boolean, label: string) => void;
@@ -29,7 +29,7 @@ const FIXTURE = () =>
  *  changes this constant, which is the point: it cannot move quietly. */
 const FROZEN_UID = "0x8d4a9a6e41e07cb67128eaca5a79f4d39e5199eb8c1c7d7a0096e0a5d11c8c6d";
 
-/** The nine keys the payload endpoint serves, and no tenth. */
+/** The five keys the payload endpoint serves, and no sixth. */
 const SIGNED_KEYS = ["uid", "attester", "domain", "message", "signature"];
 
 export async function anchorChecks(check: Check) {
@@ -170,6 +170,37 @@ export async function anchorChecks(check: Check) {
   });
   check(bad.status === 400, "145 · something that is not an identifier is refused before any lookup");
 
+  // The endpoint's real branches, reachable now that the store is a seam. Without
+  // one, the only path a check could take was the unconfigured branch, which is the
+  // branch that needed proving least.
+  const uid = signed.uid.toLowerCase();
+  const call = () => observationsGET(new Request(`http://x/api/observations/${uid}`), { params: Promise.resolve({ uid }) });
+
+  setStoreForTest({
+    async claim(r) { return { fresh: true, row: r }; },
+    async byClipId() { return null; },
+    async complete() {},
+    async byUid() { throw new Error('relation "anchors" does not exist'); },
+  });
+  const broken = await call();
+  check(broken.status === 503,
+    "145b · a store that is configured and cannot answer is an outage, 503 and not the framework's 500 (seen to fail)");
+
+  setStoreForTest({
+    async claim(r) { return { fresh: true, row: r }; },
+    async byClipId() { return null; },
+    async complete() {},
+    async byUid() {
+      return { clipId: 259, uid: signed.uid, clipHash: o.clipHash, schemaUid: schemaUid(), attester: account.address, signed };
+    },
+  });
+  const served = await call();
+  check(served.status === 200, "145c · and a record is served to a caller carrying no credential at all");
+  const body = (await served.json()) as Record<string, unknown>;
+  check(JSON.stringify(Object.keys(body)) === JSON.stringify(SIGNED_KEYS),
+    "145d · with exactly the five keys of the signed object, checked on the response and not on the helper");
+  setStoreForTest(undefined);
+
   // A31's chain half, offline. This is the whole of what a stranger does after the
   // contract hands back the attested bytes, and it needs no network to check.
   const roundTrip = decodeAbiParameters(OBSERVATION_ABI, encodeObservation(o));
@@ -181,6 +212,50 @@ export async function anchorChecks(check: Check) {
     ),
     "148 · the attested bytes alone decode to a message that recovers the reviewer, which is what a query result buys",
   );
+
+  // The High finding, as a decision that can be inspected without a chain.
+  //
+  // The old code asked the store "did I insert a row" and read the answer as "is
+  // this clip finished". Those differ for exactly one state, and it is the state a
+  // failed second leg leaves behind: a row with a timestamp and no attestation.
+  // Every rerun read it as done and skipped the clip permanently.
+  const halfDone: AnchorRow = {
+    clipId: 259, uid: "0xaa", clipHash: "0xbb", schemaUid: "0xcc", attester: "0xdd",
+    signed: signed, timestampTx: "0xtimestamp", timestampedAt: 1n,
+  };
+  check(nextAction(null) === "anchor-both", "160 · a clip with no row anchors both legs");
+  check(nextAction(halfDone) === "resume-attest",
+    "161 · a row with a timestamp and no attestation RESUMES, which the old boolean read as done (seen to fail)");
+  check(nextAction({ ...halfDone, attestTx: "0xattest" }) === "done",
+    "162 · and only the attestation, written last, marks it finished");
+
+  // The store contract the resume depends on: a second claim hands back the STORED
+  // row, not the one the caller just built. Signing again makes a new salt and a new
+  // identifier, so resuming against a fresh signature would anchor a second record
+  // for one confirmation and orphan the first.
+  const kept = new Map<number, AnchorRow>();
+  const fake: Pick<AnchorStore, "claim" | "byClipId"> = {
+    async claim(row) {
+      const there = kept.get(row.clipId);
+      if (there) return { fresh: false, row: there };
+      kept.set(row.clipId, row);
+      return { fresh: true, row };
+    },
+    async byClipId(id) {
+      return kept.get(id) ?? null;
+    },
+  };
+  const first = await fake.claim(halfDone);
+  const second = await fake.claim({ ...halfDone, uid: "0xdifferent", signed: { ...signed, uid: "0xdifferent" } });
+  check(first.fresh && !second.fresh, "163 · the second claim of one clip is not fresh");
+  check(second.row.uid === "0xaa",
+    "164 · and hands back the stored identifier, so a resume cannot anchor a second record under a new salt");
+
+  check(NEVER_WRITE.includes(1) && NEVER_WRITE.includes(8453) && NEVER_WRITE.includes(480)
+    && NEVER_WRITE.includes(10) && NEVER_WRITE.includes(42161),
+    "165 · the escape hatch does not open onto Ethereum, Base, World Chain, Optimism or Arbitrum");
+  check(!NEVER_WRITE.includes(11155111) && !NEVER_WRITE.includes(84532),
+    "166 · and does not refuse the two testnets this actually uses (negative control)");
 
   check(decisionCode("verified") === 1 && decisionCode("rejected") === 0,
     "146 · the decision mapping is frozen in both directions");
