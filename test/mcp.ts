@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { MCP_PAYMENT_META_KEY, MCP_PAYMENT_REQUIRED_CODE, MCP_PAYMENT_RESPONSE_META_KEY } from "@x402/mcp";
 import { TOOL_NAME, atomicAmount, receiptFrom, recordMcpSettlement } from "../lib/mcp/server";
+import { DELETE as mcpDELETE, GET as mcpGET, OPTIONS as mcpOPTIONS } from "../app/api/mcp/route";
 import type { Receipt } from "../lib/human/store";
 
 type Check = (ok: boolean, label: string) => void;
@@ -65,6 +66,21 @@ export async function mcpChecks(check: Check) {
     "152i · and from metadata too, for a raw result the client never touched");
   check(receiptFrom({ content: [] }) === null && receiptFrom({ paymentResponse: {} }) === null,
     "152j · and a call that settled nothing reports nothing rather than an empty object");
+
+  // The stream that could never carry a message. A stateless server rebuilt per
+  // request cannot send anything down a GET, so accepting one holds an invocation
+  // open to do nothing, and an open origin is what makes that reachable from any
+  // page in any visitor's browser. Timed, because answering 405 slowly is still an
+  // invocation somebody else is holding.
+  const started = Date.now();
+  const got = await mcpGET();
+  const elapsed = Date.now() - started;
+  check(got.status === 405, "153a · a GET is refused rather than held open on a server that can never answer it");
+  check(elapsed < 1000, `153b · and refused in milliseconds (${elapsed}ms), since a slow refusal is still a held invocation (seen to fail)`);
+  check(got.headers.get("Allow") === "POST, OPTIONS", "153c · naming what this server does accept");
+  check((await mcpDELETE()).status === 405, "153d · and a DELETE too, there being no session to delete");
+  check(mcpOPTIONS().headers.get("Access-Control-Allow-Methods") === "POST, OPTIONS",
+    "153e · and the advertised methods match, so a browser is not invited to try the refused ones");
 
   const client = new Client({ name: "suite", version: "0" });
   await client.connect(
