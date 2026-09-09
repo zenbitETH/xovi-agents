@@ -170,6 +170,18 @@ export async function anchorChecks(check: Check) {
   });
   check(bad.status === 400, "145 · something that is not an identifier is refused before any lookup");
 
+  // A31's chain half, offline. This is the whole of what a stranger does after the
+  // contract hands back the attested bytes, and it needs no network to check.
+  const roundTrip = decodeAbiParameters(OBSERVATION_ABI, encodeObservation(o));
+  check(
+    await signedBy(
+      { clipId: Number(roundTrip[0]), clipHash: roundTrip[1], decision: 1, verifierNonce: roundTrip[5], verifierChainId: Number(roundTrip[6]) },
+      roundTrip[4],
+      roundTrip[3],
+    ),
+    "148 · the attested bytes alone decode to a message that recovers the reviewer, which is what a query result buys",
+  );
+
   check(decisionCode("verified") === 1 && decisionCode("rejected") === 0,
     "146 · the decision mapping is frozen in both directions");
   let badWord = false;

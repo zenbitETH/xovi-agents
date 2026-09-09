@@ -10,6 +10,7 @@
  * contract that actually refuses a repeat, and the encoding is only interesting
  * against the deployment that will accept or reject it.
  */
+import { decodeAbiParameters } from "viem";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { privateKeyToAccount } from "viem/accounts";
@@ -21,12 +22,14 @@ import {
   TOPIC_ATTESTED,
   anchorTimestamp,
   attestOnchain,
+  attestationData,
   domainVersion,
   publicClientFor,
   timestampOf,
   walletClientFor,
 } from "../lib/anchor/eas";
-import { encodeObservation, toObservation } from "../lib/anchor/observation";
+import { OBSERVATION_ABI, encodeObservation, toObservation } from "../lib/anchor/observation";
+import { signedBy } from "../lib/anchor/confirmation";
 import { OFFCHAIN_DOMAIN_NAME, ZERO_ADDRESS, ZERO_BYTES32, randomSalt, signObservation, verifyObservation } from "../lib/anchor/offchain";
 import { RESOLVER, REVOCABLE, SCHEMA, schemaUid } from "../lib/anchor/schema";
 
@@ -130,12 +133,28 @@ async function main() {
   check(/AlreadyTimestamped/.test(reverted),
     "A24c · without the guard the contract reverts AlreadyTimestamped, so a rehearsal would kill a live run (seen to fail)");
 
-  const attestHash = await attestOnchain(pub, wallet, uid, message.data);
-  const receipt = await pub.waitForTransactionReceipt({ hash: attestHash });
+  const onchain = await attestOnchain(pub, wallet, uid, message.data);
+  const receipt = await pub.waitForTransactionReceipt({ hash: onchain.txHash });
   const attested = receipt.logs.find(l => l.topics[0] === TOPIC_ATTESTED);
   check(!!attested, "Q1 · the onchain leg emits Attested, recomputed topic and not a copied one");
   check(attested?.topics[3] === uid,
     "Q2 · with the schema identifier in the fourth topic, which is what an indexer filters on natively");
+  check(onchain.uid !== signed.uid,
+    "Q3 · and the identifier the contract assigns is NOT the offchain one, which is why nothing joins them on chain");
+
+  // The reachability path, walked as a stranger would walk it: an identifier from
+  // an index, a public endpoint for the chain, and nothing of ours.
+  const fetched = await attestationData(pub, onchain.uid);
+  const fields = decodeAbiParameters(OBSERVATION_ABI, fetched.data);
+  check(fetched.schema === uid, "Q4 · a stranger holding only that identifier reads it back under the frozen schema");
+  check(
+    await signedBy(
+      { clipId: Number(fields[0]), clipHash: fields[1], decision: 1, verifierNonce: fields[5], verifierChainId: Number(fields[6]) },
+      fields[4],
+      fields[3],
+    ),
+    "Q5 · and recovers the reviewer from the chain alone, with no endpoint of ours in the path",
+  );
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;

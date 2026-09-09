@@ -123,15 +123,16 @@ async function main() {
 
     const wallet = walletClientFor(rpc, account);
     const anchored = await anchorTimestamp(pub, wallet, signed.uid);
-    const attestTx = await attestOnchain(pub, wallet, schema, message.data);
+    const onchain = await attestOnchain(pub, wallet, schema, message.data);
     await store.complete(signed.uid, {
       timestampTx: anchored.txHash,
       timestampedAt: anchored.at,
-      attestTx,
+      attestTx: onchain.txHash,
+      onchainUid: onchain.uid,
     });
     console.log(`  clip ${o.clipId}  uid ${signed.uid}`);
     console.log(`    timestamp ${anchored.alreadyAnchored ? "already at" : "at"} ${anchored.at}${anchored.txHash ? `, tx ${anchored.txHash}` : ""}`);
-    console.log(`    attest    tx ${attestTx}`);
+    console.log(`    attest    tx ${onchain.txHash}, uid ${onchain.uid}`);
   }
   console.log("");
 }

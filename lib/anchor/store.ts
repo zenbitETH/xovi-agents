@@ -22,12 +22,23 @@ export type AnchorRow = {
   timestampTx?: string;
   timestampedAt?: bigint;
   attestTx?: string;
+  /** Assigned by the contract, and not the same value as `uid`. */
+  onchainUid?: string;
 };
 
 export type AnchorStore = {
   /** Returns false when this clip is already anchored, which is not an error. */
   claim(row: AnchorRow): Promise<boolean>;
-  complete(uid: string, tx: { timestampTx?: string; timestampedAt?: bigint; attestTx?: string }): Promise<void>;
+  complete(
+    uid: string,
+    tx: { timestampTx?: string; timestampedAt?: bigint; attestTx?: string; onchainUid?: string },
+  ): Promise<void>;
+  /**
+   * Resolves EITHER identifier, which is the whole reason this method is not called
+   * byOffchainUid. A reader arriving from an index holds the onchain one and a
+   * reader arriving from the object holds the offchain one, and refusing the first
+   * would make the query and the verification two demonstrations that never meet.
+   */
   byUid(uid: string): Promise<AnchorRow | null>;
 };
 

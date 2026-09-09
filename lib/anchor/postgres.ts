@@ -21,14 +21,15 @@ export function postgresAnchorStore(url: string): AnchorStore {
         UPDATE anchors
            SET timestamp_tx   = COALESCE(${tx.timestampTx ?? null}, timestamp_tx),
                timestamped_at = COALESCE(${tx.timestampedAt?.toString() ?? null}::bigint, timestamped_at),
-               attest_tx      = COALESCE(${tx.attestTx ?? null}, attest_tx)
+               attest_tx      = COALESCE(${tx.attestTx ?? null}, attest_tx),
+               onchain_uid    = COALESCE(${tx.onchainUid ?? null}, onchain_uid)
          WHERE uid = ${uid}`;
     },
     async byUid(uid) {
       const rows = await sql`
         SELECT clip_id, uid, clip_hash, schema_uid, attester, signed, timestamp_tx,
-               timestamped_at::text AS timestamped_at, attest_tx
-          FROM anchors WHERE uid = ${uid} LIMIT 1`;
+               timestamped_at::text AS timestamped_at, attest_tx, onchain_uid
+          FROM anchors WHERE uid = ${uid} OR onchain_uid = ${uid} LIMIT 1`;
       const r = rows[0];
       if (!r) return null;
       return {
@@ -43,6 +44,7 @@ export function postgresAnchorStore(url: string): AnchorStore {
         // that has already cost this project a false reading once.
         timestampedAt: r.timestamped_at ? BigInt(String(r.timestamped_at)) : undefined,
         attestTx: r.attest_tx ? String(r.attest_tx) : undefined,
+        onchainUid: r.onchain_uid ? String(r.onchain_uid) : undefined,
       };
     },
   };

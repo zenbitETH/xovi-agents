@@ -65,6 +65,8 @@ The padding was counted rather than eyeballed and every value begins at column t
 
 **The onchain leg exists so the record can be found.** An offchain attestation emits no event, so nothing indexes it. Two things are therefore written to Ethereum Sepolia: an `attest()` of the same schema, whose `Attested` event carries the schema identifier as its fourth topic and is therefore filterable natively by an indexer, and a `timestamp()` of the offchain identifier, which fixes a time for the offchain record in a way anybody can check with one call.
 
+**The two legs do not share an identifier, and a reader will assume they do.** An offchain attestation is identified by a hash of its own signed contents. An onchain one is identified by the contract, from the attester, the schema and a counter. So one confirmation produces two identifiers, measured rather than reasoned about, and nothing in either log relates them. They are not two halves of one record: they are a primary and a secondary way to find the same confirmation, which is why dropping one still leaves the other whole. Anywhere this document says an identifier without saying which, read it as the offchain one, because that is the one the payload endpoint is keyed by; the onchain one is named explicitly every time it appears. When a registration is reported, both are reported, labelled, with one line saying why a confirmation has two.
+
 If the schedule runs out, the onchain `attest()` is the leg to drop, and the query is then served by filtering timestamp events on the sender. That is a worse answer and the specification says so rather than presenting the fallback as equivalent: filtering on a sender trusts an address, filtering on an indexed schema trusts the contract.
 
 ## The offchain encoding, which is not what a reader expects
@@ -108,6 +110,14 @@ The onchain timestamp is guarded by asking the contract for the existing time fi
 The durable guard is a row, written before the transaction is sent and completed after it returns. **That row is unique on the clip identifier, not on the clip hash, and the difference is load bearing.** The reviewing application's uniqueness on the hash is deliberately partial, excluding rejected rows, so that a person whose clip was declined can correct it and submit the same moment again. One hash can therefore belong to a rejected row and to a later confirmed one, with different identifiers, different nonces and different signatures, and so with two legitimately different attestations. Keying the guard on the hash would refuse the second and report it as already anchored, which is a wrong answer wearing the shape of a right one. A second uniqueness holds on the attestation identifier, so a record cannot be written twice under two clip identifiers either.
 
 **Not yet exercised by a check, and saying so is the point of writing it here.** The keying is argued from the reviewing application's index definition, which was read rather than assumed, and from the migration that replaced a total uniqueness with the partial one. Nothing in the suite drives a rejected clip through a resubmission and a second confirmation, because that needs a database and two decisions by a person. The check belongs with the storage work and is owed.
+
+## Reaching the record from a query, which is the demonstration
+
+A reader meets this system through a query, and a query answers with the onchain identifier. If that identifier led nowhere, the index and the verification would be two demonstrations that never meet, and the only thing joining them would be a row in Zenbit's own database, where nobody outside can look. So the reachability is stated as a requirement rather than left to follow from the parts: **from a query result alone, a stranger must be able to reach the record and recover the reviewer.**
+
+It is met on the chain, without Zenbit. Holding only the identifier a query returned and a public endpoint for the chain, a reader calls the contract for that attestation, receives the schema it was made under and the encoded data, decodes the ten frozen fields, rebuilds the message from the published template and recovers the reviewer's address. Nothing in that path touches anything of Zenbit's, which is the property worth having: the operator can be uncooperative, or gone, and the confirmation is still checkable by anyone who kept the identifier.
+
+The payload endpoint is a convenience on top of that and never a dependency. It resolves either identifier, so a reader arriving from a query is answered as readily as one arriving from the object, and what it adds is the salt and the operator's own signature, which the chain does not carry. A reader who only wants to check the reviewer does not need it at all.
 
 ## The payload endpoint
 
@@ -164,6 +174,12 @@ Only confirmed clips are ever anchored, so a clip that a machine proposed and no
 - **Mechanism:** the job reads only confirmed rows and refuses any other status before signing, so an unconfirmed clip never acquires a record to find.
 - **What defeats it:** relaxing the status check, or anchoring from a local fixture that was never confirmed.
 - **Test, seen to fail:** offer a pending row to the job and require a refusal, then query for it and require nothing back. Removing the status check produces an attestation for a clip nobody reviewed, which is the failure this whole milestone would otherwise quietly permit.
+
+### A31. A query result is enough to reach the record and recover the reviewer
+
+- **Mechanism:** the identifier an index returns is the one the contract assigned, and the contract serves the attestation under it, including the encoded ten fields. The reviewer is recovered from those fields and the published template. Separately, the payload endpoint resolves either identifier, so the same reader can also obtain the salt and the operator's signature.
+- **What defeats it:** keying the payload endpoint on the offchain identifier alone, which answers nothing to a reader arriving from a query, and leaves the two identifiers joined only inside Zenbit's database. Also defeated by attesting a digest rather than the fields, which would make the chain a pointer to the operator instead of a record.
+- **Test, seen to fail:** from the identifier a query returns, and a public endpoint for the chain, read the attestation, decode it, recover the reviewer and require the address to equal the attested verifier. Removing the fields from the attested data, or pointing the reader at the offchain identifier the contract has never heard of, each break it at the first call.
 
 ### A30. The schema is registered once, on one chain, deliberately
 

@@ -25,6 +25,12 @@ CREATE TABLE IF NOT EXISTS anchors (
   schema_uid     text        NOT NULL,
   attester       text        NOT NULL,
   signed         jsonb       NOT NULL,
+  -- The identifier the CONTRACT assigned to the onchain leg, which is not the
+  -- offchain one: an offchain attestation is a hash of its own signed contents and
+  -- an onchain one is assigned from the attester, the schema and a bump. An index
+  -- returns this one, the payload endpoint is keyed by the other, and without this
+  -- column a reader arriving from a query could not be answered at all.
+  onchain_uid    text,
   timestamp_tx   text,
   timestamped_at bigint,
   attest_tx      text,
@@ -34,3 +40,6 @@ CREATE TABLE IF NOT EXISTS anchors (
 CREATE UNIQUE INDEX IF NOT EXISTS anchors_clip_id_unq ON anchors (clip_id);
 CREATE UNIQUE INDEX IF NOT EXISTS anchors_uid_unq     ON anchors (uid);
 CREATE INDEX IF NOT EXISTS anchors_clip_hash_idx      ON anchors (clip_hash);
+-- Partial, because the column is null until the onchain leg lands, and two rows
+-- waiting for it are not a conflict.
+CREATE UNIQUE INDEX IF NOT EXISTS anchors_onchain_uid_unq ON anchors (onchain_uid) WHERE onchain_uid IS NOT NULL;

@@ -48,6 +48,32 @@ export const EAS_ABI = [
   },
   {
     type: "function",
+    name: "getAttestation",
+    stateMutability: "view",
+    inputs: [{ name: "uid", type: "bytes32" }],
+    outputs: [
+      {
+        type: "tuple",
+        components: [
+          { name: "uid", type: "bytes32" },
+          { name: "schema", type: "bytes32" },
+          { name: "time", type: "uint64" },
+          { name: "expirationTime", type: "uint64" },
+          { name: "revocationTime", type: "uint64" },
+          { name: "refUID", type: "bytes32" },
+          { name: "recipient", type: "address" },
+          { name: "attester", type: "address" },
+          { name: "revocable", type: "bool" },
+          { name: "data", type: "bytes" },
+        ],
+      },
+    ],
+  },
+  /** Refused when the schema is not registered. Declared so the refusal arrives by
+   *  name, which is what a fresh fork answers before the registration is replayed. */
+  { type: "error", name: "InvalidSchema", inputs: [] },
+  {
+    type: "function",
     name: "attest",
     stateMutability: "payable",
     inputs: [
@@ -180,7 +206,7 @@ export async function attestOnchain(
   schema: Hex,
   data: Hex,
   recipient: Address = "0x0000000000000000000000000000000000000000",
-): Promise<Hex> {
+): Promise<{ txHash: Hex; uid: Hex }> {
   const txHash = await wallet.writeContract({
     address: EAS_ADDRESS,
     abi: EAS_ABI,
@@ -201,6 +227,32 @@ export async function attestOnchain(
     chain: null,
     account: wallet.account as PrivateKeyAccount,
   });
-  await publicClient.waitForTransactionReceipt({ hash: txHash });
-  return txHash;
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+  // The identifier the CONTRACT assigned, which is not the offchain one. It is read
+  // from the log rather than guessed, and it is the identifier an indexer will
+  // return to a stranger, so the anchor row has to remember it.
+  const log = receipt.logs.find(l => l.topics[0] === TOPIC_ATTESTED);
+  if (!log) throw new Error("the attestation emitted no Attested log, which should be impossible");
+  return { txHash, uid: log.data as Hex };
+}
+
+/**
+ * What a stranger can read, holding nothing but an identifier from an index.
+ *
+ * This is the reachability path and it deliberately touches nothing of Zenbit's:
+ * a public endpoint for the chain, a contract call, and the frozen field list. The
+ * payload endpoint is a convenience on top of it and never a dependency, which is
+ * the property worth having rather than the endpoint.
+ */
+export async function attestationData(
+  client: ReturnType<typeof publicClientFor>,
+  uid: Hex,
+): Promise<{ schema: Hex; attester: Address; data: Hex }> {
+  const a = await client.readContract({
+    address: EAS_ADDRESS,
+    abi: EAS_ABI,
+    functionName: "getAttestation",
+    args: [uid],
+  });
+  return { schema: a.schema, attester: a.attester, data: a.data };
 }
