@@ -67,4 +67,4 @@ MIT. See `LICENSE`. Copyright (c) 2026 ZENBIT S.A.S. de C.V.
 
 No patent rights are granted, expressly or by implication. The components covered by Zenbit's filed patent application are not included in this repository: the computer-vision stack, the water-quality validation logic, the specimen registry and the application database are not here and not in the attestation schema.
 
-Contributions are accepted under the Developer Certificate of Origin 1.1 (see `CONTRIBUTING.md`). Sign off every commit with `git commit -s`.
+External contributions are accepted under the Developer Certificate of Origin 1.1 (see `CONTRIBUTING.md`).
