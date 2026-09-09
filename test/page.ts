@@ -60,22 +60,38 @@ export function pageChecks(check: Check) {
    * present is what actually holds the subject in place.
    *
    * The render is asserted alongside the sentence, and that is not belt and
-   * braces. The sentence lives in the STEPS constant, so deleting the grid's
-   * JSX while leaving the constant in place left the suite green: measured, 604
-   * bytes of JSX removed, 213 of 213 still passing. A source read cannot tell a
-   * rendered string from a dead one, so it has to be told that the constant
-   * reaches the page.
+   * braces. The sentence used to live in a constant the four step grid mapped
+   * over, so deleting that grid's JSX while leaving the constant in place left
+   * the suite green: measured, 604 bytes of JSX removed, 213 of 213 still
+   * passing. A source read cannot tell a rendered string from a dead one, so it
+   * has to be told that the constant reaches the page.
+   *
+   * The grid is gone now, replaced by a run a reader watches happen, and this
+   * check moved with it in the same commit rather than being quietly dropped:
+   * that coupling was the point of writing it. The sentence lives in AFTERWARDS
+   * and the render assertion follows it there.
    *
    * What this guarantees, stated exactly: the sentence is in the source, it
-   * keeps the operator as its subject, and the constant holding it is mapped
-   * into JSX. Removing the page's only description of anchoring now fails,
-   * which is the point; it should be a decision someone makes rather than one a
-   * green suite absorbs.
+   * keeps the operator as its subject, and the constant holding it is rendered.
    */
   check(
-    page.includes("The operator asserts") && !/becomes an EAS attestation/.test(page) && page.includes("{STEPS.map("),
+    page.includes("The operator asserts") && !/becomes an EAS attestation/.test(page) && page.includes("{AFTERWARDS}"),
     "174 · the anchoring sentence is rendered and keeps the operator as its subject",
   );
+
+  /*
+   * The negatives have to survive the page gaining behaviour.
+   *
+   * This one was true of a page that only explained the service and false the
+   * moment the page could run it. A stale negative is worse than a missing one,
+   * because a reader trusts it, so the claim is tied to the component that
+   * falsifies it rather than left to be noticed.
+   */
+  check(
+    !page.includes("This page calls nothing") || !page.includes("<RunPanel"),
+    "200 · the page does not claim to call nothing while rendering something that calls",
+  );
+  check(page.includes("<RunPanel"), "201 · and the run panel is on the page (negative control)");
 
   /*
    * No backdrop-filter DECLARATION in the stylesheet.

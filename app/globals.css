@@ -601,3 +601,103 @@ body::after {
 .ag-rise {
   animation: xvFadeUp 450ms var(--xv-ease-out) both;
 }
+
+/* ---------------------------------------------------------------------------
+   The run feed. The only new idiom on the page, because Xovi has no surface for
+   a machine narrating itself. Built from the same tokens as everything above:
+   the hairline from the pagination idiom, teal for a resting good state, and the
+   base-content opacity tiers that carry hierarchy everywhere else.
+--------------------------------------------------------------------------- */
+
+.ag-addr {
+  align-self: center;
+  opacity: 0.7;
+}
+
+.ag-error {
+  margin-top: 0.75rem;
+  border-left: 3px solid var(--color-error);
+  padding-left: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.ag-feed {
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  counter-reset: none;
+}
+
+.ag-feed-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  border-top: 1px solid color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  padding-block: 0.625rem;
+  /* Each line arrives on its own, so the sequence reads as something happening
+     rather than as a list that was always there. */
+  animation: xvFadeUp 260ms var(--xv-ease-out) both;
+}
+.ag-feed-row:first-child {
+  border-top: 0;
+}
+
+.ag-feed-dot {
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-top: 0.45rem;
+  border-radius: 9999rem;
+  background-color: currentColor;
+}
+
+.ag-feed-text {
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 0.9375rem;
+}
+
+.ag-feed-detail {
+  display: block;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  opacity: 0.65;
+  /* A transaction hash is the widest thing here and must not widen the page. */
+  overflow-wrap: anywhere;
+}
+
+/* Teal is the resting good state, matching the status semantic already in use.
+   Gold is not spent here: it belongs to the reader's own action, which is the
+   button, and a run reporting itself is not the reader acting. */
+.ag-tone-good {
+  color: var(--color-primary);
+}
+.ag-tone-working {
+  color: color-mix(in oklab, var(--color-base-content) 78%, transparent);
+}
+/* Not --color-error. A run that stops because a person already refused this
+   window, or because nothing was proposable, has worked correctly. Amber says
+   "it stopped and here is why" without claiming a fault. */
+.ag-tone-stopped {
+  color: var(--color-warning);
+}
+
+.ag-feed-pending .ag-feed-dot {
+  animation: xvPulse 1.1s var(--xv-ease-in-out) infinite;
+}
+.ag-feed-pending .ag-feed-text {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+@keyframes xvPulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}

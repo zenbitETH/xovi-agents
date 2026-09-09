@@ -25,8 +25,16 @@ export type RunStep =
   /** Settled on chain, or served under the free daily allowance. */
   | { step: "paid"; free: boolean; transaction?: string; network?: string }
   | { step: "read"; served: number }
-  /** The window the agent chose, named before it acts on it. */
-  | { step: "selected"; windowId: string; stationId: string; startTime: number; endTime: number; confidence: number }
+  /**
+   * The window the agent chose, named before it acts on it.
+   *
+   * The station is deliberately absent, and so are the species and the alias.
+   * They are in the window the server read and in the proposal it forms, because
+   * the ingest route is specified to receive them; they are not in anything a
+   * stranger's browser is shown. A live feed is a published surface, and the
+   * window id is opaque while a station is not.
+   */
+  | { step: "selected"; windowId: string; startTime: number; endTime: number; confidence: number }
   /** Every window served was unusable. The run stops here and pays nothing back. */
   | { step: "nothing-proposable"; reasons: string[] }
   | { step: "proposing"; windowId: string }
@@ -163,7 +171,6 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
   yield {
     step: "selected",
     windowId: chosen.windowId,
-    stationId: chosen.stationId,
     startTime: chosen.startTime,
     endTime: chosen.endTime,
     confidence: chosen.confidence,

@@ -1,3 +1,4 @@
+import { RunPanel } from "./run-panel";
 import { STATUS_ROWS } from "./status";
 
 /** Nothing here is read at request time, so it prerenders once at build. */
@@ -15,30 +16,21 @@ const FILED = "Agents pay x402 to read CV windows and propose clips; humans conf
 const NOTE =
   "A window marks where something moved and a person should look. It is not a claim that a behaviour occurred, that an animal was identified, or that confidence is a probability.";
 
-const STEPS = [
-  {
-    title: "Pay to read",
-    body: "GET /api/agent/windows answers 402 with a payment challenge until the request carries payment. The route states its own gate; there is no middleware in this repository. With the payment address unset it answers 503 rather than serving for free.",
-  },
-  {
-    title: "Propose",
-    body: "An agent identified by an ENS name buys a window and proposes a clip through a machine credential. Then it stops.",
-  },
-  {
-    title: "Confirm",
-    body: "A human operator confirms or rejects, exactly as they do for a clip a person submitted. The agent earns no credit for what it proposed.",
-  },
-  {
-    title: "Anchor",
-    body: "The operator asserts that confirmation in an EAS attestation. Attestations anchor on Ethereum Sepolia (11155111). Nothing touches mainnet and nothing handles real funds.",
-  },
-];
+/**
+ * What happens after the agent stops, in one place because the page states it
+ * once and a check reads it here.
+ *
+ * The operator is the subject, deliberately. An attestation is a claim by a named
+ * party, and a sentence with no one in it reads as the chain deciding something.
+ */
+const AFTERWARDS =
+  "A human operator confirms or rejects, exactly as they do for a clip a person submitted. The agent earns no credit for what it proposed. The operator asserts that confirmation in an EAS attestation. Attestations anchor on Ethereum Sepolia (11155111). Nothing touches mainnet and nothing handles real funds.";
 
 const NOTS = [
   "No behaviour is described as detected. A window says where to look, and a person says what they saw.",
   "No animal alias, no species and no station appears in an attested field.",
   "The confidence score is opaque here. This page states no derivation for it and no threshold.",
-  "This page calls nothing. The command above is text, not a live response, and the page makes no request after it loads.",
+  "This page calls this deployment and nothing else, and only after you press the button. No third party is contacted, and the command above is text rather than a live response.",
   "This page sets no cookie and runs no analytics. The fonts are served from this deployment.",
 ];
 
@@ -125,19 +117,13 @@ export default function Page() {
           </p>
         </section>
 
-        <section className="ag-section">
-          <h2>How it works</h2>
-          <div className="ag-grid">
-            {STEPS.map((step, i) => (
-              <div key={step.title} className="xv-clay ag-card ag-rise" style={{ animationDelay: `${160 + i * 80}ms` }}>
-                <span className="ag-chip">{i + 1}</span>
-                <h3 style={{ marginTop: "0.5rem" }}>{step.title}</h3>
-                <p className="xv-desc" style={{ margin: 0, fontSize: "0.875rem" }}>
-                  {step.body}
-                </p>
-              </div>
-            ))}
-          </div>
+        <RunPanel />
+
+        <section className="ag-section xv-clay ag-card">
+          <h2>After the agent stops</h2>
+          <p className="xv-desc" style={{ fontSize: "0.875rem" }}>
+            {AFTERWARDS}
+          </p>
         </section>
 
         <section className="ag-section xv-clay ag-card">

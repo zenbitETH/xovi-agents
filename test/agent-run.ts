@@ -98,6 +98,23 @@ export async function agentRunChecks(check: Check) {
     "187 · the proposal names no source and no submitter, so a payer cannot attribute the work to a person");
   check(sent.behaviorTag === "other", "188 · and the tag stays other, because the detector cannot classify behaviour");
 
+  /*
+   * What a stranger's browser is shown, and what it is not.
+   *
+   * The feed is a published surface. The window the server read carries a station,
+   * a species and possibly an alias, and the proposal it forms carries them too
+   * because the ingest route is specified to receive them. None of that reaches
+   * the stream: the window id is opaque and the rest stays server side.
+   */
+  const wire = JSON.stringify(full);
+  check(!wire.includes("AM 1") && !/"stationId"/.test(wire),
+    "187b · no station reaches the streamed run, though the window the agent read has one");
+  check(!/"speciesCode"|mexicanum|andersoni|dumerilii/.test(wire),
+    "187c · and no species");
+  check(!/"specimenAlias"/.test(wire), "187d · and no alias");
+  check(JSON.stringify(sent).includes("AM 1"),
+    "187e · while the proposal the ingest route receives does carry the station (negative control)");
+
   // The credential is the one thing that must never be watchable.
   const streamed = JSON.stringify(full);
   check(!streamed.includes("k-test"), "189 · the ingest credential appears nowhere in the streamed run");
