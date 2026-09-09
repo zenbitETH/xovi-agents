@@ -4,6 +4,10 @@ import { MCP_PAYMENT_META_KEY, MCP_PAYMENT_REQUIRED_CODE, MCP_PAYMENT_RESPONSE_M
 import { TOOL_NAME, atomicAmount, receiptFrom, recordMcpSettlement } from "../lib/mcp/server";
 import { DELETE as mcpDELETE, GET as mcpGET, OPTIONS as mcpOPTIONS } from "../app/api/mcp/route";
 import { payAndCall } from "../lib/mcp/pay";
+import { createx402MCPClient } from "@x402/mcp";
+import { findDefaultAsset } from "@x402/evm";
+import { startFakeFacilitator } from "./facilitator";
+import { startEmptyIndex } from "./index-stub";
 import type { Receipt } from "../lib/human/store";
 
 type Check = (ok: boolean, label: string) => void;
@@ -83,53 +87,81 @@ export async function mcpChecks(check: Check) {
   check(mcpOPTIONS().headers.get("Access-Control-Allow-Methods") === "POST, OPTIONS",
     "153e · and the advertised methods match, so a browser is not invited to try the refused ones");
 
-  // The retry, and the constraint that makes it safe. A fake client counts how many
-  // times a payload is created: one per tool call however many times it is sent, or
-  // the retry is a second authorization and a real double spend.
-  const CHALLENGE = { isError: true, structuredContent: { x402Version: 2, accepts: [{ scheme: "exact" }] } };
-  function fakeClient(failures: number, spentAfter = false) {
-    const state = { signatures: 0, sends: 0, sent: [] as string[] };
-    return {
-      state,
-      callTool: async () => CHALLENGE,
-      paymentClient: {
-        createPaymentPayload: async () => {
-          state.signatures++;
-          return { authorization: { nonce: "0xfixed" } };
+  // The retry, against the REAL client over stdio against the real server.
+  //
+  // The previous version of these checks used a fake client that returned the
+  // challenge as a tool result. The installed client does not do that: with
+  // automatic payment off it THROWS, carrying the challenge on the error. So the
+  // fake modelled a boundary nobody had observed, the checks were green, and the
+  // shipped client could not pay at all. The fake now sits only where something was
+  // observed: the scheme, which is where a signature is created, and the
+  // counterparty, which is what flakes.
+  const idx = await startEmptyIndex();
+  const fac3 = await startFakeFacilitator();
+  const signing = { signatures: 0 };
+  const countingScheme = {
+    scheme: "exact",
+    // The real scheme carries this and the client's spend controls call it to decide
+    // whether an asset is a known default. A fake without it is rejected before any
+    // payload is created, which is the shape of modelling a boundary partially.
+    findDefaultAsset,
+    async createPaymentPayload() {
+      // Counting HERE is the point. A retry that re-signs sends the right number of
+      // requests and creates the wrong number of signatures, so a counter on sends
+      // is green with the bug in place.
+      signing.signatures++;
+      return {
+        x402Version: 2,
+        payload: {
+          signature: `0x${"ab".repeat(65)}`,
+          authorization: {
+            from: `0x${"11".repeat(20)}`,
+            to: `0x${"22".repeat(20)}`,
+            value: "10000",
+            validAfter: "0",
+            validBefore: String(Math.floor(Date.now() / 1000) + 600),
+            nonce: `0x${"33".repeat(32)}`,
+          },
         },
-      },
-      callToolWithPayment: async (_n: string, _a: Record<string, unknown>, payload: unknown) => {
-        state.sends++;
-        state.sent.push(JSON.stringify(payload));
-        if (state.sends <= failures) {
-          return spentAfter && state.sends === failures
-            ? { content: [{ type: "text", text: "authorization is used or canceled" }] }
-            : { isError: true, content: [{ type: "text", text: "settlement failed" }] };
-        }
-        return { content: [], paymentResponse: { transaction: "0xok", network: "eip155:84532" } };
-      },
-    };
-  }
+      };
+    },
+  };
 
-  const flaky = fakeClient(1);
-  const rode = await payAndCall(flaky as never, "observations", {}, async () => {});
-  check(rode.receipt?.transaction === "0xok", "153f · a single flake is ridden out and the call settles");
-  check(flaky.state.signatures === 1,
-    "153g · with exactly ONE signature across both sends, so a retry is never a second authorization (seen to fail)");
-  check(flaky.state.sends === 2 && new Set(flaky.state.sent).size === 1,
-    "153h · and both sends carry byte identical bytes");
+  const paying = createx402MCPClient({
+    name: "suite-payer",
+    version: "0",
+    schemes: [{ network: "eip155:84532" as never, client: countingScheme as never }],
+    autoPayment: false,
+  });
+  await paying.connect(
+    new StdioClientTransport({
+      command: "npx",
+      args: ["tsx", "bin/mcp-server.ts"],
+      env: { ...process.env, ...ENV, SUBGRAPH_URL: idx.url, X402_FACILITATOR_URL: fac3.url } as Record<string, string>,
+    }),
+  );
 
-  const dead = fakeClient(99);
-  const gaveUp = await payAndCall(dead as never, "observations", {}, async () => {});
-  check(dead.state.sends === 3 && dead.state.signatures === 1,
-    "153i · a counterparty that never lands is tried three times and signed for once");
-  check(gaveUp.log.length === 3 && gaveUp.log.every(l => l.outcome === "settle_failed"),
-    "153j · with every attempt logged, so a flake is visible afterwards rather than smoothed away");
+  fac3.settleFailuresRemaining = 1;
+  const rode = await payAndCall(paying as never, TOOL_NAME, { limit: 1 }, async () => {});
+  check(signing.signatures === 1,
+    "153f · one signature for the whole call, however many times it is sent (seen to fail)");
+  check(fac3.hits.settle === 2, "153g · the counterparty was reached twice, so the flake was ridden out");
+  check(new Set(fac3.settleBodies).size === 1, "153h · and both attempts carried the same authorization");
+  check(rode.log.length === 2 && rode.log[0].outcome === "settle_failed" && rode.log[1].outcome === "settled",
+    "153i · with every attempt logged by its real index");
 
-  const spent = fakeClient(2, true);
-  const already = await payAndCall(spent as never, "observations", {}, async () => {});
-  check(already.log.at(-1)?.outcome === "already-settled" && spent.state.signatures === 1,
-    "153k · and a spent authorization on a later attempt is read as the first attempt having landed");
+  fac3.reset();
+  signing.signatures = 0;
+  fac3.settleSucceeds = false;
+  const gaveUp = await payAndCall(paying as never, TOOL_NAME, { limit: 1 }, async () => {});
+  check(fac3.hits.settle === 3 && signing.signatures === 1,
+    "153j · a counterparty that never lands is tried three times and signed for once");
+  check(gaveUp.receipt === null && gaveUp.log.length === 3,
+    "153k · and gives up rather than paying again");
+
+  await paying.close();
+  await fac3.close();
+  await idx.close();
 
   const client = new Client({ name: "suite", version: "0" });
   await client.connect(

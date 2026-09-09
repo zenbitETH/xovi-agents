@@ -162,9 +162,14 @@ export async function payingFetch(
   // double spend and is what the original no-retry rule was protecting against.
   const payload = await http.createPaymentPayload(required);
   const paymentHeaders = http.encodePaymentSignatureHeader(payload);
-  const sentBytes = JSON.stringify(paymentHeaders);
+  // Nothing here compares the headers to themselves between attempts. A guard that
+  // re-serialises the same object it is guarding can never fire, and it reads as
+  // evidence while providing none. The evidence that no second authorization is
+  // signed is the counterparty's own record of the bytes it received, which is
+  // check 47b, and the signature counter on the query client.
 
   let result = await attempt();
+  let attempts = 1;
   for (let n = 2; n <= ATTEMPTS && result.paymentStatus === "settle_failed"; n++) {
     // The counterparty failed to land a valid authorization. Observed on the live
     // testnet facilitator, where the transfer simulated successfully from the
@@ -173,12 +178,13 @@ export async function payingFetch(
     // was worth measuring before this was written.
     onAttempt?.({ attempt: n - 1, outcome: "settle_failed" });
     await new Promise(r => setTimeout(r, BACKOFF_MS * (n - 1)));
-    if (JSON.stringify(paymentHeaders) !== sentBytes) {
-      throw new Error("the payment headers changed between attempts, which would be a second authorization");
-    }
     result = await attempt();
+    attempts = n;
   }
-  onAttempt?.({ attempt: Math.min(ATTEMPTS, 1), outcome: result.paymentStatus });
+  // The real index. This logged `Math.min(ATTEMPTS, 1)`, which is the constant 1,
+  // so every run reported its outcome against attempt one however many it took, and
+  // a flake ridden out on the third looked identical to one that never happened.
+  onAttempt?.({ attempt: attempts, outcome: result.paymentStatus });
 
   // A refusal saying the authorization is spent is the token telling us the FIRST
   // attempt landed. It is the retry's own success arriving as an error, and reading
