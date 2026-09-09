@@ -187,6 +187,13 @@ Only confirmed clips are ever anchored, so a clip that a machine proposed and no
 - **What defeats it:** a script that registers on whatever chain the environment happens to point at, which is how a definition ends up on a chain nobody chose. Also defeated by claiming idempotency without reading the registry first.
 - **Test, seen to fail:** run against a fork with the chain guard removed and observe a registration on the wrong chain, then run twice with the guard in place and observe one registration and one clean exit.
 
+### A32. The index reads the events the chain actually emits
+
+- **Mechanism:** the interface definition the manifest ships was not taken from a package's default branch. Both event topics were recomputed from their signatures, and the primary one was then matched against a log the deployed contract emitted on a fork of the live chain. The manifest filters on the schema identifier in the fourth topic, and the built output was read to confirm the filter survived compilation rather than being assumed to.
+- **What defeats it:** an interface that disagrees with the chain. **The original form of this invariant said that swapping in a default branch definition stops the handler firing with no error anywhere, and that is wrong**, which was found by doing it: the build fails, because the event signature in the manifest and the interface have to agree with each other. As written the invariant could never have been satisfied, so it is restated here rather than left as a check nobody could run.
+- **What genuinely cannot be caught by a build:** an interface and a signature that agree with each other and both disagree with the chain. Nothing local can see that, because everything local is consistent. The only thing that discriminates is the recomputed topic checked against a real emitted log, which is why that step is the defence and not a formality.
+- **Test, seen to fail:** swap the indexing to the shape a default branch definition has and rebuild. The build fails rather than passing quietly, which is a better outcome than the one first recorded and a worse test, because it proves the smaller half.
+
 ## What is not built
 
 No fee contract. Payments settle to an address held by a person, and a contract that collects them is a later question with its own review.
