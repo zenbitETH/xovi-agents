@@ -15,12 +15,16 @@
     "db:probe": "tsx --env-file=.env.local bin/db-probe.ts",
     "anchor": "tsx --env-file=.env.local bin/anchor.ts",
     "schema:register": "tsx --env-file=.env.local bin/register-schema.ts",
-    "fork-proof": "tsx bin/fork-proof.ts"
+    "fork-proof": "tsx bin/fork-proof.ts",
+    "mcp:server": "tsx --env-file=.env.local bin/mcp-server.ts",
+    "query": "tsx --env-file=.env.local bin/query.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@neondatabase/serverless": "1.0.2",
     "@x402/core": "2.25.0",
     "@x402/evm": "2.25.0",
+    "@x402/mcp": "2.25.0",
     "next": "15.5.25",
     "react": "19.1.1",
     "react-dom": "19.1.1",

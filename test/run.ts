@@ -28,6 +28,7 @@ import { AGENT_ONE, AGENT_OTHER, AGENT_TWO, AGENT_UNREGISTERED, HUMAN_A, fakeReg
 import { RETENTION_DAYS, setCapForTest, takeFreeRead } from "../lib/human/cap";
 import { NoDerivationKey, deriveIdentifier } from "../lib/human/derive";
 import { anchorChecks } from "./anchor";
+import { mcpChecks } from "./mcp";
 
 let n = 0;
 let bad = 0;
@@ -566,6 +567,7 @@ async function main() {
   check(kept.counted === 1, `127 · and the one past ${RETENTION_DAYS} days is forgotten, without a scheduler`);
 
   await anchorChecks(check);
+  await mcpChecks(check);
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;
