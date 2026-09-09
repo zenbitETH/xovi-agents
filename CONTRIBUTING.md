@@ -1,6 +1,6 @@
 # Contributing
 
-Contributions from outside Zenbit are accepted under the Developer Certificate of Origin 1.1 below; sign off each commit with `git commit -s`, using a name and an email address you control. The sign-off is checked by the maintainer at review, not by a bot; an external contribution without it is sent back before it is merged. Commits by Zenbit's own account need no sign-off: Zenbit's title to them rests on its agreement with the author, not on the line.
+Contributions from outside Zenbit are accepted under the Developer Certificate of Origin 1.1 below. Add a `Signed-off-by:` line to every commit (`git commit -s`), using a name and an email address you control. Contributions without sign-off are not merged. Commits from the repository owner's account are Zenbit's own work and carry no sign-off. The sign-off is checked by the maintainer at review.
 
 Developer Certificate of Origin
 Version 1.1
