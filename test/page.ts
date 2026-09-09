@@ -181,7 +181,12 @@ export function pageChecks(check: Check) {
    * which covers the ones that live on `:root` and the ones a media query
    * overrides.
    */
-  const layout = readFileSync(join(process.cwd(), "app/layout.tsx"), "utf8");
+  // Comments stripped first. The prose above the fonts contains the literal text
+  // "<html>", and matching the raw file found that instead of the JSX: the needle
+  // was right and the haystack was a sentence about the needle.
+  const layout = readFileSync(join(process.cwd(), "app/layout.tsx"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
   const declared = new Set([...live.matchAll(/(--[a-z0-9-]+)\s*:/g)].map(m => m[1]));
   /*
    * The two typeface tokens are declared by next/font rather than by the
@@ -191,7 +196,22 @@ export function pageChecks(check: Check) {
    * declaration names a fallback stack, so a broken token degrades to the system
    * face and the page still renders, in the wrong typeface, silently.
    */
-  for (const m of layout.matchAll(/variable:\s*"(--[a-z0-9-]+)"/g)) declared.add(m[1]);
+  /*
+   * Read as owner and token together, because declaring a font variable and
+   * applying it are two things and only one of them was being checked.
+   *
+   * The fifth depth. With `${display.variable}` removed from <html> the tokens
+   * are still named in layout.tsx, so this set was still complete and the suite
+   * still passed, while the property was set on no element at all and every
+   * font-family fell to its stack. That is not a plausible typo; it is a
+   * plausible refactor, and this interface is about to be redesigned.
+   */
+  const fonts = [...layout.matchAll(/const\s+(\w+)\s*=\s*\w+\(\{[^}]*variable:\s*"(--[a-z0-9-]+)"/g)];
+  for (const [, , token] of fonts) declared.add(token);
+  const htmlTag = layout.match(/<html[^>]*>/)?.[0] ?? "";
+  const unapplied = fonts.filter(([, owner]) => !htmlTag.includes(`\${${owner}.variable}`)).map(([, , token]) => token);
+  check(fonts.length > 0 && unapplied.length === 0,
+    `214g · every font variable declared is also applied to the html element (${unapplied.join(", ")})`);
   const used = new Set([...live.matchAll(/var\((--[a-z0-9-]+)/g)].map(m => m[1]));
   const undeclared = [...used].filter(t => !declared.has(t));
   check(undeclared.length === 0, `214d · every custom property the stylesheet uses is declared, here or by next/font (${undeclared.join(", ")})`);
