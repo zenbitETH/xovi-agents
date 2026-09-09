@@ -165,6 +165,50 @@ export function pageChecks(check: Check) {
   check(/height:\s*var\(--xv-header-h\)/.test(headerRule?.body ?? ""),
     "214c · and the header declares the same height the app subtracts");
 
+  /*
+   * Every custom property that is used is also declared.
+   *
+   * The fourth depth of one defect. The flex chain passed with every header rule
+   * deleted; 214 passed with the rule empty, commented, or a new family; 214c
+   * passed with only the declaration of `--xv-header-h` removed. Each layer was
+   * green for a reason unrelated to what it guarded, and this is the last door:
+   * with the token itself undefined, `var()` invalidates the header's height and
+   * the app's calc together, so the two agree about nothing and 214c, which
+   * exists to catch them disagreeing, goes green.
+   *
+   * Written for every token rather than for this one, because the hole is the
+   * class and not the instance. A token is declared if any rule declares it,
+   * which covers the ones that live on `:root` and the ones a media query
+   * overrides.
+   */
+  const layout = readFileSync(join(process.cwd(), "app/layout.tsx"), "utf8");
+  const declared = new Set([...live.matchAll(/(--[a-z0-9-]+)\s*:/g)].map(m => m[1]));
+  /*
+   * The two typeface tokens are declared by next/font rather than by the
+   * stylesheet: layout.tsx names them in `variable:` and puts them on <html>.
+   * Read out of layout.tsx rather than allowlisted, so renaming one there and
+   * not here is caught. Nothing else would catch it: every font-family
+   * declaration names a fallback stack, so a broken token degrades to the system
+   * face and the page still renders, in the wrong typeface, silently.
+   */
+  for (const m of layout.matchAll(/variable:\s*"(--[a-z0-9-]+)"/g)) declared.add(m[1]);
+  const used = new Set([...live.matchAll(/var\((--[a-z0-9-]+)/g)].map(m => m[1]));
+  const undeclared = [...used].filter(t => !declared.has(t));
+  check(undeclared.length === 0, `214d · every custom property the stylesheet uses is declared, here or by next/font (${undeclared.join(", ")})`);
+  check(!declared.has("--not-a-real-token"), "214e · the declaration set is real (negative control)");
+
+  /*
+   * And the responsive override specifically, because losing it is silent.
+   *
+   * The header is one height below 1024px and another above it, and the app
+   * subtracts whichever is current. If the override alone disappears the page
+   * still works, still passes everything above, and is simply wrong by half a
+   * rem on wide screens, which is the kind of thing nobody reports.
+   */
+  const declaresHeader = rules.filter(r => /--xv-header-h\s*:/.test(r.body));
+  check(declaresHeader.length >= 2,
+    `214f · the header height is declared at the root and overridden for wide viewports (${declaresHeader.length} declarations)`);
+
   const marks = ui.match(/<svg[\s\S]*?>/g) ?? [];
   const unsized = marks.filter(m => !/\swidth=/.test(m) || !/\sheight=/.test(m));
   check(marks.length > 0 && unsized.length === 0,
