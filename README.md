@@ -54,6 +54,7 @@ This repository was created on 2026-09-06 and is being built across the event wi
 
 | Leg | State |
 |---|---|
+| Agent identity over ENS | built and fail closed: the four resolution branches are proven against an injected resolver. No name is registered on any network, so the resolution path itself is unexercised and the agent is given its endpoint directly |
 | Paid read over x402 | built, and exercised end to end against a faked facilitator |
 | Agent proposes a clip | built, and exercised against the ingest route faked from its own contract |
 | Proof of human, per person caps | built: registry lookup, a keyed digest of the identifier kept for 30 days, and a per person daily allowance |
