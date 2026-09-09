@@ -50,8 +50,23 @@ export function pageChecks(check: Check) {
   check(!dashes.test(page), "172 · no em dash or en dash in the page copy");
   check(dashes.test("—"), "173 · the dash check can see a dash (negative control)");
 
-  // Condition 7, over the one sentence on the page that describes anchoring.
-  check(!/becomes an EAS attestation/.test(page), "174 · the anchoring sentence keeps the operator as its subject");
+  /*
+   * Condition 7, over the one sentence on the page that describes anchoring.
+   *
+   * Asserted positively as well as negatively. A single negative substring only
+   * rules out the one passive phrasing it names: rewording to "the confirmation
+   * is recorded as an EAS attestation" drops the operator and still passes,
+   * because it is a different string. Requiring the operator sentence to be
+   * present is what actually holds the subject in place.
+   *
+   * If the four step grid is ever cut, this sentence goes with it and the check
+   * fails. That coupling is deliberate: removing the page's only description of
+   * anchoring should be a decision someone makes, not one a green suite hides.
+   */
+  check(
+    page.includes("The operator asserts") && !/becomes an EAS attestation/.test(page),
+    "174 · the anchoring sentence is present and keeps the operator as its subject",
+  );
 
   /*
    * No backdrop-filter DECLARATION in the stylesheet.
@@ -74,4 +89,9 @@ export function pageChecks(check: Check) {
     declaration.test("a{-webkit-backdrop-filter:blur(16px)}"),
     "176 · the guard sees a prefixed declaration, which a substring test would miss (negative control)",
   );
+  // The page asserts; it never proves. Attestation is a claim by a named party,
+  // and the verb is the whole difference between that and a proof.
+  const proving = /\b(prove[sdn]?|proof)\b/i;
+  check(!proving.test(page), "177 · the page asserts and never proves");
+  check(proving.test("this proves it"), "178 · the proving check can see the verb (negative control)");
 }

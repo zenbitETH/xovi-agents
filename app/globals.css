@@ -9,7 +9,7 @@
 
    1. The tokens sit on bare :root. In Xovi they sit under [data-theme=dark],
       because daisyUI needs a theme selector and next-themes stamps it. Neither
-      package is installed here, so a verbatim copy would define no colour at
+      package is installed here, so a verbatim copy would define no palette at
       all and the page would render on the browser default.
    2. There is no .xv-glass and no backdrop-filter anywhere on this page. Glass
       is Xovi's surface for panes floating over video, 19 usages against clay's
@@ -323,7 +323,7 @@ body::after {
     border-color 150ms var(--xv-ease-out);
 }
 
-/* Colour semantics, stated in Xovi globals.css:570-575 and kept here: warm gold
+/* Palette semantics, stated in Xovi globals.css:570-575 and kept here: warm gold
    marks the reader's own action, teal is the resting state of navigation. In
    Xovi these rules are deliberately unlayered so they beat daisyUI's .btn
    fills; there is no daisyUI here, and they are still unlayered so a later
