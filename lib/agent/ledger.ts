@@ -74,3 +74,22 @@ export function loadLedger(path: string = DEFAULT_LEDGER_PATH): Ledger {
 export function unrefused(windows: CandidateWindow[], ledger: Ledger): CandidateWindow[] {
   return windows.filter(w => !ledger.has(w.windowId));
 }
+
+/**
+ * A ledger that forgets, for a run that has nowhere to write.
+ *
+ * The file backed ledger exists so an agent stops asking about a window a person
+ * already refused. A serverless run has no writable disk and no continuity between
+ * invocations, so it cannot hold that memory and must not pretend to. Starting
+ * empty means a window refused earlier is proposed again and the ingest route
+ * answers 409, which is the correct answer and is shown in the run rather than
+ * hidden: the server owns the rule, this was only ever a cache of it.
+ */
+export function memoryLedger(): Ledger {
+  const entries = new Map<string, string>();
+  return {
+    has: windowId => entries.has(windowId),
+    remember: (windowId, why) => void entries.set(windowId, why),
+    size: () => entries.size,
+  };
+}

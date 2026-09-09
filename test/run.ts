@@ -30,6 +30,7 @@ import { NoDerivationKey, deriveIdentifier } from "../lib/human/derive";
 import { anchorChecks } from "./anchor";
 import { mcpChecks } from "./mcp";
 import { pageChecks } from "./page";
+import { agentRunChecks } from "./agent-run";
 
 let n = 0;
 let bad = 0;
@@ -594,6 +595,8 @@ async function main() {
 
   await anchorChecks(check);
   await mcpChecks(check);
+  await agentRunChecks(check);
+
   pageChecks(check);
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
