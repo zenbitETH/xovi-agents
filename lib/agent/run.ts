@@ -31,19 +31,51 @@ export type RunStep =
    * The station is deliberately absent, and so are the species and the alias.
    * They are in the window the server read and in the proposal it forms, because
    * the ingest route is specified to receive them; they are not in anything a
-   * stranger's browser is shown. A live feed is a published surface, and the
-   * window id is opaque while a station is not.
+   * stranger's browser is shown.
+   *
+   * The duration is sent rather than the two endpoints, and that is not cosmetic.
+   * A window id is sha256 of channelId|videoId|startMs|endMs|stationId truncated
+   * to 16 hex. The channel and the video are public, so publishing both endpoints
+   * beside the id leaves the station as the only unknown in the preimage: a
+   * handful of stations is a handful of hash trials, and the id stops being
+   * opaque. With the duration alone the two endpoints are not recoverable.
    */
-  | { step: "selected"; windowId: string; startTime: number; endTime: number; confidence: number }
-  /** Every window served was unusable. The run stops here and pays nothing back. */
-  | { step: "nothing-proposable"; reasons: string[] }
+  | { step: "selected"; windowId: string; durationSeconds: number; confidence: number }
+  /**
+   * Every window served was unusable, reported as a count.
+   *
+   * The reasons were strings from the validator and they name values: a species
+   * code, a window id, a length. A count says the same thing to a watcher and
+   * carries nothing. The reasons are logged server side for whoever is debugging.
+   */
+  | { step: "nothing-proposable"; considered: number }
   | { step: "proposing"; windowId: string }
   | { step: "proposed"; id: number; clipHash: string; status: string }
-  /** The ingest route answered, and the answer was not a new row. */
-  | { step: "declined"; kind: string; detail: string }
+  /**
+   * The ingest route answered, and the answer was not a new row.
+   *
+   * `detail` is a fixed sentence chosen by `kind`, never the route's own text.
+   * That text is written for an operator and interpolates the values it is about:
+   * the real 403 reads "La clave no cubre la estación AM 1", naming the station
+   * twice. Passing it through put on a public feed exactly what was removed from
+   * the successful path, and the check that guards this read only successful runs,
+   * so it stayed green. Numbers are safe to carry and are carried.
+   */
+  | { step: "declined"; kind: DeclineKind; detail: string; status?: number; retryAfterSeconds?: number }
   /** No ingest credential configured, so the run stops one step short on purpose. */
   | { step: "not-submitted"; detail: string }
   | { step: "done" };
+
+export type DeclineKind = "duplicate" | "rejected" | "throttled" | "refused" | "error";
+
+/** One sentence per kind, written here rather than forwarded from the route. */
+export const DECLINE_SENTENCE: Record<DeclineKind, string> = {
+  duplicate: "this window is already a clip, so there is nothing new to propose",
+  rejected: "a person already looked at this window and said no",
+  throttled: "the credential is rate limited",
+  refused: "the ingest route refused the proposal",
+  error: "the run stopped on an error",
+};
 
 export type RunConfig = {
   /** The absolute URL of the paid route, so the in process call names the same
@@ -137,6 +169,7 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
   yield { step: "read", served: raw.length };
 
   const ledger = memoryLedger();
+  // Kept out of the stream and logged, because each one names a value.
   const reasons: string[] = [];
   let chosen: CandidateWindow | null = null;
   for (const candidate of raw) {
@@ -163,7 +196,8 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
   }
 
   if (!chosen) {
-    yield { step: "nothing-proposable", reasons };
+    if (reasons.length > 0) console.warn("[run] nothing proposable:", reasons.join(" | "));
+    yield { step: "nothing-proposable", considered: raw.length };
     yield { step: "done" };
     return;
   }
@@ -171,8 +205,7 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
   yield {
     step: "selected",
     windowId: chosen.windowId,
-    startTime: chosen.startTime,
-    endTime: chosen.endTime,
+    durationSeconds: Math.round(chosen.endTime - chosen.startTime),
     confidence: chosen.confidence,
   };
 
@@ -196,13 +229,21 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
   if (result.kind === "proposed") {
     yield { step: "proposed", id: result.id, clipHash: result.clipHash, status: result.status };
   } else if (result.kind === "duplicate") {
-    yield { step: "declined", kind: "duplicate", detail: `this window is already a clip, ${result.clipHash}` };
+    yield { step: "declined", kind: "duplicate", detail: DECLINE_SENTENCE.duplicate };
   } else if (result.kind === "rejected") {
-    yield { step: "declined", kind: "rejected", detail: "a person already looked at this window and said no" };
+    yield { step: "declined", kind: "rejected", detail: DECLINE_SENTENCE.rejected };
   } else if (result.kind === "throttled") {
-    yield { step: "declined", kind: "throttled", detail: `rate limited for ${result.retryAfterSeconds} seconds` };
+    yield {
+      step: "declined",
+      kind: "throttled",
+      detail: DECLINE_SENTENCE.throttled,
+      retryAfterSeconds: result.retryAfterSeconds,
+    };
   } else {
-    yield { step: "declined", kind: "refused", detail: result.hint ? `${result.error} (${result.hint})` : result.error };
+    // The route's own error and hint are written for an operator and name the
+    // values they are about. They go to the log, never to the stream.
+    console.warn(`[run] ingest refused ${result.status}:`, result.hint ? `${result.error} (${result.hint})` : result.error);
+    yield { step: "declined", kind: "refused", detail: DECLINE_SENTENCE.refused, status: result.status };
   }
   yield { step: "done" };
 }

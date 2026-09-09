@@ -114,6 +114,39 @@ export async function agentRunChecks(check: Check) {
   check(!/"specimenAlias"/.test(wire), "187d · and no alias");
   check(JSON.stringify(sent).includes("AM 1"),
     "187e · while the proposal the ingest route receives does carry the station (negative control)");
+  check(!/"startTime"|"endTime"/.test(wire) && /"durationSeconds"/.test(wire),
+    "187f · the run sends a duration and not the two endpoints, so the window id's preimage keeps an unknown");
+
+  /*
+   * The refusal path is a published surface too, and this is where the first fix
+   * stopped one path short.
+   *
+   * Station, species and alias were removed from the successful run and 187b
+   * stayed green while the real 403 was streamed verbatim: "La clave no cubre la
+   * estación AM 1 (…must be the string the detector emits, \"AM 1\", spaces
+   * included)". The station, twice, on a public feed. The check read only the
+   * successful run, so it could not see it.
+   */
+  arrange("fixtures/windows.synthetic.jsonl");
+  ingest.outcome = "badStation";
+  const badHeader = await signAt(WINDOWS);
+  const refusedRun = await collect(
+    runOnce({
+      windowsUrl: WINDOWS,
+      paymentHeader: badHeader,
+      windowsFetch,
+      ingestUrl: ingest.url,
+      ingestKey: "k-test",
+      ingestFetch: fetch,
+    }),
+  );
+  const refusedWire = JSON.stringify(refusedRun);
+  check(names(refusedRun).includes("declined"), "187g · a credential that does not cover the station is declined");
+  check(!/AM 1|estación|estacion/i.test(refusedWire),
+    "187h · and the refusal names no station, though the route's own message names it twice");
+  check(JSON.stringify(ingest.bodies[0] ?? {}).includes("AM 1"),
+    "187i · while the proposal that provoked it still carried the station (negative control)");
+  ingest.outcome = "created";
 
   // The credential is the one thing that must never be watchable.
   const streamed = JSON.stringify(full);

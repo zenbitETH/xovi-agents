@@ -106,9 +106,6 @@ export type SignedPayment = {
   token: string;
   payTo: string;
   network: string;
-  /** The resource the challenge names. The signature is bound to it, so the run
-   *  route must present this payment for the same URL or verification fails. */
-  resource: string;
 };
 
 /**
@@ -157,6 +154,5 @@ export async function signChallenge(windowsUrl: string, address: `0x${string}`, 
     token,
     payTo: accepted.payTo,
     network: accepted.network,
-    resource: String(required.resource ?? windowsUrl),
   };
 }

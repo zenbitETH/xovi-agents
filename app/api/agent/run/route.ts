@@ -1,5 +1,5 @@
 import { GET as windowsRoute } from "../windows/route";
-import { runOnce, windowsUrlFor } from "~~/lib/agent/run";
+import { DECLINE_SENTENCE, runOnce, windowsUrlFor } from "~~/lib/agent/run";
 
 export const dynamic = "force-dynamic";
 
@@ -61,8 +61,15 @@ export async function POST(request: Request) {
         // A run that dies mid stream has already sent the steps that succeeded, so
         // the last line says what stopped it rather than the connection simply
         // ending and leaving the reader to guess.
-        const detail = err instanceof Error ? err.message : String(err);
-        controller.enqueue(encoder.encode(`${JSON.stringify({ step: "declined", kind: "error", detail })}\n`));
+        //
+        // The class, never the message. A thrown message is written by whatever
+        // threw it and can carry anything it happened to be holding, which on this
+        // path is a window, a station or a credential. The name is a fixed set.
+        console.error("[run] stopped:", err);
+        const kind = err instanceof Error ? err.name : "Error";
+        controller.enqueue(
+          encoder.encode(`${JSON.stringify({ step: "declined", kind: "error", detail: DECLINE_SENTENCE.error, status: undefined, name: kind })}\n`),
+        );
       } finally {
         controller.close();
       }
