@@ -121,10 +121,27 @@ async function readBody(response: Response): Promise<unknown> {
  * says it, and a boolean beside it would have to answer "was nothing owed" and
  * "was it refused before paying" with the same value.
  */
+/** Three attempts in all, which is two retries. Enough to ride out a flake and few
+ *  enough that a demo does not stall behind a counterparty that is simply down. */
+export const ATTEMPTS = 3;
+export const BACKOFF_MS = 1200;
+
+/**
+ * Does this refusal mean the authorization was already spent?
+ *
+ * Matched on the token's own vocabulary rather than on a facilitator's error code,
+ * because the code is the counterparty's to change and the revert string belongs to
+ * the contract. Deliberately narrow: anything it does not recognise stays a failure.
+ */
+export function spentAuthorization(body: unknown): boolean {
+  return /authorization is used|already used|used or canceled|nonce already/i.test(JSON.stringify(body ?? ""));
+}
+
 export async function payingFetch(
   url: string,
   payer: Payer,
   fetchImpl: typeof fetch = fetch,
+  onAttempt?: (a: { attempt: number; outcome: string }) => void,
 ): Promise<PaidRead> {
   const first = await fetchImpl(url, { headers: { accept: "application/json" } });
   if (first.status !== 402) {
@@ -138,13 +155,51 @@ export async function payingFetch(
 
   const { http } = payer;
   const required = http.getPaymentRequiredResponse(name => first.headers.get(name), body);
+  // Signed ONCE, outside the retry. This is the whole safety argument: an
+  // authorization carries a nonce the token refuses to reuse, so resending these
+  // exact bytes is at most once by the primitive rather than by our care. Signing
+  // again would mint a fresh nonce and a second authorization, which is a real
+  // double spend and is what the original no-retry rule was protecting against.
   const payload = await http.createPaymentPayload(required);
   const paymentHeaders = http.encodePaymentSignatureHeader(payload);
+  // Nothing here compares the headers to themselves between attempts. A guard that
+  // re-serialises the same object it is guarding can never fire, and it reads as
+  // evidence while providing none. The evidence that no second authorization is
+  // signed is the counterparty's own record of the bytes it received, which is
+  // check 47b, and the signature counter on the query client.
 
-  const second = await fetchImpl(url, {
-    headers: { accept: "application/json", ...paymentHeaders },
-  });
-  const result = await http.processResponse(second);
+  let result = await attempt();
+  let attempts = 1;
+  for (let n = 2; n <= ATTEMPTS && result.paymentStatus === "settle_failed"; n++) {
+    // The counterparty failed to land a valid authorization. Observed on the live
+    // testnet facilitator, where the transfer simulated successfully from the
+    // facilitator's own address, so the payment was good and the settlement was
+    // not. That is the only failure worth retrying and it is why the distinction
+    // was worth measuring before this was written.
+    onAttempt?.({ attempt: n - 1, outcome: "settle_failed" });
+    await new Promise(r => setTimeout(r, BACKOFF_MS * (n - 1)));
+    result = await attempt();
+    attempts = n;
+  }
+  // The real index. This logged `Math.min(ATTEMPTS, 1)`, which is the constant 1,
+  // so every run reported its outcome against attempt one however many it took, and
+  // a flake ridden out on the third looked identical to one that never happened.
+  onAttempt?.({ attempt: attempts, outcome: result.paymentStatus });
+
+  // A refusal saying the authorization is spent is the token telling us the FIRST
+  // attempt landed. It is the retry's own success arriving as an error, and reading
+  // it as a failure would report a payment that happened as one that did not, which
+  // is the same wrong direction as printing "no receipt" over a settled call.
+  if (result.paymentStatus === "settle_failed" && spentAuthorization(result.body)) {
+    return { status: result.status, body: result.body, paymentStatus: "settled" };
+  }
+
+  async function attempt() {
+    const response = await fetchImpl(url, {
+      headers: { accept: "application/json", ...paymentHeaders },
+    });
+    return http.processResponse(response);
+  }
 
   const settled =
     result.paymentStatus === "settled" && result.header && "transaction" in result.header

@@ -21,7 +21,7 @@ export class PaymentMisconfigured extends Error {}
  * something visible where the work happens. Here the ordering is written out:
  * verify, run, and only then settle.
  */
-function readConfig(env: EnvLike) {
+export function readConfig(env: EnvLike) {
   const payTo = (env.X402_PAY_TO ?? "").trim();
   // Fails closed, and the check is not cosmetic. An unset recipient with a
   // permissive server would serve the windows for nothing, which is the one

@@ -25,6 +25,12 @@ export type FakeFacilitator = {
   hits: { supported: number; verify: number; settle: number };
   /** Flip to make /settle report a refusal, keeping the schema valid. */
   settleSucceeds: boolean;
+  /** Refuse the first N settle attempts, then succeed. A flaky counterparty, which
+   *  is what the real testnet facilitator was observed to be. */
+  settleFailuresRemaining: number;
+  /** Every settle body seen, so a retry can be proved to resend the same bytes
+   *  rather than a fresh signature over a fresh nonce. */
+  settleBodies: string[];
   reset(): void;
   close(): Promise<void>;
 };
@@ -36,14 +42,20 @@ export async function startFakeFacilitator(): Promise<FakeFacilitator> {
   const state = {
     hits: { supported: 0, verify: 0, settle: 0 },
     settleSucceeds: true,
+    settleFailuresRemaining: 0,
+    settleBodies: [] as string[],
   };
 
   const server = createServer((req, res) => {
     // The body is drained even though nothing here reads it: leaving a request
     // body unconsumed keeps the socket open and the suite hangs at the end
     // instead of failing, which is the least useful way for a test to break.
-    req.resume();
     const path = (req.url ?? "").split("?")[0];
+    let raw = "";
+    req.on("data", c => (raw += c));
+    req.on("end", () => {
+      if (path.endsWith("/settle")) state.settleBodies.push(raw);
+    });
     const send = (body: unknown) => {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
@@ -59,6 +71,18 @@ export async function startFakeFacilitator(): Promise<FakeFacilitator> {
     }
     if (path.endsWith("/settle")) {
       state.hits.settle++;
+      // A flake: the counterparty fails to land a perfectly valid authorization and
+      // then lands the same one on a later attempt. Observed on the real testnet
+      // facilitator, where the transfer simulated successfully from its own address.
+      if (state.settleFailuresRemaining > 0) {
+        state.settleFailuresRemaining--;
+        return send({
+          success: false,
+          errorReason: "invalid_exact_evm_transaction_failed",
+          transaction: FAKE_TX,
+          network: NETWORK,
+        });
+      }
       if (state.settleSucceeds) {
         return send({ success: true, transaction: FAKE_TX, network: NETWORK });
       }
@@ -89,11 +113,22 @@ export async function startFakeFacilitator(): Promise<FakeFacilitator> {
     set settleSucceeds(v: boolean) {
       state.settleSucceeds = v;
     },
+    get settleFailuresRemaining() {
+      return state.settleFailuresRemaining;
+    },
+    set settleFailuresRemaining(v: number) {
+      state.settleFailuresRemaining = v;
+    },
+    get settleBodies() {
+      return state.settleBodies;
+    },
     reset() {
       state.hits.supported = 0;
       state.hits.verify = 0;
       state.hits.settle = 0;
       state.settleSucceeds = true;
+      state.settleFailuresRemaining = 0;
+      state.settleBodies.length = 0;
     },
     close() {
       return new Promise<void>(resolve => server.close(() => resolve()));

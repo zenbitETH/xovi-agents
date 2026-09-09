@@ -1,0 +1,55 @@
+# The deployed contract on Ethereum Sepolia reports version 0.26, which is not the
+# current release, so this abi is not taken from a package's default branch. Both
+# events below were recomputed with `cast sig-event` and then confirmed against a
+# real log emitted by the real contract on a fork: Attested carries four topics,
+# the schema identifier is the fourth, and the attestation identifier is the data.
+# An abi that disagrees with the event signature below FAILS the build, which was
+# checked by doing it rather than assumed. The case no build can catch is an abi and
+# a signature that agree with each other and both disagree with the chain, because
+# everything local is then consistent and wrong. That is what the recomputed topic,
+# matched against a real emitted log, discriminates.
+specVersion: 1.2.0
+description: Confirmed clip observations, indexed by the schema they were attested under.
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: EAS
+    network: sepolia
+    source:
+      address: "0xC2679fBD37d54388Ce493F1DB75320D236e1815e"
+      abi: EAS
+      # Safe by argument rather than by buffer. No attestation carrying our schema
+      # identifier can exist before the schema is registered, and the registry
+      # returned a zero record for it on 2026-09-09 when this block was captured,
+      # confirmed on three independent endpoints. Any block at or before the
+      # registration block is therefore a provably safe floor, and one captured the
+      # same day is also close, which is what keeps the initial sync short enough
+      # for the timed criterion. Do not lower this to be safe: it is already safe,
+      # and Sepolia produces about 7200 blocks a day.
+      startBlock: 11665132
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Observation
+      abis:
+        - name: EAS
+          file: ./abis/EAS.json
+      eventHandlers:
+        # The primary leg. topic3 is the third indexed argument, which is the schema
+        # identifier, so this filters natively at the node instead of indexing every
+        # attestation on the chain and discarding most of them in the handler.
+        # Indexed argument filters need specVersion 1.2.0 or above; the vendored
+        # scaffold in the sibling repository emits 0.0.4 and cannot express this.
+        - event: Attested(indexed address,indexed address,bytes32,indexed bytes32)
+          handler: handleAttested
+          topic3:
+            - "0x8d4a9a6e41e07cb67128eaca5a79f4d39e5199eb8c1c7d7a0096e0a5d11c8c6d"
+        # The secondary leg. A timestamp log carries only the hash and the block
+        # time, with no schema and no attester, so there is nothing to filter on at
+        # the node and the sender is checked in the handler instead.
+        - event: Timestamped(indexed bytes32,indexed uint64)
+          handler: handleTimestamped
+      file: ./src/mapping.ts

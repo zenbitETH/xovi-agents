@@ -8,7 +8,8 @@ ETHOnline asks spec-driven projects to publish the artifacts that directed the w
 | [`02-candidate-windows.md`](./02-candidate-windows.md) | The shape the paid read serves, and why an embargoed window is dropped whole rather than redacted |
 | [`03-proposal.md`](./03-proposal.md) | What a window becomes when it is proposed, and why one refusal closes a window for every candidate |
 | [`04-proof-of-human.md`](./04-proof-of-human.md) | Why a cap on an address is worth nothing, and what the registry actually says |
-| `05-*` onward | Added as each leg is specified |
+| [`05-anchor-and-query.md`](./05-anchor-and-query.md) | What a confirmation becomes when it is anchored, and why the signature is the record rather than the row |
+| `06-*` onward | Added as each leg is specified |
 
 **How corrections are recorded.** When building overtakes a claim, the original wording stays and a dated note is appended under it. Nothing here is edited to look as though it was right the first time. A note that says an invariant is still unproven is doing its job.
 
@@ -21,5 +22,7 @@ Every invariant in this repository names three things or it is not recorded:
 1. **The mechanism.** A database constraint, a closed union, a signature check, a CI grep. Never an assurance that someone was careful.
 2. **What defeats it.** Every mechanism has an edge. If nothing is written here, the invariant has not been thought about.
 3. **A test that proves it, and that has been seen to fail** on the bug it was written for. A check never observed to go red is not evidence.
+
+**A counter must count the quantity that differs under the defect.** Not the one that is convenient to count, and not the one the feature is named after. The retry work is the clearest case: a retry that re-signs sends the right number of requests and creates the wrong number of signatures, so a check counting sends passes with the bug in place and a check counting signatures fails. The same mistake would make a duplicate-write check count writes rather than transactions, or an idempotency check count calls rather than side effects. Before writing a counter, say out loud what the bug would change, and count that.
 
 This rule exists because an audit of the plan found seven critical issues and six of them were the same shape: a security property asserted in prose that the code did not provide. The rule is the correction.

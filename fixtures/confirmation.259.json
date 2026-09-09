@@ -1,0 +1,13 @@
+{
+  "id": 259,
+  "clipHash": "0x8d160c3c6b81601ab8c26d41b4e025d5f635a7209df709138cd0e8be99af1631",
+  "status": "verified",
+  "source": "cv",
+  "verifiedBy": "0xeCB4C1245665e8A1F43826355aaB0Dd6bF336e05",
+  "verifiedAt": "2026-09-09T02:28:59.058Z",
+  "verifierNonce": "0xbf89ded60c474aaca863c1e92cd751d6d8907f964ae3b7e0aba775d1fbdf84ea",
+  "verifierChainId": 11155111,
+  "verifierSignature": "0x1d14ede13cf5d14d57926fe3a0ce0b04064fe4b1b511bcf15962c5c952400c4654ca5f50ba067407c6c6ba90576c91c39acbe47348ce13d3138debbd88b98a851c",
+  "submitterAddress": "0xC0686ae97FDf62A37F081922c2a92537862E0B95",
+  "confidence": 500
+}

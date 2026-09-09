@@ -14,8 +14,10 @@ export type Receipt = {
   payTo: string;
   amount: string;
   network: string;
-  /** Where the row came from. The anchoring milestone writes to this table too. */
-  source: "route" | "chain";
+  /** Which surface earned it: the paid read, the paid query, or a chain sweep.
+   *  Named rather than inferred, because two rails settle to one recipient and a
+   *  ledger that cannot tell them apart cannot answer which demo produced a row. */
+  source: "route" | "chain" | "mcp";
 };
 
 export type HumanStore = {

@@ -61,6 +61,10 @@ This repository was created on 2026-09-06 and is being built across the event wi
 | Subgraph and paid query | not started |
 | Receipts ledger and fee sink | not started |
 
+## Privacy
+
+ZENBIT S.A.S. de C.V. (Santiago de Querétaro, Mexico) is the data controller. For agents, the World ID identifier of the person who registered them is read to administer a free daily quota and to show operators, as true or false, whether a proposing agent was registered by a verified person; a keyed digest of it is kept for 30 days for the quota only. You may limit the use of your data, exercise your access, rectification, cancellation and objection rights, and revoke your consent at hola@zenbit.mx. Full privacy notice: https://zenbit.mx/en/privacy. Clip confirmations are collected in the Xovi confirmation interface, which carries its own notice.
+
 ## Licence
 
 MIT. See `LICENSE`. Copyright (c) 2026 ZENBIT S.A.S. de C.V.

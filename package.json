@@ -12,18 +12,32 @@
     "probe": "tsx bin/probe.ts",
     "agent": "tsx bin/agent.ts",
     "migrate": "tsx --env-file=.env.local scripts/migrate.ts",
-    "db:probe": "tsx --env-file=.env.local bin/db-probe.ts"
+    "db:probe": "tsx --env-file=.env.local bin/db-probe.ts",
+    "anchor": "tsx --env-file=.env.local bin/anchor.ts",
+    "schema:register": "tsx --env-file=.env.local bin/register-schema.ts",
+    "fork-proof": "tsx bin/fork-proof.ts",
+    "mcp:server": "tsx --env-file=.env.local bin/mcp-server.ts",
+    "query": "tsx --env-file=.env.local bin/query.ts",
+    "subgraph:codegen": "graph codegen subgraph/subgraph.yaml --output-dir subgraph/generated",
+    "subgraph:build": "graph build subgraph/subgraph.yaml --output-dir subgraph/build",
+    "mcp:probe": "tsx bin/mcp-http-probe.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@neondatabase/serverless": "1.0.2",
     "@x402/core": "2.25.0",
     "@x402/evm": "2.25.0",
+    "@x402/mcp": "2.25.0",
     "next": "15.5.25",
     "react": "19.1.1",
     "react-dom": "19.1.1",
-    "viem": "2.56.3"
+    "viem": "2.56.3",
+    "zod": "3.25.76"
   },
   "devDependencies": {
+    "@ethereum-attestation-service/eas-sdk": "2.10.0",
+    "@graphprotocol/graph-cli": "^0.98.1",
+    "@graphprotocol/graph-ts": "^0.38.2",
     "@types/node": "22.10.2",
     "@types/react": "19.1.1",
     "tsx": "4.19.2",

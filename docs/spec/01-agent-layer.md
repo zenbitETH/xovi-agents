@@ -56,6 +56,16 @@ A person delegates to an agent identified by an ENS name. The agent pays USDC ov
 
 An agent's ENS records may name a role and a payment endpoint. No record resolves to an individual animal or a registry of them. Note the enforcement honestly: name access control authorises *writers*, not *values*, so this is a commitment Zenbit keeps, not a property the resolver enforces.
 
+### I5b. A failed settlement is retried, and the authorization is never signed again
+
+Added 2026-09-09, and it **overturns a rule this document previously carried**. The old rule said a failed settlement is never retried. It was written to prevent paying twice, and it prevents exactly one thing that is still worth preventing: signing again.
+
+- **What changed and why.** The live testnet facilitator was observed refusing a settlement with a transaction failure, on a payment that was valid: the transfer was simulated against the token from the facilitator's own address and it succeeded. So the authorization, the signature, the domain and the balances were all good and the counterparty simply failed to land it. The same call succeeded on the next two attempts. A rule that stops on the first refusal turns a flaky counterparty into a failed demonstration, and there is nothing to be gained by it.
+- **Why retrying cannot pay twice, and it is not because we are careful.** An authorization carries a nonce and the token refuses a nonce it has already seen. Resending the identical signed bytes is therefore at most once by the primitive: if the first attempt actually landed, the second is refused by the contract rather than by us. **Signing again is the thing that would double spend**, because a fresh signature carries a fresh nonce and is a second authorization, and that remains forbidden.
+- **Mechanism:** the payload is created once, outside the loop, and the same encoded headers are sent on every attempt. Three attempts in all with a growing pause. The bytes are compared before each resend and a change raises rather than being sent.
+- **What defeats it:** creating the payload inside the loop, which reads as a retry and is a second payment. Also defeated by treating a refusal that says the authorization is spent as a failure, since that refusal is the token reporting that the first attempt landed, and reading it as a failure reports a payment that happened as one that did not.
+- **Test, seen to fail:** a fake counterparty that refuses once and then accepts the same authorization; the read succeeds in exactly two attempts and both carry identical bytes. A counterparty that always refuses is attempted three times and no more. Moving the payload creation inside the loop turns the identical-bytes check red.
+
 ### I6. A payment settles only for work that succeeded
 
 Added 2026-09-07. The property was stated in the surfaces table below from the first day and was never an invariant, which meant it had no named mechanism and no test. It has two mechanisms, and the second was found rather than designed.
