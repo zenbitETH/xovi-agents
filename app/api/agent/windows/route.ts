@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { applyEmbargo } from "~~/lib/windows/embargo";
 import { SnapshotUnavailable, loadSnapshot } from "~~/lib/windows/snapshot";
+import { authorizationFrom, recordSettlement, takeFreeRead } from "~~/lib/human/cap";
 import { PaymentMisconfigured, WINDOWS_ROUTE, adapterFor, buildServer, paymentHeaderFrom } from "~~/lib/x402";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ function refuse(status: number, error: string, extra: Record<string, unknown> = 
  * attention, and declined to say what caused the motion.
  *
  * The endpoint does not claim behaviour, and the wording matters because the
- * detector cannot tell an animal from an operator's hand: the phenotype signal
+ * detector cannot tell an animal from an operator's hand: the appearance signal
  * reads the same for both. A window may contain a person.
  */
 export async function GET(request: Request) {
@@ -93,6 +94,22 @@ export async function GET(request: Request) {
     return NextResponse.json(payload, { headers: NO_STORE });
   }
 
+  // The allowance, and the reason it sits exactly here.
+  //
+  // The payer address comes out of the payload the client signed, which is client
+  // supplied data. It is trustworthy at this line and nowhere above it, because
+  // verification has happened and verification is a signature recovery against
+  // that same address: a caller who wrote somebody else's address there never got
+  // this far. Looking the human up before verifying would let anyone spend anyone
+  // else's free reads simply by naming them.
+  //
+  // A free read is served through the same branch as a read nothing was owed for,
+  // because that is what it is. The authorization is left alone and expires.
+  const authorization = authorizationFrom(result.paymentPayload);
+  if (authorization && (await takeFreeRead(authorization.from))) {
+    return NextResponse.json(payload, { headers: NO_STORE });
+  }
+
   const settled = await server.processSettlement(
     result.paymentPayload,
     result.paymentRequirements,
@@ -114,6 +131,21 @@ export async function GET(request: Request) {
       { error: "El pago no se liquidó", reason: settled.errorReason },
       { status: 402, headers: { ...settled.headers, ...NO_STORE } },
     );
+  }
+
+  // Written after the charge succeeded and never in a way that can change the
+  // answer: the caller has paid and is owed the content, so losing the bookkeeping
+  // is a smaller wrong than refusing them.
+  if (authorization) {
+    await recordSettlement({
+      nonce: authorization.nonce,
+      transactionHash: settled.transaction,
+      payer: authorization.from,
+      payTo: authorization.to,
+      amount: authorization.value,
+      network: settled.network,
+      source: "route",
+    });
   }
 
   return NextResponse.json(payload, { headers: { ...settled.headers, ...NO_STORE } });

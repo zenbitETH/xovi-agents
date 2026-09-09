@@ -33,7 +33,17 @@ async function main() {
   const result = await payingFetch(url, payer);
   console.log(`  status     ${result.status}`);
   console.log(`  payment    ${result.paymentStatus}`);
-  if (!result.settlement) throw new Error(`nothing settled: ${JSON.stringify(result.body)}`);
+  if (!result.settlement) {
+    // The likeliest cause once the cap exists is not a fault. A registered human
+    // with allowance left is served free, so this probe asks for the one thing the
+    // cap is built to prevent, and saying so here is cheaper than rediscovering it.
+    if (result.status === 200) {
+      throw new Error(
+        "200 without settlement: the payer is a registered human with allowance left. Produce the explorer evidence with HUMAN_FREE_READS_PER_DAY=0 on the endpoint, or from a payer the registry does not know",
+      );
+    }
+    throw new Error(`nothing settled: ${JSON.stringify(result.body)}`);
+  }
   console.log(`  network    ${result.settlement.network}`);
   console.log(`  tx         ${EXPLORER}${result.settlement.transaction}`);
 

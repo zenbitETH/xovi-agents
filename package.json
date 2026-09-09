@@ -10,9 +10,12 @@
     "check-types": "tsc --noEmit",
     "test": "tsx test/run.ts",
     "probe": "tsx bin/probe.ts",
-    "agent": "tsx bin/agent.ts"
+    "agent": "tsx bin/agent.ts",
+    "migrate": "tsx --env-file=.env.local scripts/migrate.ts",
+    "db:probe": "tsx --env-file=.env.local bin/db-probe.ts"
   },
   "dependencies": {
+    "@neondatabase/serverless": "1.0.2",
     "@x402/core": "2.25.0",
     "@x402/evm": "2.25.0",
     "next": "15.5.25",

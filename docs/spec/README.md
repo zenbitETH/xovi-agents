@@ -6,7 +6,9 @@ ETHOnline asks spec-driven projects to publish the artifacts that directed the w
 |---|---|
 | [`01-agent-layer.md`](./01-agent-layer.md) | The loop, the invariant, the surfaces, and the refusals each one owes |
 | [`02-candidate-windows.md`](./02-candidate-windows.md) | The shape the paid read serves, and why an embargoed window is dropped whole rather than redacted |
-| `03-*` onward | Added as each leg is specified |
+| [`03-proposal.md`](./03-proposal.md) | What a window becomes when it is proposed, and why one refusal closes a window for every candidate |
+| [`04-proof-of-human.md`](./04-proof-of-human.md) | Why a cap on an address is worth nothing, and what the registry actually says |
+| `05-*` onward | Added as each leg is specified |
 
 **How corrections are recorded.** When building overtakes a claim, the original wording stays and a dated note is appended under it. Nothing here is edited to look as though it was right the first time. A note that says an invariant is still unproven is doing its job.
 
