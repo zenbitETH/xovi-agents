@@ -59,13 +59,22 @@ export function pageChecks(check: Check) {
    * because it is a different string. Requiring the operator sentence to be
    * present is what actually holds the subject in place.
    *
-   * If the four step grid is ever cut, this sentence goes with it and the check
-   * fails. That coupling is deliberate: removing the page's only description of
-   * anchoring should be a decision someone makes, not one a green suite hides.
+   * The render is asserted alongside the sentence, and that is not belt and
+   * braces. The sentence lives in the STEPS constant, so deleting the grid's
+   * JSX while leaving the constant in place left the suite green: measured, 604
+   * bytes of JSX removed, 213 of 213 still passing. A source read cannot tell a
+   * rendered string from a dead one, so it has to be told that the constant
+   * reaches the page.
+   *
+   * What this guarantees, stated exactly: the sentence is in the source, it
+   * keeps the operator as its subject, and the constant holding it is mapped
+   * into JSX. Removing the page's only description of anchoring now fails,
+   * which is the point; it should be a decision someone makes rather than one a
+   * green suite absorbs.
    */
   check(
-    page.includes("The operator asserts") && !/becomes an EAS attestation/.test(page),
-    "174 · the anchoring sentence is present and keeps the operator as its subject",
+    page.includes("The operator asserts") && !/becomes an EAS attestation/.test(page) && page.includes("{STEPS.map("),
+    "174 · the anchoring sentence is rendered and keeps the operator as its subject",
   );
 
   /*
