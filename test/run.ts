@@ -16,12 +16,17 @@ import type { Ledger } from "../lib/agent/ledger";
 import { loadLedger, unrefused } from "../lib/agent/ledger";
 import { buildPayer, payingFetch } from "../lib/agent/pay";
 import { PROPOSAL_KEYS, UnproposableWindow, propose, toProposal } from "../lib/agent/propose";
+import { humanBehind } from "../lib/human/registry";
+import { freeReadsPerDay, utcDay } from "../lib/human/store";
 import { applyEmbargo, dropsForEmbargo, embargoedAliases } from "../lib/windows/embargo";
 import { SnapshotUnavailable, loadSnapshot } from "../lib/windows/snapshot";
 import { windowProblems } from "../lib/windows/types";
 import { PaymentMisconfigured, buildServer, paymentHeaderFrom, resetServerForTest } from "../lib/x402";
 import { startFakeFacilitator } from "./facilitator";
 import { startFakeIngest } from "./ingest";
+import { AGENT_ONE, AGENT_OTHER, AGENT_TWO, AGENT_UNREGISTERED, HUMAN_A, fakeRegistry, fakeStore } from "./human";
+import { RETENTION_DAYS, setCapForTest, takeFreeRead } from "../lib/human/cap";
+import { NoDerivationKey, deriveIdentifier } from "../lib/human/derive";
 
 let n = 0;
 let bad = 0;
@@ -403,6 +408,161 @@ async function main() {
   check(windowProblems(win({ specimenAlias: "" })).length > 0, "86 · an empty alias, which is not the same as none");
   check(windowProblems(win({ videoId: "has spaces" })).length > 0, "87 · a video id outside the character set");
   check(windowProblems(win({ specimenAlias: null })).length === 0, "88 · while a null alias is still fine (negative control)");
+
+
+  console.log("\n  the human behind the agent\n");
+
+  // What these check, and what they do not. The fake models a property of the real
+  // registry that was established by reading the deployed contract: the agent
+  // address sits in the World ID signal while the external nullifier is a contract
+  // wide constant, so one person yields one identifier across every agent they
+  // register. Check 90 proves the fake models that and the code relies on it. It is
+  // not evidence about World, and the spec says where that evidence came from.
+  const reg = fakeRegistry();
+  check(await humanBehind(AGENT_ONE, reg.read) === HUMAN_A, "89 · a registered agent resolves to its human");
+  check(await humanBehind(AGENT_TWO, reg.read) === HUMAN_A,
+    "90 · and a SECOND agent of the same person resolves to the SAME identifier, which is what a shared budget rests on");
+  check(await humanBehind(AGENT_OTHER, reg.read) !== HUMAN_A,
+    "91 · while a different person's agent does not (negative control)");
+  check(await humanBehind(AGENT_UNREGISTERED, reg.read) === null,
+    "92 · an unregistered agent is null, because the registry answers zero rather than reverting");
+
+  reg.mode = "throws";
+  check(await humanBehind(AGENT_ONE, reg.read) === null, "93 · a lookup that throws is null, never an allowance");
+  reg.mode = "hangs";
+  const before = Date.now();
+  const hung = await humanBehind(AGENT_ONE, reg.read, 50);
+  check(hung === null && Date.now() - before < 1000,
+    "94 · and one that hangs gives up on its own, inside the request rather than at the end of it");
+  reg.reset();
+  check(await humanBehind(AGENT_ONE, reg.read) === HUMAN_A, "95 · then answers again (negative control for 93 and 94)");
+
+  const store = fakeStore();
+  check(await store.tryTakeFreeRead("h", "2026-09-07", 2) === true, "95b · a free read is taken");
+  check(await store.tryTakeFreeRead("h", "2026-09-07", 2) === true, "95c · and a second, under the limit");
+  check(await store.tryTakeFreeRead("h", "2026-09-07", 2) === false, "95d · the third is refused at the limit");
+  check(store.counted === 2, "95e · and the refused one did not move the count");
+  // Zero is the switch that forces settlement so the paid read can be demonstrated
+  // by a payer who is registered, so it is the one limit that must not misbehave.
+  // The obvious database statement gets this wrong: ON CONFLICT ... WHERE guards the
+  // update and says nothing about the insert, so the first take against an empty row
+  // would succeed against a cap that forbids every read.
+  const atZero = fakeStore();
+  check(await atZero.tryTakeFreeRead("h", "d", 0) === false && atZero.counted === 0,
+    "95g · a limit of zero takes nothing, including the first one");
+  // The comparison and the increment are one step, so two takes arriving together
+  // at the limit minus one cannot both be told there is one left. Split them in the
+  // fake and this goes green in the wrong direction, which is the whole reason the
+  // interface takes the limit rather than answering how many are left.
+  const raced = fakeStore();
+  const both = await Promise.all([raced.tryTakeFreeRead("h", "d", 1), raced.tryTakeFreeRead("h", "d", 1)]);
+  check(both.filter(Boolean).length === 1 && raced.counted === 1,
+    "95f · two takes racing at the last free read yield exactly one");
+
+  const receipt = { nonce: "0xnonce", transactionHash: "0xtx", payer: "0xp", payTo: "0xr", amount: "10000", network: "eip155:84532", source: "route" as const };
+  check(await store.recordReceipt(receipt) === true, "96 · a settlement is recorded");
+  check(await store.recordReceipt(receipt) === false, "97 · and the same one again is not, so a replay is counted once");
+  check(await store.recordReceipt({ ...receipt, nonce: "0xother" }) === false,
+    "98 · a replay under a different nonce is still caught by the transaction hash");
+  check(await store.recordReceipt({ ...receipt, nonce: "0xother", transactionHash: "0xother" }) === true,
+    "99 · while a genuinely different settlement is recorded (negative control)");
+  check(store.receipts.length === 2, "100 · so two rows exist after four attempts");
+
+  check(utcDay(new Date("2026-09-07T23:59:59Z")) === "2026-09-07" && utcDay(new Date("2026-09-08T00:00:01Z")) === "2026-09-08",
+    "101 · the window turns over at UTC midnight, not at whoever is watching");
+  check(freeReadsPerDay({}) === 20 && freeReadsPerDay({ HUMAN_FREE_READS_PER_DAY: "3" }) === 3,
+    "102 · the free count has a default and can be turned down for a demo");
+  check(freeReadsPerDay({ HUMAN_FREE_READS_PER_DAY: "banana" }) === 20 && freeReadsPerDay({ HUMAN_FREE_READS_PER_DAY: "-1" }) === 20,
+    "103 · and a value that is not a count falls back rather than becoming one");
+
+
+  console.log("\n  one human, one cap, through the route\n");
+
+  const fac2 = await startFakeFacilitator();
+  const seen2: Response[] = [];
+  const routeFetch2: typeof fetch = async (input, init) => {
+    const u = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const res = await GET(new Request(u, init));
+    seen2.push(res.clone());
+    return res;
+  };
+  process.env.X402_PAY_TO = PAY_TO;
+  process.env.X402_NETWORK = "eip155:84532";
+  process.env.X402_FACILITATOR_URL = fac2.url;
+  process.env.X402_PRICE = "$0.01";
+  process.env.WINDOWS_SNAPSHOT = "fixtures/windows.synthetic.jsonl";
+  // Obviously not a real key. Without one there is no derivation, so there is no
+  // allowance and every read settles, which is checked separately below.
+  process.env.HUMAN_ID_KEY = "0".repeat(64);
+  resetServerForTest();
+  fac2.reset();
+
+  // Two payers, two keys, both belonging to one person in the registry. That is
+  // the whole of criterion two and it cannot be checked with one keypair.
+  const payerA = buildPayer({ AGENT_PRIVATE_KEY: `0x${"a1".repeat(32)}` });
+  const payerB = buildPayer({ AGENT_PRIVATE_KEY: `0x${"b2".repeat(32)}` });
+  check(payerA.address !== payerB.address, "104 · the two agents are different addresses (negative control)");
+  const capStore = fakeStore();
+  setCapForTest({
+    registry: fakeRegistry({ [payerA.address]: HUMAN_A, [payerB.address]: HUMAN_A }).read,
+    store: capStore,
+    freePerDay: 2,
+  });
+
+  const free1 = await payingFetch(ROUTE_URL, payerA, routeFetch2);
+  const free2 = await payingFetch(ROUTE_URL, payerA, routeFetch2);
+  check(free1.status === 200 && free2.status === 200, "105 · a verified human's reads are served");
+  check(fac2.hits.settle === 0, "106 · and nothing settled, so the allowance really is free");
+  check(capStore.counted === 2, "107 · two free reads are counted against the human, not the address");
+
+  const third = await payingFetch(ROUTE_URL, payerB, routeFetch2);
+  check(third.status === 200, "108 · the second agent is still served");
+  check(
+    fac2.hits.settle === 1,
+    "109 · but it SETTLES, because the budget belongs to the human and the first agent already spent it",
+  );
+  check(capStore.receipts.length === 1 && capStore.receipts[0].source === "route",
+    "110 · and the settlement leaves exactly one receipt");
+  check(capStore.counted === 2, "111 · a paid read adds nothing to the free count (negative control for 107)");
+
+  // A payer the registry does not know pays like anyone else.
+  const stranger = buildPayer({ AGENT_PRIVATE_KEY: `0x${"c3".repeat(32)}` });
+  const before2 = fac2.hits.settle;
+  const strangerRead = await payingFetch(ROUTE_URL, stranger, routeFetch2);
+  check(strangerRead.status === 200 && fac2.hits.settle === before2 + 1,
+    "112 · an agent nobody has registered settles every time, which is the rail this was laid on");
+
+  setCapForTest(null);
+  await fac2.close();
+  void seen2;
+
+
+  console.log("\n  what the table is allowed to hold\n");
+
+  const DKEY = { HUMAN_ID_KEY: "a".repeat(64) };
+  const raw = 111111111111111111111111n;
+  const digest = deriveIdentifier(raw, DKEY);
+  check(digest !== raw.toString(), "119 · what is stored is not the identifier");
+  check(!raw.toString().startsWith(digest) && !digest.startsWith(raw.toString()),
+    "120 · and is not a prefix of it either, so it cannot be matched by truncation");
+  check(/^[0-9a-f]{64}$/.test(digest), "121 · it is a fixed width lowercase hex digest, so its length says nothing");
+  check(deriveIdentifier(raw, DKEY) === digest,
+    "122 · the derivation is deterministic, which is what keeps two agents of one person on one row");
+  check(deriveIdentifier(raw, { HUMAN_ID_KEY: "b".repeat(64) }) !== digest,
+    "123 · and it is keyed, so the same person derives differently under a different key");
+  let noKey = false;
+  try { deriveIdentifier(raw, {}); } catch (e) { noKey = e instanceof NoDerivationKey; }
+  check(noKey, "124 · a missing key throws rather than falling back to storing the identifier");
+  check(await takeFreeRead("0x1", { HUMAN_ID_KEY: "" }, new Date()) === false,
+    "125 · and with no key nothing is taken, so every read settles");
+
+  const kept = fakeStore();
+  const today = new Date("2026-09-08T12:00:00Z");
+  await kept.tryTakeFreeRead("d", "2026-09-08", 5);
+  await kept.tryTakeFreeRead("d", "2026-07-01", 5);
+  check(kept.counted === 2, "126 · two days of usage exist (negative control)");
+  await kept.forgetOlderThan(RETENTION_DAYS, today);
+  check(kept.counted === 1, `127 · and the one past ${RETENTION_DAYS} days is forgotten, without a scheduler`);
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;
