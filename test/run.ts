@@ -27,6 +27,7 @@ import { startFakeIngest } from "./ingest";
 import { AGENT_ONE, AGENT_OTHER, AGENT_TWO, AGENT_UNREGISTERED, HUMAN_A, fakeRegistry, fakeStore } from "./human";
 import { RETENTION_DAYS, setCapForTest, takeFreeRead } from "../lib/human/cap";
 import { NoDerivationKey, deriveIdentifier } from "../lib/human/derive";
+import { anchorChecks } from "./anchor";
 
 let n = 0;
 let bad = 0;
@@ -563,6 +564,8 @@ async function main() {
   check(kept.counted === 2, "126 · two days of usage exist (negative control)");
   await kept.forgetOlderThan(RETENTION_DAYS, today);
   check(kept.counted === 1, `127 · and the one past ${RETENTION_DAYS} days is forgotten, without a scheduler`);
+
+  await anchorChecks(check);
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;
