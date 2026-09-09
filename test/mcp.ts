@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { MCP_PAYMENT_META_KEY, MCP_PAYMENT_REQUIRED_CODE, MCP_PAYMENT_RESPONSE_META_KEY } from "@x402/mcp";
-import { TOOL_NAME, atomicAmount, recordMcpSettlement } from "../lib/mcp/server";
+import { TOOL_NAME, atomicAmount, receiptFrom, recordMcpSettlement } from "../lib/mcp/server";
 import type { Receipt } from "../lib/human/store";
 
 type Check = (ok: boolean, label: string) => void;
@@ -54,6 +54,17 @@ export async function mcpChecks(check: Check) {
   check(await recordMcpSettlement({}, authPayload, "eip155:84532", fakeRecord) === false,
     "152f · and a settlement with no transaction writes nothing either");
   check(written.length === 1, "152g · so the ledger still holds exactly the one real receipt");
+
+  // Where the receipt actually is, pinned. The server attaches it to metadata and
+  // the paying client consumes that and re-exposes it, so the exported metadata
+  // helper returns null on a call that settled. A client reading only the helper
+  // prints "no receipt" for a payment that happened.
+  check(receiptFrom({ paymentResponse: { transaction: "0xabc", network: "eip155:84532" } })?.transaction === "0xabc",
+    "152h · the receipt is read from the client's own field, which is where a paid call puts it (seen to fail)");
+  check(receiptFrom({ _meta: { "x402/payment-response": { transaction: "0xdef" } } })?.transaction === "0xdef",
+    "152i · and from metadata too, for a raw result the client never touched");
+  check(receiptFrom({ content: [] }) === null && receiptFrom({ paymentResponse: {} }) === null,
+    "152j · and a call that settled nothing reports nothing rather than an empty object");
 
   const client = new Client({ name: "suite", version: "0" });
   await client.connect(

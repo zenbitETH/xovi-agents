@@ -193,3 +193,28 @@ export function registerObservationsTool(
     handler,
   );
 }
+
+/**
+ * The receipt for a paid tool call, from wherever this client actually puts it.
+ *
+ * Measured, and the measurement contradicted the obvious reading. The server
+ * attaches the settlement to the result's metadata under the response key, and the
+ * exported `extractPaymentResponseFromMeta` reads exactly that. But the paying
+ * client CONSUMES the metadata on the way through and re-exposes the settlement as
+ * `paymentResponse`, so the result a caller holds has no metadata at all and the
+ * exported helper returns null on a call that settled perfectly well.
+ *
+ * A client reading only the helper reports "no receipt" for a payment that
+ * happened, which is the worst possible thing to print on camera: the money moved
+ * and the screen says it did not. Both are read here, the client's field first,
+ * because that is the one this client fills.
+ */
+export function receiptFrom(result: unknown): { transaction?: string; network?: string; payer?: string } | null {
+  const r = (result ?? {}) as {
+    paymentResponse?: { transaction?: string; network?: string; payer?: string };
+    _meta?: Record<string, unknown>;
+  };
+  if (r.paymentResponse?.transaction) return r.paymentResponse;
+  const fromMeta = r._meta?.["x402/payment-response"] as { transaction?: string } | undefined;
+  return fromMeta?.transaction ? fromMeta : null;
+}

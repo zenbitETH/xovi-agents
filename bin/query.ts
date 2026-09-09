@@ -13,10 +13,11 @@
  * arrived.
  */
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
-import { MCP_PAYMENT_RESPONSE_META_KEY, createx402MCPClient, extractPaymentResponseFromMeta } from "@x402/mcp";
+import { createx402MCPClient } from "@x402/mcp";
 import { privateKeyToAccount } from "viem/accounts";
-import { TOOL_NAME } from "../lib/mcp/server";
+import { TOOL_NAME, receiptFrom } from "../lib/mcp/server";
 import { readConfig } from "../lib/x402";
 
 function arg(name: string, fallback: string): string {
@@ -50,9 +51,16 @@ async function main() {
     },
   });
 
-  // Spawned rather than reached over a socket, so the demo needs no second
-  // terminal and the server's stderr lands beside the client's output.
-  const transport = new StdioClientTransport({ command: "npx", args: ["tsx", "bin/mcp-server.ts"] });
+  // Two transports, one client. `--url` reaches a deployed route, which is the path
+  // a judge takes; with no url the server is spawned here, so the local demo needs
+  // no second terminal and the server's stderr lands beside the client's output.
+  // The payment is identical either way: it is signed by this key and settled by
+  // the facilitator, and a transport moves bytes.
+  const url = process.argv.includes("--url") ? arg("--url", "") : "";
+  if (url) console.log(`  over http: ${url}`);
+  const transport = url
+    ? new StreamableHTTPClientTransport(new URL(url))
+    : new StdioClientTransport({ command: "npx", args: ["tsx", "bin/mcp-server.ts"] });
   await client.connect(transport);
 
   const tools = await client.listTools();
@@ -60,9 +68,9 @@ async function main() {
 
   const result = await client.callTool(TOOL_NAME, { limit: Number(arg("--limit", "3")) });
 
-  const receipt = extractPaymentResponseFromMeta(result);
-  console.log(`\n  receipt in _meta["${MCP_PAYMENT_RESPONSE_META_KEY}"]: ${receipt ? "yes" : "no"}`);
-  if (receipt) console.log(`  settlement: ${JSON.stringify(receipt)}`);
+  const receipt = receiptFrom(result);
+  console.log(`\n  settled: ${receipt ? "yes" : "no"}`);
+  if (receipt) console.log(`  transaction: ${receipt.transaction} on ${receipt.network}`);
   for (const c of result.content ?? []) {
     if (c.type === "text" && typeof c.text === "string") console.log(`\n${c.text}`);
   }
