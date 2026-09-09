@@ -527,11 +527,41 @@ body::after {
 
 .ag-feed-dot {
   flex: 0 0 auto;
-  width: 0.5rem;
-  height: 0.5rem;
-  margin-top: 0.45rem;
+  width: 0.375rem;
+  height: 0.375rem;
+  margin-top: 0.5rem;
   border-radius: 9999rem;
-  background-color: currentColor;
+  /* Overridden per actor below. currentColor would have tied the marker to the
+     tone, which is the axis it exists to be independent of. */
+  background-color: color-mix(in oklab, var(--color-base-content) 35%, transparent);
+}
+
+/* The key, two words and two dots. Without it a reader has to infer the
+   semantic from the sequence; with it the first line already means something. */
+.ag-key {
+  display: flex;
+  gap: 0.875rem;
+  align-items: center;
+  margin-top: 0.375rem;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  opacity: 0.75;
+}
+.ag-key span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.ag-key i {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999rem;
+}
+.ag-key-human {
+  background-color: var(--color-primary);
+}
+.ag-key-agent {
+  background-color: var(--color-xv-gold);
 }
 
 .ag-feed-text {
@@ -549,11 +579,37 @@ body::after {
   overflow-wrap: anywhere;
 }
 
-/* Teal is the resting good state, matching the status semantic already in use.
-   Gold is not spent here: it belongs to the reader's own action, which is the
-   button, and a run reporting itself is not the reader acting. */
+/* ---------------------------------------------------------------------------
+   Two axes on one row, and they must not be read as one.
+
+   The MARKER carries whose activity a line is: teal for the person, gold for the
+   agent. This feed is the one surface showing both interleaved, and it only
+   reads as a story if they are told apart at a glance.
+
+   The TEXT carries how the run is going, and it never uses teal, so teal in this
+   feed means a person and nothing else. That is why the good state below is
+   plain base-content rather than the primary it used to be.
+
+   The collision: gold already means "this control is active" (Xovi
+   globals.css:570), and the toolbar in the same viewport is a gold button. The
+   marker is 0.375rem, has no shadow, no border and no hit area, and never sits
+   on a background; the button is a filled pill with a shadow and a label. If the
+   two ever read alike, this marker is the one that changes.
+--------------------------------------------------------------------------- */
+.ag-actor-human .ag-feed-dot {
+  background-color: var(--color-primary);
+}
+.ag-actor-agent .ag-feed-dot {
+  background-color: var(--color-xv-gold);
+}
+/* Only the terminator. Neither party did this, and spending a semantic colour on
+   "the run ended" would dilute both. */
+.ag-actor-system .ag-feed-dot {
+  background-color: color-mix(in oklab, var(--color-base-content) 35%, transparent);
+}
+
 .ag-tone-good {
-  color: var(--color-primary);
+  color: var(--color-base-content);
 }
 .ag-tone-working {
   color: color-mix(in oklab, var(--color-base-content) 78%, transparent);

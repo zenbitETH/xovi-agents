@@ -14,53 +14,77 @@ const REPO = "https://github.com/zenbitETH/xovi-agents";
  * switch is exhaustive and the compiler says so. Nothing here interpolates a
  * value the step does not carry, because the step is where the decision about
  * what may be published was already made.
+ *
+ * Two independent axes, deliberately not folded into one.
+ *
+ * `actor` says whose activity a line is, and it is the only thing that carries
+ * colour: teal for the person, gold for the agent. This feed is the one surface
+ * in the project showing both interleaved, which is the thing the app exists to
+ * make legible, and it reads as a story only if the two are told apart at a
+ * glance rather than by reading.
+ *
+ * `tone` says how the run is going, and it never uses teal, so teal in this feed
+ * means a person and nothing else.
+ *
+ * The collision to design around: gold already means "this control is active"
+ * (globals.css:570), and the toolbar button in the same viewport is a gold
+ * control. So the actor marker is a 0.5rem dot with no shadow and no hit area,
+ * and the button stays an obvious pill. If they ever read alike, the dot changes.
  */
-type Line = { text: string; detail?: string; tone: "working" | "good" | "stopped" };
+export type Actor = "human" | "agent" | "system";
+export type Line = { text: string; detail?: string; tone: "working" | "good" | "stopped"; actor: Actor };
 
-function lineFor(step: RunStep): Line {
+export function lineFor(step: RunStep): Line {
   switch (step.step) {
     case "presenting":
-      return { text: "Presenting the signed authorization", tone: "working" };
+      return { text: "Presenting the signed authorization", tone: "working", actor: "agent" };
     case "payment-refused":
-      return { text: "The paid route refused the payment", detail: step.detail, tone: "stopped" };
+      return { text: "The paid route refused the payment", detail: step.detail, tone: "stopped", actor: "agent" };
     case "unavailable":
-      return { text: "The route cannot serve right now", detail: step.detail, tone: "stopped" };
+      return { text: "The route cannot serve right now", detail: step.detail, tone: "stopped", actor: "agent" };
     case "paid":
       return step.free
-        ? { text: "Served under the free daily allowance", detail: "nothing was charged for this read", tone: "good" }
+        ? { text: "Served under the free daily allowance", detail: "nothing was charged for this read", tone: "good", actor: "agent" }
         : {
             text: "Payment settled",
             detail: step.transaction ? `${step.transaction} on ${step.network}` : "settled without a receipt",
             tone: "good",
+            actor: "agent",
           };
     case "read":
-      return { text: `Read ${step.served} candidate window${step.served === 1 ? "" : "s"}`, tone: "working" };
+      return { text: `Read ${step.served} candidate window${step.served === 1 ? "" : "s"}`, tone: "working", actor: "agent" };
     case "selected":
       return {
         text: `Chose window ${step.windowId}`,
         detail: `${step.durationSeconds}s of stream, confidence ${step.confidence}`,
         tone: "working",
+        actor: "agent",
       };
     case "nothing-proposable":
       return {
         text: "Nothing served could become a proposal",
         detail: `${step.considered} window${step.considered === 1 ? "" : "s"} considered`,
         tone: "stopped",
+        actor: "agent",
       };
     case "proposing":
-      return { text: "Submitting the proposal", tone: "working" };
+      return { text: "Submitting the proposal", tone: "working", actor: "agent" };
     case "proposed":
-      return { text: `Proposed as clip ${step.id}`, detail: `status ${step.status}`, tone: "good" };
+      return { text: `Proposed as clip ${step.id}`, detail: `status ${step.status}`, tone: "good", actor: "agent" };
     case "declined":
       return {
         text: `The proposal was declined: ${step.kind}`,
         detail: step.status === undefined ? step.detail : `${step.detail} (HTTP ${step.status})`,
         tone: "stopped",
+        // A rejection is the one refusal that is a person's judgement rather than
+        // a machine's answer: someone looked at this window and said no. It is
+        // marked as their activity, which is the whole point of the two colours.
+        actor: step.kind === "rejected" ? "human" : "agent",
       };
     case "not-submitted":
-      return { text: "Stopped before submitting", detail: step.detail, tone: "stopped" };
+      return { text: "Stopped before submitting", detail: step.detail, tone: "stopped", actor: "agent" };
     case "done":
-      return { text: "Run finished", tone: "good" };
+      return { text: "Run finished", tone: "good", actor: "system" };
   }
 }
 
@@ -135,10 +159,10 @@ export function AppShell() {
     setPhase("signing");
     try {
       const windowsUrl = new URL("/api/agent/windows", window.location.origin).toString();
-      say({ text: "Reading the live payment challenge", tone: "working" });
+      say({ text: "Reading the live payment challenge", tone: "working", actor: "agent" });
       const signed = await signChallenge(windowsUrl, address);
-      say({ text: `The server asks ${signed.amount}`, detail: `to ${signed.payTo} on ${signed.network}`, tone: "working" });
-      say({ text: "Authorization signed in your wallet", detail: "nothing has moved yet", tone: "good" });
+      say({ text: `The server asks ${signed.amount}`, detail: `to ${signed.payTo} on ${signed.network}`, tone: "working", actor: "agent" });
+      say({ text: "Authorization signed in your wallet", detail: "nothing has moved yet", tone: "good", actor: "human" });
 
       setPhase("running");
       const response = await fetch("/api/agent/run", { method: "POST", headers: signed.headers });
@@ -197,6 +221,16 @@ export function AppShell() {
                 ? "Connect a wallet, pay for one read, and the agent does the rest."
                 : `${address.slice(0, 6)}…${address.slice(-4)} · ${PHASE_LABEL[phase]}`}
             </p>
+            <p className="ag-key">
+              <span>
+                <i className="ag-key-human" aria-hidden="true" />
+                you
+              </span>
+              <span>
+                <i className="ag-key-agent" aria-hidden="true" />
+                agent
+              </span>
+            </p>
           </div>
 
           <div className="ag-app-body">
@@ -210,7 +244,7 @@ export function AppShell() {
               ) : (
                 <ol className="ag-feed">
                   {lines.map((line, i) => (
-                    <li key={i} className={`ag-feed-row ag-tone-${line.tone}`}>
+                    <li key={i} className={`ag-feed-row ag-tone-${line.tone} ag-actor-${line.actor}`}>
                       <span className="ag-feed-dot" aria-hidden="true" />
                       <span>
                         <span className="ag-feed-text">{line.text}</span>
@@ -218,7 +252,7 @@ export function AppShell() {
                       </span>
                     </li>
                   ))}
-                  <li ref={feedEnd} className={`ag-feed-row ag-tone-working${running ? "" : " ag-feed-hidden"}`}>
+                  <li ref={feedEnd} className={`ag-feed-row ag-tone-working ag-actor-agent${running ? "" : " ag-feed-hidden"}`}>
                     <span className="ag-feed-dot ag-feed-pulse" aria-hidden="true" />
                     <span className="ag-feed-text ag-feed-waiting">working</span>
                   </li>
