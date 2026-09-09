@@ -1,0 +1,760 @@
+/* ---------------------------------------------------------------------------
+   Xovi's design system, ported into a repository that has no Tailwind and no
+   daisyUI. Source: Xovi packages/nextjs/styles/globals.css, with the line of
+   origin noted per block. Nothing here is invented. The palette, the
+   atmosphere, the clay surface, the gold action and the type scale are
+   Zenbit's own, authored in Xovi and copied across.
+
+   Three deliberate differences, each local to this repository.
+
+   1. The tokens sit on bare :root. In Xovi they sit under [data-theme=dark],
+      because daisyUI needs a theme selector and next-themes stamps it. Neither
+      package is installed here, so a verbatim copy would define no palette at
+      all and the page would render on the browser default.
+   2. There is no .xv-glass and no backdrop-filter anywhere on this page. Glass
+      is Xovi's surface for panes floating over video, 19 usages against clay's
+      55, and nothing floats here. Leaving it out takes the Lightning CSS prefix
+      collapse, the @supports fallback that cannot rescue it, the
+      prefers-reduced-transparency twin and the fixed-descendant containing
+      block out of scope by construction rather than by care. Anyone adding it
+      later declares backdrop-filter ONCE, unprefixed, and then reads
+      .next/static/css to confirm both forms shipped.
+   3. Xovi's global `p { margin: 1rem 0 }` is not carried, and neither is the
+      `m-0` habit that exists only to cancel it. Carrying one without the other
+      changes every vertical rhythm. Paragraph spacing is set once, below.
+
+   The hand written -webkit-mask-image twin in body::after IS kept. Masks are a
+   different property from backdrop-filter and are not subject to that collapse.
+--------------------------------------------------------------------------- */
+
+:root {
+  /* daisyUI "dark" palette, Xovi globals.css:46-64. accent and success are
+     carried because the aurora mesh mixes both, not because text uses them. */
+  --color-primary: #009c9c;
+  --color-primary-content: #071f29;
+  --color-secondary: #e85d75;
+  --color-accent: #d4925f;
+  --color-neutral: #4a3628;
+  --color-base-100: #0a3b49;
+  --color-base-200: #071f29;
+  --color-base-300: #0e4555;
+  --color-base-content: #f4e8c8;
+  --color-info: #3b87b3;
+  --color-success: #34eeb6;
+  --color-warning: #ffcf72;
+  --color-error: #ff8863;
+
+  /* Action gold, Xovi globals.css:26-30. Gold marks the ACTIVE control, which on
+     this page is the one button in the toolbar and its focus ring. */
+  --color-xv-gold: #f8c471;
+
+  /* Agent activity. A token rather than a literal because the same hue now
+     carries the same meaning in two repositories and must not drift between
+     them.
+
+     Contrast measured against the surface it is actually used on, which is not
+     the one the guidance assumed. This app's card paints base-100, not the page
+     ground base-200, because it ports .xv-aquarium. So this hue sits at 4.13
+     here rather than 5.79: comfortably over the 3:1 that non-text UI needs, and
+     under the 4.5 that text needs. It marks and it never letters. Teal, the
+     human marker, is 3.59 on the same ground and lives under the same rule. */
+  --color-xv-agent: #c58a5a;
+
+  /* Xovi globals.css:66-69. Boxes round up to 1.5rem so their corners echo the
+     fully pill buttons, and the two radii read as one family. */
+  --radius-field: 1rem;
+  --radius-box: 1.5rem;
+
+  /* Xovi globals.css:16-20, two of the four. The drawer and bounce tokens are
+     not copied: nothing on this page opens or overshoots. */
+  --xv-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --xv-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  /* Xovi keeps this in three places that must be edited together. Here it is
+     declared once and the header reads it, so there is nothing to desync. */
+  --xv-header-h: 4rem;
+
+  --xv-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  background-color: var(--color-base-200);
+  color-scheme: dark;
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --xv-header-h: 4.5rem;
+  }
+}
+
+*,
+::before,
+::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Type base, Xovi globals.css:39 and :96-116. Baloo 2 is the default face and
+   Montserrat is opt in through .xv-desc, which is Xovi's most used bespoke
+   class at 133 usages. */
+body {
+  margin: 0;
+  background-color: var(--color-base-200);
+  color: var(--color-base-content);
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+
+@media (min-width: 768px) {
+  body {
+    font-size: 1rem;
+  }
+}
+
+/* Responsive heading scale, Xovi globals.css:130-162. Baloo 2 sits large, so
+   line-height 1.1 rather than 1, which clipped descenders. */
+h1,
+h2,
+h3 {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-weight: 700;
+  line-height: 1.1;
+}
+h1 {
+  font-size: 1.75rem;
+}
+h2 {
+  font-size: 1.375rem;
+}
+h3 {
+  font-size: 1.125rem;
+}
+
+@media (min-width: 768px) {
+  h1 {
+    font-size: 2.25rem;
+  }
+  h2 {
+    font-size: 1.625rem;
+  }
+  h3 {
+    font-size: 1.25rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  h1 {
+    font-size: 2.75rem;
+  }
+  h2 {
+    font-size: 1.875rem;
+  }
+  h3 {
+    font-size: 1.375rem;
+  }
+}
+
+p {
+  margin: 0 0 0.75rem;
+}
+p:last-child {
+  margin-bottom: 0;
+}
+
+a {
+  color: inherit;
+}
+
+code,
+pre {
+  font-family: var(--xv-mono);
+}
+
+/* Tailwind v4 ships buttons with the default cursor and Xovi restores it,
+   globals.css:120-129. Kept because the links here are styled as buttons. */
+button:not(:disabled),
+[role="button"],
+label[for],
+summary {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------------
+   Atmosphere. Two fixed pseudo elements on body, Xovi globals.css:191-248,
+   copied verbatim: (1) a teal, mint and copper light mesh that drifts and
+   breathes, (2) soft diagonal god rays sweeping across it, masked to fade
+   before the floor. Both are transform and opacity only, oversized so motion
+   never reveals an edge. Every page wrapper above them must stay transparent
+   or a seam appears at the header edge (PageShell.tsx:35-38).
+--------------------------------------------------------------------------- */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -12%;
+  z-index: -2;
+  pointer-events: none;
+  background-color: var(--color-base-200);
+  background-image:
+    radial-gradient(ellipse 95% 65% at 50% -14%, color-mix(in oklab, var(--color-primary) 58%, transparent), transparent 64%),
+    radial-gradient(ellipse 78% 62% at 114% -6%, color-mix(in oklab, var(--color-success) 40%, transparent), transparent 58%),
+    radial-gradient(ellipse 88% 74% at -12% 114%, color-mix(in oklab, var(--color-accent) 36%, transparent), transparent 62%),
+    radial-gradient(ellipse 70% 55% at 50% 122%, color-mix(in oklab, black 45%, transparent), transparent 60%);
+  will-change: transform;
+  animation: xvAurora 32s var(--xv-ease-in-out) infinite alternate;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: -25%;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.5;
+  /* Two ray sets at different spacings and angles, so the bright zones never
+     line up into an even comb; the heavy blur turns hard stripes into soft
+     shafts. Faint, wide and irregular, natural rather than a barcode. */
+  background-image:
+    repeating-linear-gradient(
+      99deg,
+      transparent 0 120px,
+      color-mix(in oklab, #dbf4ee 7%, transparent) 178px,
+      transparent 250px,
+      transparent 430px
+    ),
+    repeating-linear-gradient(
+      95deg,
+      transparent 0 210px,
+      color-mix(in oklab, #cdeee7 5%, transparent) 270px,
+      transparent 360px,
+      transparent 620px
+    );
+  filter: blur(18px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 24%, black 48%, transparent 84%);
+  mask-image: linear-gradient(to bottom, transparent, black 24%, black 48%, transparent 84%);
+  will-change: transform, opacity;
+  animation: xvRays 46s var(--xv-ease-in-out) infinite alternate;
+}
+
+@keyframes xvAurora {
+  0% {
+    transform: translate3d(-1.5%, -1%, 0) scale(1.01);
+  }
+  100% {
+    transform: translate3d(1.5%, 1.5%, 0) scale(1.06);
+  }
+}
+
+@keyframes xvRays {
+  0% {
+    transform: translate3d(-2%, 0, 0) rotate(-0.4deg);
+    opacity: 0.32;
+  }
+  100% {
+    transform: translate3d(1.5%, 0, 0) rotate(0.4deg);
+    opacity: 0.5;
+  }
+}
+
+@keyframes xvFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* BOTH of Xovi's reduced motion rules, globals.css:249 and :605-618. The
+   dedicated one stops the two background layers outright; the global clamp
+   collapses everything else. Copying only the clamp would let the aurora and
+   the rays animate once and then freeze mid drift. */
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  body::after {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Surfaces and actions, copied from Xovi.
+--------------------------------------------------------------------------- */
+
+/* Claymorphic soft 3D surface, globals.css:487-494: light top edge over a soft
+   double drop shadow. Background agnostic, so it is always paired with an
+   explicit base-200 fill, as it is in Xovi (36 of 125 card usages). */
+.xv-clay {
+  box-shadow:
+    inset 0 1px 0 0 color-mix(in oklab, white 16%, transparent),
+    0 12px 28px -14px rgb(0 0 0 / 0.55),
+    0 3px 8px -3px rgb(0 0 0 / 0.3);
+}
+
+/* Montserrat, globals.css:565-568. Secondary descriptions, captions and helper
+   text only; primary text stays on Baloo 2. */
+.xv-desc {
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+/* .btn is a full pill everywhere in Xovi, globals.css:310-317. Xovi writes the
+   shadow as @apply shadow-md; with no Tailwind here it is written out. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 9999rem;
+  padding: 0.55rem 1.25rem;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  text-decoration: none;
+  box-shadow:
+    0 4px 6px -1px rgb(0 0 0 / 0.1),
+    0 2px 4px -2px rgb(0 0 0 / 0.1);
+  transition:
+    background-color 150ms var(--xv-ease-out),
+    border-color 150ms var(--xv-ease-out);
+}
+
+/* Palette semantics, stated in Xovi globals.css:570-575 and kept here: warm gold
+   marks the reader's own action, teal is the resting state of navigation. In
+   Xovi these rules are deliberately unlayered so they beat daisyUI's .btn
+   fills; there is no daisyUI here, and they are still unlayered so a later
+   addition cannot take the gold away silently. */
+.xv-action {
+  background-color: var(--color-xv-gold);
+  color: var(--color-base-100);
+  border-color: var(--color-xv-gold);
+}
+.xv-action:hover {
+  background-color: #f6bd5e;
+  border-color: #f6bd5e;
+}
+.xv-action-outline {
+  background-color: transparent;
+  border-color: var(--color-xv-gold);
+  color: var(--color-xv-gold);
+}
+.xv-action-outline:hover {
+  background-color: color-mix(in oklab, var(--color-xv-gold) 15%, transparent);
+}
+.xv-action:focus-visible,
+.xv-action-outline:focus-visible,
+.ag-link:focus-visible {
+  outline: 2px solid var(--color-xv-gold);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   Header. Restored: the layout rewrite replaced the whole page-layout block and
+   took these with it, leaving every class the header renders with no rule at
+   all. The mark then had no width and no height, and an inline SVG carrying only
+   a viewBox scales to its container, so it grew to the header's full width and
+   pushed the app below the fold. The flex-chain guard passed throughout, because
+   it checks the container and an unconstrained child breaks a container from the
+   inside.
+--------------------------------------------------------------------------- */
+
+/* Header.tsx:144 geometry. Xovi frosts this into .xv-glass past scrollY 4,
+   which needs a client component; this page ships none, so it stays clear.
+   The height is the same token the app subtracts, so the two cannot disagree. */
+.ag-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  height: var(--xv-header-h);
+  flex-shrink: 0;
+  align-items: center;
+}
+.ag-header-inner {
+  display: flex;
+  width: 100%;
+  max-width: 48rem;
+  margin-inline: auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-inline: 1rem;
+}
+@media (min-width: 1024px) {
+  .ag-header-inner {
+    max-width: 80rem;
+  }
+}
+.ag-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+}
+/* Header.tsx:176 lockup: the mark beside the wordmark. Both dimensions are set,
+   and flex-shrink is pinned, because a flex item with an intrinsic aspect ratio
+   and no width is the thing that broke this page. */
+.ag-brand svg {
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+}
+.ag-wordmark {
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 1.75rem;
+  line-height: 1;
+}
+@media (min-width: 768px) {
+  .ag-brand svg {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+  .ag-wordmark {
+    font-size: 2.25rem;
+  }
+}
+.ag-wordmark-sub {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.ag-key i {
+  flex: 0 0 auto;
+}
+
+/* ---------------------------------------------------------------------------
+   App layout, ported from Xovi's home route.
+
+   Xovi's home is a full viewport HUD: app/page.tsx renders <ClipHud /> and
+   nothing else, the shell owns 100dvh minus the header, and the global footer
+   hides itself there because an in flow footer would force a scrollbar. The
+   same shape is used here, with the Tailwind utilities from ClipHud.tsx:422 and
+   :430 written out, since there is no Tailwind in this repository.
+
+   min-h-0 appears at every level of the flex chain and is load bearing. Without
+   it a flex child refuses to shrink below its content and the whole column
+   overflows the viewport instead of the one scrollable region scrolling inside
+   itself, which is the usual way this layout is ported wrong.
+--------------------------------------------------------------------------- */
+
+/* ClipHud.tsx:422. One viewport minus the header, and it does not scroll. */
+.ag-app {
+  margin-inline: auto;
+  display: flex;
+  height: calc(100dvh - var(--xv-header-h));
+  min-height: 0;
+  width: 100%;
+  max-width: 48rem;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0.5rem 0.75rem 0;
+}
+@media (min-width: 640px) {
+  .ag-app {
+    padding-inline: 1rem;
+  }
+}
+@media (min-width: 1024px) {
+  .ag-app {
+    max-width: 80rem;
+  }
+}
+
+/* ClipHud.tsx:430, the card the app lives on. The clay shadow is written out
+   with the hairline ring folded into the same declaration, because box-shadow
+   does not compose across two classes and the last one would win. */
+.ag-surface {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  border-radius: var(--radius-box);
+  padding: 0.5rem;
+  background-color: var(--color-base-100);
+  background-image:
+    radial-gradient(ellipse 95% 75% at 50% -20%, color-mix(in oklab, var(--color-primary) 24%, transparent), transparent 62%),
+    radial-gradient(ellipse 75% 60% at 110% 8%, color-mix(in oklab, var(--color-success) 12%, transparent), transparent 55%),
+    radial-gradient(ellipse 85% 70% at -12% 112%, color-mix(in oklab, var(--color-accent) 10%, transparent), transparent 60%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--color-base-content) 10%, transparent),
+    inset 0 1px 0 0 color-mix(in oklab, white 16%, transparent),
+    0 12px 28px -14px rgb(0 0 0 / 0.55),
+    0 3px 8px -3px rgb(0 0 0 / 0.3);
+  animation: xvFadeUp 320ms var(--xv-ease-out) 70ms backwards;
+}
+
+/* Top: never grows, never scrolls away. ClipHud.tsx:434. */
+.ag-app-top {
+  position: relative;
+  z-index: 20;
+  flex-shrink: 0;
+  padding: 0 0.25rem 0.5rem;
+}
+
+/* Body: the only region that scrolls, and it scrolls inside itself.
+   ClipHud.tsx:449 for the column, PanelRegion.tsx:42 for the scroll. */
+.ag-app-body {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+.ag-app-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  /* So a scroll that reaches the end does not start scrolling the page behind
+     it, which on a viewport sized app reads as the whole thing coming loose. */
+  overscroll-behavior: contain;
+  padding-inline: 0.25rem;
+}
+
+/* Bottom: the toolbar, always reachable. ClipHud.tsx:471. */
+.ag-app-bottom {
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+  padding: 0.625rem 0.25rem 0.25rem;
+  border-top: 1px solid color-mix(in oklab, var(--color-base-content) 10%, transparent);
+}
+
+.ag-mono {
+  font-family: var(--xv-mono);
+  font-size: 0.8125rem;
+}
+
+.ag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ag-eyebrow {
+  margin: 0 0 0.25rem;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  opacity: 0.7;
+}
+
+.ag-sub {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.8125rem;
+  opacity: 0.7;
+  margin: 0;
+}
+
+.ag-link {
+  text-decoration: none;
+}
+.ag-link:hover,
+.ag-link:focus-visible {
+  text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------------------
+   The run feed. The only new idiom on the page, because Xovi has no surface for
+   a machine narrating itself. Built from the same tokens as everything above:
+   the hairline from the pagination idiom, teal for a resting good state, and the
+   base-content opacity tiers that carry hierarchy everywhere else.
+--------------------------------------------------------------------------- */
+
+.ag-addr {
+  align-self: center;
+  opacity: 0.7;
+}
+
+.ag-error {
+  margin-top: 0.75rem;
+  border-left: 3px solid var(--color-error);
+  padding-left: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.ag-feed {
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  counter-reset: none;
+}
+
+.ag-feed-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  border-top: 1px solid color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  padding-block: 0.625rem;
+  /* Each line arrives on its own, so the sequence reads as something happening
+     rather than as a list that was always there. */
+  animation: xvFadeUp 260ms var(--xv-ease-out) both;
+}
+.ag-feed-row:first-child {
+  border-top: 0;
+}
+
+.ag-feed-dot {
+  flex: 0 0 auto;
+  width: 0.375rem;
+  height: 0.375rem;
+  margin-top: 0.5rem;
+  border-radius: 9999rem;
+  /* Overridden per actor below. currentColor would have tied the marker to the
+     tone, which is the axis it exists to be independent of. */
+  background-color: color-mix(in oklab, var(--color-base-content) 35%, transparent);
+}
+
+/* The key, two words and two dots. Without it a reader has to infer the
+   semantic from the sequence; with it the first line already means something. */
+.ag-key {
+  display: flex;
+  gap: 0.875rem;
+  align-items: center;
+  margin-top: 0.375rem;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  opacity: 0.75;
+}
+.ag-key span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.ag-key i {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999rem;
+}
+.ag-key-human {
+  background-color: var(--color-primary);
+}
+.ag-key-agent {
+  background-color: var(--color-xv-agent);
+}
+
+.ag-feed-text {
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 0.9375rem;
+}
+
+.ag-feed-detail {
+  display: block;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  opacity: 0.65;
+  /* A transaction hash is the widest thing here and must not widen the page. */
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------------------
+   Two axes on one row, and they must not be read as one.
+
+   The MARKER carries whose activity a line is: teal for the person, gold for the
+   agent. This feed is the one surface showing both interleaved, and it only
+   reads as a story if they are told apart at a glance.
+
+   The TEXT carries how the run is going, and it never uses teal, so teal in this
+   feed means a person and nothing else. That is why the good state below is
+   plain base-content rather than the primary it used to be.
+
+   The collision is gone rather than managed. Gold means "this control is active"
+   (Xovi globals.css:570) and stays on the toolbar button; agent activity has its
+   own hue, so the two can no longer be read as one thing. The marker is still
+   small, unshadowed and non-interactive, because that was right for its own
+   reasons and not only for the collision.
+--------------------------------------------------------------------------- */
+.ag-actor-human .ag-feed-dot {
+  background-color: var(--color-primary);
+}
+.ag-actor-agent .ag-feed-dot {
+  background-color: var(--color-xv-agent);
+}
+/* Only the terminator. Neither party did this, and spending a semantic hue on
+   "the run ended" would dilute both. */
+.ag-actor-system .ag-feed-dot {
+  background-color: color-mix(in oklab, var(--color-base-content) 35%, transparent);
+}
+
+.ag-tone-good {
+  color: var(--color-base-content);
+}
+.ag-tone-working {
+  color: color-mix(in oklab, var(--color-base-content) 78%, transparent);
+}
+/* Not --color-error. A run that stops because a person already refused this
+   window, or because nothing was proposable, has worked correctly. Amber says
+   "it stopped and here is why" without claiming a fault. */
+.ag-tone-stopped {
+  color: var(--color-warning);
+}
+
+.ag-feed-pulse {
+  animation: xvPulse 1.1s var(--xv-ease-in-out) infinite;
+}
+.ag-feed-waiting {
+  opacity: 0.6;
+  font-style: italic;
+}
+/* The trailing row stays mounted as the scroll anchor even when the run is over,
+   so following the feed does not depend on a node that disappears. */
+.ag-feed-hidden {
+  visibility: hidden;
+  border-top: 0;
+  padding-block: 0;
+  height: 0;
+}
+
+.ag-app-title {
+  margin: 0 0 0.25rem;
+  font-size: 1.125rem;
+  line-height: 1.25;
+}
+@media (min-width: 768px) {
+  .ag-app-title {
+    font-size: 1.375rem;
+  }
+}
+
+/* The resting state of the body, before a run has written anything. */
+.ag-empty {
+  margin: 0;
+  padding: 1.25rem 0.25rem;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  max-width: 44rem;
+  opacity: 0.75;
+}
+
+@keyframes xvPulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}

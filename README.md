@@ -56,10 +56,10 @@ This repository was created on 2026-09-06 and is being built across the event wi
 |---|---|
 | Paid read over x402 | built, and exercised end to end against a faked facilitator |
 | Agent proposes a clip | built, and exercised against the ingest route faked from its own contract |
-| Proof of human, per person caps | not started |
-| Attestation and onchain anchor | not started |
-| Subgraph and paid query | not started |
-| Receipts ledger and fee sink | not started |
+| Proof of human, per person caps | built: registry lookup, a keyed digest of the identifier kept for 30 days, and a per person daily allowance |
+| Attestation and onchain anchor | built offchain: the frozen schema, the signed object and its recovery. Nothing is registered or anchored on a network yet |
+| Subgraph and paid query | built: the subgraph, and the paid query served over MCP as well as HTTP. Not indexing a deployed anchor |
+| Receipts ledger and fee sink | receipts built: a settlement is recorded against the payer. The fee sink is not started |
 
 ## Privacy
 
