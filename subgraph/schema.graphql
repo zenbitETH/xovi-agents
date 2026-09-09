@@ -1,0 +1,44 @@
+"""
+An onchain attestation under the frozen schema. The primary record an index serves.
+
+Deliberately thin. The fields a reader needs in order to check the reviewer's
+signature are in the attested data and are served by the payload endpoint, and a
+log does not carry that data anyway. What an index owes is the ability to find the
+record at all; copying the observation here would publish a second copy that
+nothing signs and that could drift from the one that is signed.
+"""
+type Observation @entity(immutable: true) {
+  "The ONCHAIN attestation identifier. Not the offchain one. See TimeAnchor."
+  id: Bytes!
+  attester: Bytes!
+  "Carried so a reader never has to trust that the topic filter worked."
+  schemaUID: Bytes!
+  attestedAt: BigInt!
+  tx: Bytes!
+  block: BigInt!
+}
+
+"""
+A time fixed for an OFFCHAIN attestation, which is a different identifier.
+
+These two entities do not join on chain, and that is a property of the design
+rather than a gap in this file. An offchain attestation is identified by a hash of
+its own signed contents; an onchain one is identified by the contract, from the
+attester, the schema and a bump. Anchoring the first and attesting the second
+therefore produces two identifiers for one confirmation, and nothing in either log
+relates them.
+
+They are not two halves of one record. They are a primary and a secondary way to
+find the same confirmation, and the payload endpoint is what holds both, because it
+is keyed by the offchain identifier and serves the object the onchain data encodes.
+A reader who wants the link asks it, not the index.
+"""
+type TimeAnchor @entity(immutable: true) {
+  "The offchain attestation identifier, which is also the payload endpoint's key."
+  id: Bytes!
+  timestampedAt: BigInt!
+  "Kept because the log carries no attester and the sender is the only attribution."
+  sender: Bytes!
+  tx: Bytes!
+  block: BigInt!
+}
