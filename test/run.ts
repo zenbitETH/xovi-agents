@@ -14,7 +14,7 @@ import { GET } from "../app/api/agent/windows/route";
 import { EndpointUnresolvable, resolveWindowsEndpoint } from "../lib/agent/ens";
 import type { Ledger } from "../lib/agent/ledger";
 import { loadLedger, unrefused } from "../lib/agent/ledger";
-import { buildPayer, payingFetch } from "../lib/agent/pay";
+import { ATTEMPTS, buildPayer, payingFetch } from "../lib/agent/pay";
 import { PROPOSAL_KEYS, UnproposableWindow, propose, toProposal } from "../lib/agent/propose";
 import { humanBehind } from "../lib/human/registry";
 import { freeReadsPerDay, utcDay } from "../lib/human/store";
@@ -224,7 +224,32 @@ async function main() {
     refused.paymentStatus === "settle_failed",
     "46 · the refusal carries the receipt, so the caller learns what happened and not merely that it did not work",
   );
-  check(fac.hits.settle === 1, "47 · a failed settlement is not retried behind the caller's back");
+  // The rule this check used to assert has been overturned, and the reason is worth
+  // keeping rather than replacing silently. It said a failed settlement is never
+  // retried, which was protecting against paying twice. Resending the SAME signed
+  // authorization cannot pay twice: it carries a nonce the token refuses to reuse,
+  // so at most once is a property of the primitive. Signing again is the thing that
+  // would double spend, and that is still forbidden. So the old rule was right about
+  // re-signing and wrong about resending.
+  check(fac.hits.settle === ATTEMPTS,
+    `47 · a counterparty that keeps failing is retried to a bound and no further (${ATTEMPTS} attempts)`);
+  const bodies = fac.settleBodies.slice(-ATTEMPTS);
+  check(bodies.length === ATTEMPTS && new Set(bodies).size === 1,
+    "47b · and every attempt sends byte identical bytes, so no second authorization is ever signed (seen to fail)");
+
+  // A counterparty that flakes once and then lands the same authorization, which is
+  // what the live testnet facilitator was measured doing.
+  arrange("fixtures/windows.synthetic.jsonl");
+  fac.reset();
+  fac.settleFailuresRemaining = 1;
+  const flaked = await payingFetch(ROUTE_URL, payer, routeFetch);
+  check(flaked.paymentStatus === "settled", "47c · a single flake is ridden out and the read succeeds");
+  check(fac.hits.settle === 2, "47d · in exactly two attempts, not three");
+  check(new Set(fac.settleBodies).size === 1, "47e · both of them the same authorization");
+
+  arrange("fixtures/windows.synthetic.jsonl");
+  fac.reset();
+  fac.settleSucceeds = false;
 
   await fac.close();
 
