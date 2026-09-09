@@ -425,6 +425,9 @@ async function main() {
     "80 · a name that will not resolve raises, and the url is NOT used as a fallback");
   check(await raises(() => resolveWindowsEndpoint(named, async () => null)),
     "81 · a name with no record raises too, because resolving to nothing is not permission to read elsewhere");
+  const bothCauses = await resolveWindowsEndpoint(named, async () => null).catch(e => String(e.message));
+  check(/not registered/.test(bothCauses) && /carries no such record/.test(bothCauses),
+    "81b · and the message names BOTH causes, since a text lookup answers null for each identically (seen to fail)");
   check(await raises(() => resolveWindowsEndpoint(named, async () => "http://plain/windows")),
     "82 · a record naming http is refused, because a bearer credential travels against it");
   check(await resolveWindowsEndpoint(named, async () => "https://named/windows") === "https://named/windows",
