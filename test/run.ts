@@ -29,6 +29,7 @@ import { RETENTION_DAYS, setCapForTest, takeFreeRead } from "../lib/human/cap";
 import { NoDerivationKey, deriveIdentifier } from "../lib/human/derive";
 import { anchorChecks } from "./anchor";
 import { mcpChecks } from "./mcp";
+import { pageChecks } from "./page";
 
 let n = 0;
 let bad = 0;
@@ -593,6 +594,7 @@ async function main() {
 
   await anchorChecks(check);
   await mcpChecks(check);
+  pageChecks(check);
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;
