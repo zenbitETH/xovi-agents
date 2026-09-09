@@ -1,0 +1,214 @@
+# Event-window changes to Xovi's clip review route, as a unified diff from the last commit before 2026-09-04 (b0cc708c) to origin/dev 2754a0eb: the responsible-human guard for machine-submitted clips and the signed confirmation.
+diff --git a/packages/nextjs/app/api/verify/[id]/route.ts b/packages/nextjs/app/api/verify/[id]/route.ts
+index a0205e1..ca8cbe0 100644
+--- a/packages/nextjs/app/api/verify/[id]/route.ts
++++ b/packages/nextjs/app/api/verify/[id]/route.ts
+@@ -7,8 +7,10 @@ import { getBehaviorMetric } from "~~/lib/clips/behaviorCatalog";
+ import { buildBehaviorMetric } from "~~/lib/clips/behaviorMetric";
+ import { CAMERA_SWITCH_WARN_SECONDS } from "~~/lib/clips/limits";
+ import type { ClipParticipant } from "~~/lib/clips/participants";
++import { holderOfKey } from "~~/lib/ingest/apiKey";
+ import { getSpecimenData, isValidClipTarget } from "~~/lib/specimens/fetchSpecimens";
+ import { asSpeciesCode } from "~~/lib/specimens/types";
++import { NONCE_RE, checkConfirmationSignature } from "~~/lib/verify/confirmation";
+ import {
+   type BehaviorMetricPayload,
+   applyVerificationDecision,
+@@ -16,12 +18,25 @@ import {
+   updateClipAnnotations,
+ } from "~~/services/database/repositories/clips";
+ import { isVerifier } from "~~/services/database/repositories/verifiers";
+-import { type SiweSessionData, getSessionOptions } from "~~/utils/siwe";
++import { SUPPORTED_CHAINS, type SiweSessionData, getPublicClientForChain, getSessionOptions } from "~~/utils/siwe";
+ 
+ const decisionSchema = z
+   .object({
+     decision: z.enum(["verified", "rejected"]),
+     rejectReason: z.string().max(280).optional(),
++    // 0027. Required in the schema rather than optional-then-hand-checked. The
++    // earlier version made all three optional so a missing one could return a
++    // sentence instead of a zod issue list, but the client renders body.error the
++    // same either way and the zod path already returns a sentence, so it bought a
++    // lying type for a difference nobody could see.
++    //
++    // chainId is NOT here: it comes from the SIWE session, which validated it
++    // against an allow-list. A client-supplied one was inert for binding, since the
++    // server rebuilt the message from the same value, and it selects which RPC
++    // verifies a contract signature, so trusting it would let an account on one
++    // chain be validated against another.
++    signature: z.string().regex(/^0x[0-9a-fA-F]+$/, "Esta decisión debe ir firmada por quien la toma"),
++    nonce: z.string().regex(NONCE_RE, "El nonce de la firma debe ser 32 bytes hex"),
+   })
+   .refine(d => d.decision !== "rejected" || (d.rejectReason?.trim().length ?? 0) > 0, {
+     message: "rejectReason es obligatorio al rechazar",
+@@ -54,17 +69,65 @@ function parseId(idParam: string): number | null {
+   return Number.isInteger(id) && id > 0 ? id : null;
+ }
+ 
++/**
++ * Who actually answers for this clip.
++ *
++ * For a human submission that is the submitter. For a machine proposal it is the
++ * HOLDER of the credential that made it, never the agent's own address: the agent
++ * has a fresh keypair its operator generated, so comparing that address is exactly
++ * what delegation defeats, and it costs nothing to defeat.
++ *
++ * Returns null when the responsible human cannot be determined, and every caller
++ * treats that as a refusal. Writing it the obvious way instead — look up, compare,
++ * done — evaluates false on a null and PERMITS the confirmation it exists to block.
++ */
++async function responsibleHumanFor(clip: {
++  submitterAddress: string;
++  ingestKeyId: number | null;
++}): Promise<string | null> {
++  if (clip.ingestKeyId === null) return clip.submitterAddress;
++  return await holderOfKey(clip.ingestKeyId);
++}
++
++/** Refusal response, or null when the reviewer is clear to act. */
++async function selfReviewRefusal(
++  clip: { submitterAddress: string; ingestKeyId: number | null },
++  reviewer: string,
++  verb: string,
++): Promise<NextResponse | null> {
++  const responsible = await responsibleHumanFor(clip);
++  if (responsible === null) {
++    // Fail closed. A machine row whose credential is revoked or holderless has no
++    // resolvable human, and "we could not tell" is not permission.
++    return NextResponse.json({ error: "No se puede determinar quién responde por este clip" }, { status: 403 });
++  }
++  // Lowercased compare: both are checksummed in normal flow, but lowercasing avoids
++  // a getAddress() throw (→500) on any malformed legacy row turning the guard into
++  // a crash, which fails open in a different way.
++  if (responsible.toLowerCase() === reviewer.toLowerCase()) {
++    return NextResponse.json({ error: `No puedes ${verb} tu propio clip` }, { status: 403 });
++  }
++  return null;
++}
++
+ // Session → verifier gate shared by both handlers so the auth check can't drift.
+ // Returns the checksummed verifier address, or a ready-to-return error response.
+-async function requireVerifier(): Promise<{ address: `0x${string}` } | NextResponse> {
++async function requireVerifier(): Promise<{ address: `0x${string}`; chainId: number } | NextResponse> {
+   const session = await getIronSession<SiweSessionData>(await cookies(), getSessionOptions());
+   if (!session.isLoggedIn || !session.address) {
+     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+   }
++  // The chain comes from the session, where SIWE already proved it and checked it
++  // against SUPPORTED_CHAINS. Taking it from the request body instead would be inert
++  // for binding and actively wrong for contract signatures, where it decides which
++  // chain's state answers the question.
++  if (!session.chainId || !SUPPORTED_CHAINS[session.chainId]) {
++    return NextResponse.json({ error: "Sesión sin red válida — vuelve a iniciar sesión" }, { status: 401 });
++  }
+   if (!(await isVerifier(session.address))) {
+     return NextResponse.json({ error: "No autorizado" }, { status: 403 });
+   }
+-  return { address: getAddress(session.address) as `0x${string}` };
++  return { address: getAddress(session.address) as `0x${string}`, chainId: session.chainId };
+ }
+ 
+ // approve / reject decision.
+@@ -92,22 +155,76 @@ export async function POST(request: Request, { params }: { params: Params }) {
+     return NextResponse.json({ error: "Clip no encontrado" }, { status: 404 });
+   }
+ 
+-  // Mandatory self-review guard — a verifier can never decide their own
+-  // submission. Compare lowercased: both are checksummed in normal flow, but
+-  // lowercasing avoids a getAddress() throw (→500) on any malformed/legacy
+-  // non-EIP-55 submitterAddress turning the self-review check into a crash.
+-  if (clip.submitterAddress.toLowerCase() === auth.address.toLowerCase()) {
+-    return NextResponse.json({ error: "No puedes revisar tu propio clip" }, { status: 403 });
++  // Mandatory self-review guard, on the responsible human rather than the
++  // submitting address. A verifier can never decide their own submission, and
++  // since 0025 that includes a proposal made by an agent they hold the key for.
++  const refusal = await selfReviewRefusal(clip, auth.address, "revisar");
++  if (refusal) return refusal;
++
++  // 0027. A confirmation is a signature, not a session.
++  //
++  // Until now the chain of custody for "a human confirmed this" was a cookie, a
++  // verified_by column, and an attestation signed by a backend key, so possession of
++  // that key produced a record indistinguishable from a genuine one. The anchor makes
++  // that permanent: EAS timestamp() reverts on a repeat, so whatever the record is at
++  // first anchoring is what the chain attests to.
++  //
++  // The signature is checked against the SESSION address, which requireVerifier has
++  // already matched against the allow-list. Requiring the two to agree is what stops a
++  // reviewer submitting a signature they collected from somebody else.
++  const { signature, nonce } = parsed.data;
++  const client = getPublicClientForChain(auth.chainId);
++  if (!client) {
++    return NextResponse.json({ error: "Red de sesión no soportada" }, { status: 400 });
++  }
++  const sig = await checkConfirmationSignature(
++    {
++      clipId: id,
++      clipHash: clip.clipHash as `0x${string}`,
++      decision: parsed.data.decision,
++      nonce: nonce as `0x${string}`,
++      chainId: auth.chainId,
++    },
++    signature,
++    auth.address,
++    client,
++  );
++  if (!sig.ok) {
++    if (sig.reason === "verifier-unavailable") {
++      // Fails closed, and says which. An RPC outage is not a rejected signature, and
++      // an operator must not have to guess which one they are looking at.
++      return NextResponse.json(
++        { error: "No se pudo verificar la firma ahora mismo", reason: sig.reason },
++        { status: 503 },
++      );
++    }
++    // The remaining two are distinguished on purpose. "Not a valid signature" and
++    // "a valid signature belonging to somebody else" are different events, and
++    // collapsing them into one 403 tells an operator nothing about which happened.
++    const reason = sig.reason === "wrong-signer" ? "La firma no corresponde a la sesión que decide" : "Firma inválida";
++    return NextResponse.json({ error: reason, reason: sig.reason }, { status: 403 });
+   }
+ 
+   // Atomic compare-and-set inside the repo (WHERE status='pending'). 0 rows means
+   // another reviewer already decided it → 409.
+-  const updated = await applyVerificationDecision({
+-    id,
+-    decision: parsed.data.decision,
+-    verifierAddress: auth.address,
+-    rejectReason: parsed.data.rejectReason ?? null,
+-  });
++  let updated;
++  try {
++    updated = await applyVerificationDecision({
++      id,
++      decision: parsed.data.decision,
++      verifierAddress: auth.address,
++      rejectReason: parsed.data.rejectReason ?? null,
++      signature: { value: signature as `0x${string}`, nonce: nonce as `0x${string}`, chainId: auth.chainId },
++    });
++  } catch (err) {
++    // 23505 on clips_verifier_nonce_unq: this exact signature was already spent.
++    // Without this the unique index surfaced as an unhandled 500 and the reviewer
++    // saw "Falló (500)" with no body, for a control that was working correctly.
++    if ((err as { code?: string }).code === "23505") {
++      return NextResponse.json({ error: "Esta firma ya fue usada" }, { status: 409 });
++    }
++    throw err;
++  }
+   if (!updated) {
+     return NextResponse.json({ error: "Este clip ya fue revisado" }, { status: 409 });
+   }
+@@ -140,10 +257,9 @@ export async function PATCH(request: Request, { params }: { params: Params }) {
+     return NextResponse.json({ error: "Este clip ya fue revisado" }, { status: 409 });
+   }
+   // Same self-review boundary as a decision — own clips are out of the reviewer's
+-  // hands entirely, including edits.
+-  if (clip.submitterAddress.toLowerCase() === auth.address.toLowerCase()) {
+-    return NextResponse.json({ error: "No puedes editar tu propio clip" }, { status: 403 });
+-  }
++  // hands entirely, including edits, and "own" now means the responsible human.
++  const editRefusal = await selfReviewRefusal(clip, auth.address, "editar");
++  if (editRefusal) return editRefusal;
+ 
+   // Secondary metric — re-derive from the catalog + the reviewer's raw value
+   // (identity-safe: behaviorTag is unchanged). Only when the field was sent.
