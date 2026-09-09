@@ -1,4 +1,4 @@
-import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts";
+import { Address } from "@graphprotocol/graph-ts";
 import { Attested, Timestamped } from "../generated/EAS/EAS";
 import { Observation, TimeAnchor } from "../generated/schema";
 
@@ -41,7 +41,9 @@ export function handleAttested(event: Attested): void {
 export function handleTimestamped(event: Timestamped): void {
   if (event.transaction.from != ANCHOR) return;
   const a = new TimeAnchor(event.params.data);
-  a.timestampedAt = BigInt.fromUnsignedI64(event.params.timestamp);
+  // Already a BigInt in the generated types; converting it again is the kind of
+  // mistake the compiler reports by crashing rather than by naming a line.
+  a.timestampedAt = event.params.timestamp;
   a.sender = event.transaction.from;
   a.tx = event.transaction.hash;
   a.block = event.block.number;

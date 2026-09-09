@@ -17,7 +17,9 @@
     "schema:register": "tsx --env-file=.env.local bin/register-schema.ts",
     "fork-proof": "tsx bin/fork-proof.ts",
     "mcp:server": "tsx --env-file=.env.local bin/mcp-server.ts",
-    "query": "tsx --env-file=.env.local bin/query.ts"
+    "query": "tsx --env-file=.env.local bin/query.ts",
+    "subgraph:codegen": "graph codegen subgraph/subgraph.yaml --output-dir subgraph/generated",
+    "subgraph:build": "graph build subgraph/subgraph.yaml --output-dir subgraph/build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
@@ -32,6 +34,8 @@
   },
   "devDependencies": {
     "@ethereum-attestation-service/eas-sdk": "2.10.0",
+    "@graphprotocol/graph-cli": "^0.98.1",
+    "@graphprotocol/graph-ts": "^0.38.2",
     "@types/node": "22.10.2",
     "@types/react": "19.1.1",
     "tsx": "4.19.2",
