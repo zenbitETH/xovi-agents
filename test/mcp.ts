@@ -3,6 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { MCP_PAYMENT_META_KEY, MCP_PAYMENT_REQUIRED_CODE, MCP_PAYMENT_RESPONSE_META_KEY } from "@x402/mcp";
 import { TOOL_NAME, atomicAmount, receiptFrom, recordMcpSettlement } from "../lib/mcp/server";
 import { DELETE as mcpDELETE, GET as mcpGET, OPTIONS as mcpOPTIONS } from "../app/api/mcp/route";
+import { payAndCall } from "../lib/mcp/pay";
 import type { Receipt } from "../lib/human/store";
 
 type Check = (ok: boolean, label: string) => void;
@@ -81,6 +82,54 @@ export async function mcpChecks(check: Check) {
   check((await mcpDELETE()).status === 405, "153d · and a DELETE too, there being no session to delete");
   check(mcpOPTIONS().headers.get("Access-Control-Allow-Methods") === "POST, OPTIONS",
     "153e · and the advertised methods match, so a browser is not invited to try the refused ones");
+
+  // The retry, and the constraint that makes it safe. A fake client counts how many
+  // times a payload is created: one per tool call however many times it is sent, or
+  // the retry is a second authorization and a real double spend.
+  const CHALLENGE = { isError: true, structuredContent: { x402Version: 2, accepts: [{ scheme: "exact" }] } };
+  function fakeClient(failures: number, spentAfter = false) {
+    const state = { signatures: 0, sends: 0, sent: [] as string[] };
+    return {
+      state,
+      callTool: async () => CHALLENGE,
+      paymentClient: {
+        createPaymentPayload: async () => {
+          state.signatures++;
+          return { authorization: { nonce: "0xfixed" } };
+        },
+      },
+      callToolWithPayment: async (_n: string, _a: Record<string, unknown>, payload: unknown) => {
+        state.sends++;
+        state.sent.push(JSON.stringify(payload));
+        if (state.sends <= failures) {
+          return spentAfter && state.sends === failures
+            ? { content: [{ type: "text", text: "authorization is used or canceled" }] }
+            : { isError: true, content: [{ type: "text", text: "settlement failed" }] };
+        }
+        return { content: [], paymentResponse: { transaction: "0xok", network: "eip155:84532" } };
+      },
+    };
+  }
+
+  const flaky = fakeClient(1);
+  const rode = await payAndCall(flaky as never, "observations", {}, async () => {});
+  check(rode.receipt?.transaction === "0xok", "153f · a single flake is ridden out and the call settles");
+  check(flaky.state.signatures === 1,
+    "153g · with exactly ONE signature across both sends, so a retry is never a second authorization (seen to fail)");
+  check(flaky.state.sends === 2 && new Set(flaky.state.sent).size === 1,
+    "153h · and both sends carry byte identical bytes");
+
+  const dead = fakeClient(99);
+  const gaveUp = await payAndCall(dead as never, "observations", {}, async () => {});
+  check(dead.state.sends === 3 && dead.state.signatures === 1,
+    "153i · a counterparty that never lands is tried three times and signed for once");
+  check(gaveUp.log.length === 3 && gaveUp.log.every(l => l.outcome === "settle_failed"),
+    "153j · with every attempt logged, so a flake is visible afterwards rather than smoothed away");
+
+  const spent = fakeClient(2, true);
+  const already = await payAndCall(spent as never, "observations", {}, async () => {});
+  check(already.log.at(-1)?.outcome === "already-settled" && spent.state.signatures === 1,
+    "153k · and a spent authorization on a later attempt is read as the first attempt having landed");
 
   const client = new Client({ name: "suite", version: "0" });
   await client.connect(

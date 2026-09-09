@@ -17,7 +17,8 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { ExactEvmScheme } from "@x402/evm/exact/client";
 import { createx402MCPClient } from "@x402/mcp";
 import { privateKeyToAccount } from "viem/accounts";
-import { TOOL_NAME, receiptFrom } from "../lib/mcp/server";
+import { TOOL_NAME } from "../lib/mcp/server";
+import { payAndCall } from "../lib/mcp/pay";
 import { readConfig } from "../lib/x402";
 
 function arg(name: string, fallback: string): string {
@@ -43,7 +44,8 @@ async function main() {
     // The scheme's Network is a branded union the config takes as a string; the
     // cast is on that one field and nothing else.
     schemes: [{ network: cfg.network as never, client: new ExactEvmScheme(account) }],
-    autoPayment: true,
+    // Off, because the payment is built once here and resent unchanged on a retry.
+    autoPayment: false,
     onPaymentRequested: async ({ paymentRequired }) => {
       const a = paymentRequired.accepts[0];
       console.log(`  challenged: ${a?.amount ?? "?"} to ${a?.payTo ?? "?"}`);
@@ -66,10 +68,15 @@ async function main() {
   const tools = await client.listTools();
   console.log(`  tools offered: ${tools.tools.map(t => t.name).join(", ")}`);
 
-  const result = await client.callTool(TOOL_NAME, { limit: Number(arg("--limit", "3")) });
+  // The three steps written out rather than the library's automatic mode, so a
+  // counterparty that flakes can be retried with the SAME authorization. Automatic
+  // mode cannot be retried: retrying it signs again, and that is a second payment.
+  const call = await payAndCall(client as never, TOOL_NAME, { limit: Number(arg("--limit", "3")) });
+  const result = call.result as { content?: { type: string; text?: string }[] };
 
-  const receipt = receiptFrom(result);
-  console.log(`\n  settled: ${receipt ? "yes" : "no"}`);
+  for (const a of call.log) console.log(`  attempt ${a.attempt}: ${a.outcome}`);
+  const receipt = call.receipt;
+  console.log(`\n  settled: ${receipt ? "yes" : call.log.at(-1)?.outcome === "already-settled" ? "yes, on an earlier attempt" : "no"}`);
   if (receipt) console.log(`  transaction: ${receipt.transaction} on ${receipt.network}`);
   for (const c of result.content ?? []) {
     if (c.type === "text" && typeof c.text === "string") console.log(`\n${c.text}`);
