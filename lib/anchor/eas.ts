@@ -19,9 +19,11 @@ export const SCHEMA_REGISTRY_ADDRESS = "0x0a7E2Ff54e76B8E6659aedc9103FB21c038050
  * Selectors and topics, recomputed rather than copied.
  *
  * Recorded here because a subgraph manifest needs the topic and because the
- * deployed contract is version 0.26 rather than the current release, so an ABI
- * taken from a package's default branch can differ in a way that produces no error
- * at all: a handler that never fires and an index that stays empty.
+ * deployed contract is version 0.26 rather than the current release, so an ABI from
+ * a package's default branch can differ from what this chain emits. An ABI that
+ * disagrees with the manifest's signature fails the build; an ABI and signature
+ * that agree with each other and disagree with the chain do not, and that is the
+ * case these recomputed topics exist to catch.
  */
 export const TOPIC_TIMESTAMPED = "0x5aafceeb1c7ad58e4a84898bdee37c02c0fc46e7d24e6b60e8209449f183459f" as const;
 export const TOPIC_ATTESTED = "0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35" as const;

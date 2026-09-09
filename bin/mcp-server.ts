@@ -2,10 +2,10 @@
  * The paid query, as an MCP server over stdio.
  *
  * One tool, on the same payment rail as the paid read. A client that calls it
- * without paying is refused with a JSON-RPC error carrying the payment required
- * code, pays, and calls again; the receipt comes back in the result's metadata.
- * None of those three things is an HTTP header, and a check that asserts on one is
- * testing a surface this protocol does not use.
+ * without paying gets a tool RESULT carrying `isError` and an x402 challenge in its
+ * content, with no metadata; it pays and calls again, and the receipt comes back in
+ * the result's metadata. Not a thrown error and not a header, which the suite pins
+ * because reading the declarations suggested otherwise and running it settled it.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";

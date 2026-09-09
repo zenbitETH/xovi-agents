@@ -2,10 +2,15 @@
  * The paying client for the query tool.
  *
  * Spawns the server over stdio, calls the tool, is refused, pays and calls again.
- * The refusal is a JSON-RPC error carrying the payment required code, not a header
- * and not a tool result, and the receipt comes back in the result's metadata.
- * Those are three different mechanisms and this script prints which one it saw,
- * because "it worked" is not evidence about which surface carried the payment.
+ * The refusal is a tool result carrying `isError` and an x402 challenge in its
+ * content, and the receipt comes back in the result's metadata. This script prints
+ * whether it saw a receipt, because "it worked" is not evidence about which surface
+ * carried the payment.
+ *
+ * The refusal shape is measured by the suite. **The settled path is not:** paying
+ * end to end needs a funded payer and the live facilitator, and that run has not
+ * happened, so nothing here should be read as evidence that a receipt has ever
+ * arrived.
  */
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ExactEvmScheme } from "@x402/evm/exact/client";

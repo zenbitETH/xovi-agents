@@ -26,10 +26,14 @@ export function atomicAmount(price: string, decimals: number): string {
  * `readConfig` rather than a second copy, because two configurations for one
  * payment rail is how a demo ends up charging to an address nobody funded.
  *
- * The refusal here is NOT a header. A challenge is a JSON-RPC error carrying the
- * payment-required code, the payment arrives in request metadata and the receipt
- * leaves in result metadata, and those are three different mechanisms. Anything
- * asserting on an HTTP header is testing a surface this protocol does not use.
+ * The refusal here is a TOOL RESULT, measured rather than inferred. An unpaid call
+ * comes back with `isError` set and an x402 challenge in its text content, and with
+ * no metadata at all. The package exports a payment-required error and a 402 code
+ * and this wrapper calls neither, so a check written from the declarations would
+ * assert on a mechanism the server never uses. Checks 154 to 159 pin the shape,
+ * including that the refusal carries no metadata, since a check reading metadata
+ * would find nothing and agree. The payment arrives in request metadata and the
+ * receipt leaves in result metadata; three mechanisms, none of them a header.
  */
 export function buildPaidTool(env: EnvLike = process.env) {
   const cfg = readConfig(env);

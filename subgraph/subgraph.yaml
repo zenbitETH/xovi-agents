@@ -3,8 +3,11 @@
 # events below were recomputed with `cast sig-event` and then confirmed against a
 # real log emitted by the real contract on a fork: Attested carries four topics,
 # the schema identifier is the fourth, and the attestation identifier is the data.
-# An abi that differs produces no error anywhere. The handler simply never fires
-# and the index stays empty, which is the failure this comment exists to prevent.
+# An abi that disagrees with the event signature below FAILS the build, which was
+# checked by doing it rather than assumed. The case no build can catch is an abi and
+# a signature that agree with each other and both disagree with the chain, because
+# everything local is then consistent and wrong. That is what the recomputed topic,
+# matched against a real emitted log, discriminates.
 specVersion: 1.2.0
 description: Confirmed clip observations, indexed by the schema they were attested under.
 schema:
