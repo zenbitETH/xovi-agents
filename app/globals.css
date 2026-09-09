@@ -44,9 +44,21 @@
   --color-warning: #ffcf72;
   --color-error: #ff8863;
 
-  /* Action gold, Xovi globals.css:26-30. Gold marks the reader's own action and
-     nothing else, so on this page it appears on two links and one focus ring. */
+  /* Action gold, Xovi globals.css:26-30. Gold marks the ACTIVE control, which on
+     this page is the one button in the toolbar and its focus ring. */
   --color-xv-gold: #f8c471;
+
+  /* Agent activity. A token rather than a literal because the same colour now
+     carries the same meaning in two repositories and must not drift between
+     them.
+
+     Contrast measured against the surface it is actually used on, which is not
+     the one the guidance assumed. This app's card paints base-100, not the page
+     ground base-200, because it ports .xv-aquarium. So this colour sits at 4.13
+     here rather than 5.79: comfortably over the 3:1 that non-text UI needs, and
+     under the 4.5 that text needs. It marks and it never letters. Teal, the
+     human marker, is 3.59 on the same ground and lives under the same rule. */
+  --color-xv-agent: #c58a5a;
 
   /* Xovi globals.css:66-69. Boxes round up to 1.5rem so their corners echo the
      fully pill buttons, and the two radii read as one family. */
@@ -561,7 +573,7 @@ body::after {
   background-color: var(--color-primary);
 }
 .ag-key-agent {
-  background-color: var(--color-xv-gold);
+  background-color: var(--color-xv-agent);
 }
 
 .ag-feed-text {
@@ -590,17 +602,17 @@ body::after {
    feed means a person and nothing else. That is why the good state below is
    plain base-content rather than the primary it used to be.
 
-   The collision: gold already means "this control is active" (Xovi
-   globals.css:570), and the toolbar in the same viewport is a gold button. The
-   marker is 0.375rem, has no shadow, no border and no hit area, and never sits
-   on a background; the button is a filled pill with a shadow and a label. If the
-   two ever read alike, this marker is the one that changes.
+   The collision is gone rather than managed. Gold means "this control is active"
+   (Xovi globals.css:570) and stays on the toolbar button; agent activity has its
+   own colour, so the two can no longer be read as one thing. The marker is still
+   small, unshadowed and non-interactive, because that was right for its own
+   reasons and not only for the collision.
 --------------------------------------------------------------------------- */
 .ag-actor-human .ag-feed-dot {
   background-color: var(--color-primary);
 }
 .ag-actor-agent .ag-feed-dot {
-  background-color: var(--color-xv-gold);
+  background-color: var(--color-xv-agent);
 }
 /* Only the terminator. Neither party did this, and spending a semantic colour on
    "the run ended" would dilute both. */

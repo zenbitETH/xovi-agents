@@ -103,11 +103,15 @@ export function pageChecks(check: Check) {
   check(!/var\(--color-primary\)/.test(toneGood), "211 · the good tone is not teal, so teal on a row means a person");
   const humanDot = css.slice(css.indexOf(".ag-actor-human .ag-feed-dot {")).split("}")[0];
   const agentDot = css.slice(css.indexOf(".ag-actor-agent .ag-feed-dot {")).split("}")[0];
-  check(/var\(--color-primary\)/.test(humanDot) && /var\(--color-xv-gold\)/.test(agentDot),
-    "212 · the person's marker is teal and the agent's is gold");
+  check(/var\(--color-primary\)/.test(humanDot) && /var\(--color-xv-agent\)/.test(agentDot),
+    "212 · the person's marker is teal and the agent's is the agent colour");
+  check(/--color-xv-agent:\s*#c58a5a/i.test(css) && !/#c58a5a/i.test(css.replace(/--color-xv-agent:\s*#c58a5a/i, "")),
+    "212b · the agent colour is declared once as a token and appears nowhere as a literal");
+  check(!/var\(--color-xv-gold\)/.test(agentDot),
+    "212c · and gold is not the agent colour, so the toolbar button means something else (negative control)");
   const dotRule = css.slice(css.indexOf(".ag-feed-dot {")).split("}")[0];
   check(!/box-shadow|border:/.test(dotRule) && /width:\s*0\.375rem/.test(dotRule),
-    "213 · and the marker has no shadow and no border, so a gold dot cannot read as the gold button");
+    "213 · and the marker has no shadow and no border, so a marker cannot read as the button");
 
   /*
    * The scrollless shell, guarded where it actually breaks.

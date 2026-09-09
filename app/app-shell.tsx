@@ -26,10 +26,10 @@ const REPO = "https://github.com/zenbitETH/xovi-agents";
  * `tone` says how the run is going, and it never uses teal, so teal in this feed
  * means a person and nothing else.
  *
- * The collision to design around: gold already means "this control is active"
- * (globals.css:570), and the toolbar button in the same viewport is a gold
- * control. So the actor marker is a 0.5rem dot with no shadow and no hit area,
- * and the button stays an obvious pill. If they ever read alike, the dot changes.
+ * Gold is not one of the two. It means "this control is active" (globals.css:570)
+ * and stays on the toolbar button, so the button and the markers cannot be read
+ * as the same signal. The agent's colour is its own token, measured at 4.13
+ * against the surface it actually sits on, which marks and never letters.
  */
 export type Actor = "human" | "agent" | "system";
 export type Line = { text: string; detail?: string; tone: "working" | "good" | "stopped"; actor: Actor };
