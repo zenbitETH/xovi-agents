@@ -27,6 +27,7 @@
     "viem": "2.56.3"
   },
   "devDependencies": {
+    "@ethereum-attestation-service/eas-sdk": "2.10.0",
     "@types/node": "22.10.2",
     "@types/react": "19.1.1",
     "tsx": "4.19.2",

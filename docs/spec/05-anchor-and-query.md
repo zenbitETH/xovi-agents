@@ -6,7 +6,7 @@ Written 2026-09-09, before the code, against the signing path in the reviewing a
 
 A clip is proposed by a machine and confirmed by a person, and it is the confirmation that is anchored. The proposal is already durable, already attributed to a credential, and already worth nothing on its own: a machine saying a moment is interesting is an opinion. What has evidential value is that a named reviewer put a key behind a decision, and that record already exists as an EIP-191 signature over a readable message. This milestone does not create trust, it makes an existing signature reachable by somebody who was never given the database.
 
-The input is the reviewing application's public list of confirmed clips. It is unauthenticated, takes no parameters, returns whole rows, and is read here rather than pushed from there, so nothing in the reviewing application changes for this milestone. Rows are filtered to those a machine proposed. There is no hook, no event and no queue on confirmation, which is why this is a pull.
+The input is the reviewing application's public list of confirmed clips. It is unauthenticated, takes no parameters, returns whole rows, and is read here rather than pushed from there, so nothing in the reviewing application changes for this milestone. Rows are filtered to those a machine proposed. **That list is the fifty most recent confirmed clips, ordered newest first, with no filter and no pagination, and there is no route for a single clip by its identifier.** So a confirmed machine proposal falls out of reach once fifty newer confirmations exist, and the anchor would then not see it at all rather than failing to fetch it. Twenty three confirmed rows exist as this is written, so the bound is not reached during this work, and it is recorded here because a limit that is comfortable today is the kind that is discovered the hard way later. Lifting it is a change to the reviewing application and is not made for this milestone. There is no hook, no event and no queue on confirmation, which is why this is a pull.
 
 ## The frozen artefact
 
@@ -78,6 +78,14 @@ Three things about this encoding are surprising, and each one produces an identi
 **The schema identifier is hashed as text, not as bytes.** In the offchain identifier the schema is encoded as the UTF-8 characters of its hexadecimal string, so the sixty six characters `0x8d4a…` are hashed as sixty six bytes rather than as thirty two. Letter case is therefore significant, and the implementation lowercases before hashing. This is inherited behaviour rather than a choice, and it is written down because it is the single most likely thing for a reimplementation to get wrong.
 
 The identifier is `keccak256` over the packed encoding of the version as `uint16`, the schema text as `bytes`, the recipient, a zero address in the position an attester would occupy, the time and expiration as `uint64`, revocability as `bool`, the reference as `bytes32`, the encoded data as `bytes`, the salt as `bytes32`, and a trailing `uint32` zero. The salt is thirty two random bytes and it is what makes two attestations of identical content distinct.
+
+## The instrument, and why this repository carries a second implementation it does not ship
+
+Every check written here before this section was this repository's code agreeing with this repository's code, and that cannot be evidence about an encoding somebody else defined. The failure it misses is specific and it is the expensive one: an object signed under the wrong domain still re-derives its own identifier, so the invariant that says the record re-derives passes, the suite is green, and an explorer rejects the record on the one screen a reader will actually use.
+
+So the attestation library is a development dependency, pinned, used by one check that asks it to accept an object this repository produced and to compute its identifier independently. It is never in the shipped path: the runtime is viem and no attestation library at all, which is the whole reason a second chain library's weight never reaches a deployment. The negative control signs under the contract's own domain name and asserts both halves at once, that this repository's own re-derivation still passes and that the library rejects it. That pair is the argument for having an oracle, written as a check rather than as a paragraph.
+
+An oracle that can change underneath a green check is not an oracle, which is why the version is exact rather than a range.
 
 ## The trust boundary, which the record must not invite a reader to cross
 

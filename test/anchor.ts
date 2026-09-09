@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { encodePacked, keccak256 } from "viem";
+import { decodeAbiParameters, encodePacked, keccak256 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { GET as observationsGET } from "../app/api/observations/[uid]/route";
 import { confirmationMessage, recoverConfirmer, signedBy } from "../lib/anchor/confirmation";
-import { encodeObservation, toObservation } from "../lib/anchor/observation";
+import { EAS_ADDRESS } from "../lib/anchor/eas";
+import { OBSERVATION_ABI, encodeObservation, toObservation } from "../lib/anchor/observation";
 import {
   OFFCHAIN_DOMAIN_NAME,
   UnknownDomainVersion,
@@ -17,6 +18,7 @@ import {
 } from "../lib/anchor/offchain";
 import { SCHEMA, UnanchorableClip, decisionCode, schemaUid } from "../lib/anchor/schema";
 import { serialiseSigned } from "../lib/anchor/store";
+import { sdkAccepts, sdkUid } from "./oracle";
 
 type Check = (ok: boolean, label: string) => void;
 
@@ -74,7 +76,7 @@ export async function anchorChecks(check: Check) {
   check(Buffer.from(exact, "utf8").length === 308, "134 · the message is 308 bytes, so the padding and the accents are intact");
 
   const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
-  const domain = { name: OFFCHAIN_DOMAIN_NAME, version: "0.26", chainId: 11155111, verifyingContract: ZERO_ADDRESS };
+  const domain = { name: OFFCHAIN_DOMAIN_NAME, version: "0.26", chainId: 11155111, verifyingContract: EAS_ADDRESS };
   const message = {
     version: 2,
     schema: schemaUid(),
@@ -88,6 +90,22 @@ export async function anchorChecks(check: Check) {
   };
   const signed = await signObservation(account, domain, message);
   check(await verifyObservation(signed), "135 · the offchain identifier re-derives and the attester recovers from the stored object");
+
+  // The instrument that is not us. Everything above this line is our code agreeing
+  // with our code, which is exactly what cannot detect a wrong domain.
+  check(sdkAccepts(signed), "135b · and the attestation library, as an independent oracle, accepts the object this repository produced");
+  check(sdkUid(signed) === signed.uid, "135c · and computes the same identifier for it, byte for byte");
+
+  // The failure this oracle exists for, in the shape it would have shipped in.
+  // Signed under the contract's own domain name rather than the offchain one: it
+  // still re-derives from itself, so our own invariant stays green, and the library
+  // and every explorer that uses it reject it.
+  const wrongDomain = await signObservation(account, { ...domain, name: "EAS" }, message);
+  check(await verifyObservation(wrongDomain),
+    "135d · an object signed under the contract's own domain still satisfies our own re-derivation (negative control, and the reason self-consistency is not evidence)");
+  check(!sdkAccepts(wrongDomain),
+    "135e · and the oracle rejects it, which is the only check here that would have caught it (seen to fail)");
+
   check(offchainUid({ ...message, salt: ZERO_BYTES32 }) !== signed.uid,
     "136 · dropping the salt changes the identifier, which is why the whole object is persisted (seen to fail)");
   // The schema goes into the identifier as the sixty six UTF-8 characters of its
@@ -129,6 +147,16 @@ export async function anchorChecks(check: Check) {
   await refuses("141 · a confirmation with no signature is refused rather than attested without one", { verifierSignature: "" });
   check(toObservation(row).verifierChainId === (row.verifierChainId as number),
     "142 · the verifier's chain is carried from the row and not from anywhere else");
+
+  // Condition 8, enforced rather than remembered. The public row carries a station
+  // and a species; neither may reach an attested field, and the way to know that is
+  // to decode what was actually encoded rather than to trust the mapping above.
+  const decoded = decodeAbiParameters(OBSERVATION_ABI, encodeObservation(o));
+  check(decoded.length === 10 && OBSERVATION_ABI.length === 10,
+    "142b · the attested data decodes to exactly the ten frozen fields and no eleventh");
+  const asText = Buffer.from(encodeObservation(o).slice(2), "hex").toString("utf8");
+  check(!asText.includes("AM 3") && !asText.includes("mexicanum"),
+    "142c · and the station and the species are nowhere inside it, decoded rather than assumed");
 
   check(JSON.stringify(Object.keys(serialiseSigned(signed) as object)) === JSON.stringify(SIGNED_KEYS),
     "143 · the payload endpoint serves the five keys of the signed object and no sixth");
