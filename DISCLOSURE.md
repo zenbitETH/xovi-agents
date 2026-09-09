@@ -10,7 +10,7 @@ ETHOnline 2026 requires a Continuity submission to state plainly what existed be
 
 ## What existed before 2026-09-04
 
-**Xovi** is a production conservation dApp at [xovi.axolodao.org](https://xovi.axolodao.org), built by Zenbit and first committed on 2026-05-10, with **268 commits** before the event window opened. Its repository is private; the deployed site is public, and so is the livestream it is built around, which runs twelve hours a day with recordings kept available.
+**Xovi** is a live conservation dApp at [xovi.axolodao.org](https://xovi.axolodao.org), built by Zenbit and first committed on 2026-05-10, with **268 commits** before the event window opened. Its repository is private; the deployed site is public, and so is the livestream it is built around, which runs twelve hours a day with recordings kept available.
 
 What was already working, none of which is claimed as event work:
 
@@ -26,12 +26,29 @@ What was already working, none of which is claimed as event work:
 
 Everything in **this repository**, which was created on 2026-09-06 and had no code in it before that date.
 
-- An **x402-gated read endpoint** serving computer-vision candidate windows, priced per call and settled on Base Sepolia.
+### Built and running
+
+Each of these is exercised by the checks in this repository, and the first four can be run end to end from a clean checkout with `npm run local`.
+
+- An **x402-gated read endpoint** serving computer-vision candidate windows, priced per call and settled on Base Sepolia against a facilitator used for development and testnet workflows.
 - An **agent client** that resolves an ENS name to a role and a payment endpoint, pays for a window, and proposes a clip.
-- **Proof-of-human caps** so that a per-wallet limit is not defeated by generating wallets.
-- An **anchor**: the human confirmation becomes an offchain EAS attestation, and its hash is timestamped on Ethereum Sepolia.
-- A **subgraph** over that anchor, and an **MCP server** that charges per query.
-- A **receipts ledger** and a fee sink on Base Sepolia.
+- **Delegation from a reader's own wallet**: the reader connects a browser wallet, signs one payment, and the agent's run is streamed back step by step as it happens. The reader supplies a signature and nothing else; the proposal is formed on the server from a window the server already holds.
+- **Proof-of-human caps**, so a per-wallet limit is not defeated by generating wallets.
+- An **offchain attestation**: the human operator confirms, and the operator asserts that confirmation in an EAS attestation whose schema identifier, signed object and signer recovery are all exercised.
+- A **subgraph** and an **MCP server** that charges per query.
+- A **receipts ledger**: a settlement is recorded against the payer who made it.
+
+### Designed and not running
+
+Named here rather than implied by the list above, because the difference is what a Continuity submission turns on.
+
+- **Nothing is registered or anchored on any network.** The attestation schema is not registered, no attestation has been timestamped, and the subgraph is not indexing a deployed anchor.
+- The **fee sink** is not started.
+- The **subscription tier** that would lift the per-person cap, **agent rewards** for proposing particular behaviours, and the **reconciliation** between what agents pay for the read and what subscribers pay for the product are designed and are not built.
+
+### The surface this opens, stated rather than left to be found
+
+The machine ingest surface carries **40 findings from an internal audit dated 2026-09-06 that have not been triaged**. This work does not widen that surface: a reader supplies a payment and nothing else, no field they control reaches the ingest route, and the proposal is built server side by the code that already built it. What changes is how often the surface is reached, which is what the per-person cap governs. Triage is work for after the event and is not claimed as done.
 
 ### Changes made to the pre-existing project during the event
 
@@ -39,8 +56,8 @@ These are in the Xovi repository rather than this one, and they are disclosed he
 
 - **Done.** Two **provenance columns** on the clip record, the source of a clip and a confidence value. They restore a design specified earlier and lost in implementation. The same change removed a column default that would have published machine output as trusted.
 - **Done.** A clip-proposal capability, scoped to a single station, added to the existing credential vocabulary.
-- **WIP.** A clip ingestion endpoint for machine credentials.
-- **WIP.** A fix to the self-review guard so that it compares the responsible human rather than the submitting address, which a delegated agent trivially defeats.
+- **Done.** A clip ingestion endpoint for machine credentials.
+- **Done.** A fix to the self-review guard so that it compares the responsible human rather than the submitting address, which a delegated agent trivially defeats.
 - **Done.** Rate limiting on two payment-adjacent endpoints, and a probe that goes red when either limiter is removed.
 
 The last item predates the agent layer conceptually and was outstanding work on the existing project; it is listed because it was written inside the event window, not because it is claimed as a new feature.
