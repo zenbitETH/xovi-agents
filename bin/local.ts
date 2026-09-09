@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { createServer } from "node:net";
+import { resolve } from "node:path";
 import { startFakeFacilitator } from "../test/facilitator";
 import { startFakeIngest } from "../test/ingest";
 
@@ -36,8 +39,66 @@ const PORT = Number(process.env.PORT ?? 3001);
 /** A recipient that is not the payer, so a settlement is a payment and not a loop. */
 const PAY_TO = "0x000000000000000000000000000000000000dEaD";
 
-function run(command: string, args: string[], env: NodeJS.ProcessEnv) {
-  return spawn(command, args, { env, stdio: "inherit" });
+/*
+ * next itself, not npx, and as its own process group.
+ *
+ * The wrapper was only half of it. Spawning through npx puts a process between
+ * the supervisor and the server, but `next start` forks a worker of its own, so
+ * killing the process this file holds a handle to still leaves `next-server`
+ * orphaned and still listening. Measured both ways: with npx and without, the
+ * port stayed held by a process the supervisor no longer knew about, and every
+ * restart then failed with the port in use while the backoff grew.
+ *
+ * So the child leads its own process group and the whole group is signalled,
+ * which reaches the worker as well, and the port is waited for before anything
+ * is started on it. A supervisor that reports a restart while the thing on the
+ * port is not the thing it manages is worse than no supervisor.
+ *
+ * Resolved from the working directory, which `npm run` sets to the package root,
+ * and checked rather than assumed. `import.meta.dirname` was tried first and is
+ * undefined here, because tsx compiles this to CommonJS; the path it produced
+ * still happened to work, since "UNDEFINED/.." collapses to the same relative
+ * path when the cwd is right. A value that is correct by accident under the one
+ * condition it was meant to remove is worse than a value that says what it needs.
+ */
+const NEXT = resolve(process.cwd(), "node_modules", ".bin", "next");
+if (!existsSync(NEXT)) {
+  throw new Error(`next was not found at ${NEXT}. Run this from the package root, after npm ci.`);
+}
+
+function run(args: string[], env: NodeJS.ProcessEnv) {
+  return spawn(NEXT, args, { env, stdio: "inherit", detached: true });
+}
+
+/** Signal the whole group, so `next start`'s worker goes with its parent. */
+function endGroup(pid: number | undefined) {
+  if (pid === undefined) return;
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // Already gone, which is the outcome this wanted.
+    }
+  }
+}
+
+/** Resolves once nothing is listening, so a restart cannot race an orphan. */
+function portFree(port: number, tries = 40): Promise<void> {
+  return new Promise((ok, fail) => {
+    const attempt = (left: number) => {
+      const probe = createServer();
+      probe.once("error", () => {
+        probe.close();
+        if (left <= 0) return fail(new Error(`port ${port} is still held`));
+        setTimeout(() => attempt(left - 1), 250);
+      });
+      probe.once("listening", () => probe.close(() => ok()));
+      probe.listen(port, "127.0.0.1");
+    };
+    attempt(tries);
+  });
 }
 
 async function main() {
@@ -59,7 +120,7 @@ async function main() {
 
   await new Promise<void>((resolve, reject) => {
     console.log("\n  building, because next dev does not minify and the deployed page does\n");
-    const build = run("npx", ["next", "build"], env);
+    const build = spawn(NEXT, ["build"], { env, stdio: "inherit" });
     build.on("exit", code => (code === 0 ? resolve() : reject(new Error(`next build exited ${code}`))));
   });
 
@@ -74,7 +135,7 @@ async function main() {
    */
   let stopping = false;
   let restarts = 0;
-  let server = run("npx", ["next", "start", "-p", String(PORT)], env);
+  let server = run(["start", "-p", String(PORT)], env);
 
   const supervise = (child: ReturnType<typeof spawn>) => {
     child.on("exit", code => {
@@ -82,8 +143,10 @@ async function main() {
       restarts++;
       const wait = Math.min(30_000, 2_000 * restarts);
       console.log(`\n  next exited (${code}). restart ${restarts} in ${wait / 1000}s\n`);
-      setTimeout(() => {
-        server = run("npx", ["next", "start", "-p", String(PORT)], env);
+      endGroup(child.pid);
+      setTimeout(async () => {
+        await portFree(PORT).catch(err => console.error(`  ${(err as Error).message}`));
+        server = run(["start", "-p", String(PORT)], env);
         supervise(server);
       }, wait);
     });
@@ -103,7 +166,7 @@ async function main() {
   const stop = async () => {
     stopping = true;
     clearInterval(ticker);
-    server.kill("SIGTERM");
+    endGroup(server.pid);
     await facilitator.close();
     await ingest.close();
     process.exit(0);
