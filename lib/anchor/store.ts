@@ -39,7 +39,7 @@ export type AnchorRow = {
 export type Claim = { fresh: boolean; row: AnchorRow };
 
 /** What still has to happen for a clip, derived from the row alone. */
-export type NextAction = "done" | "resume-attest" | "anchor-both";
+export type NextAction = "done" | "resume-uid" | "resume-attest" | "anchor-both";
 
 /**
  * The decision the High finding got wrong, in one place that can be tested.
@@ -51,7 +51,15 @@ export type NextAction = "done" | "resume-attest" | "anchor-both";
  */
 export function nextAction(row: AnchorRow | null): NextAction {
   if (!row) return "anchor-both";
-  return row.attestTx ? "done" : "resume-attest";
+  // The transaction hash is recorded the moment it is known, before the receipt is
+  // waited on, because the gap between an attestation being accepted by the chain
+  // and being remembered here is a gap in which a death makes the next run attest a
+  // second time. So a row can hold a hash and not yet the identifier the contract
+  // assigned, and that state resumes by reading the receipt rather than by sending
+  // anything. Recording the hash later would be simpler and would reintroduce the
+  // double attestation this ordering exists to prevent.
+  if (!row.attestTx) return "resume-attest";
+  return row.onchainUid ? "done" : "resume-uid";
 }
 
 export type AnchorStore = {

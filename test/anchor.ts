@@ -226,8 +226,10 @@ export async function anchorChecks(check: Check) {
   check(nextAction(null) === "anchor-both", "160 · a clip with no row anchors both legs");
   check(nextAction(halfDone) === "resume-attest",
     "161 · a row with a timestamp and no attestation RESUMES, which the old boolean read as done (seen to fail)");
-  check(nextAction({ ...halfDone, attestTx: "0xattest" }) === "done",
-    "162 · and only the attestation, written last, marks it finished");
+  check(nextAction({ ...halfDone, attestTx: "0xattest" }) === "resume-uid",
+    "162 · a recorded attestation with no identifier resumes by READING the receipt, never by attesting again (seen to fail)");
+  check(nextAction({ ...halfDone, attestTx: "0xattest", onchainUid: "0xonchain" }) === "done",
+    "162b · and only both marks it finished");
 
   // The store contract the resume depends on: a second claim hands back the STORED
   // row, not the one the caller just built. Signing again makes a new salt and a new

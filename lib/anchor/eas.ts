@@ -217,7 +217,54 @@ export async function anchorTimestamp(
   return { alreadyAnchored: false, at: await timestampOf(publicClient, uid), txHash };
 }
 
-/** The onchain leg an indexer can filter natively, by the schema in its fourth topic. */
+/**
+ * Sends the attestation and returns as soon as the hash is known.
+ *
+ * Split from the receipt wait on purpose. The caller records this hash before
+ * waiting, because the window between a transaction being accepted and being
+ * recorded is a window in which a death makes the next run attest a second time.
+ * The earlier fix closed the case where a leg fails; this is the case where a leg
+ * succeeds and the process dies before anything remembers that it did.
+ */
+export async function sendAttest(
+  wallet: ReturnType<typeof walletClientFor>,
+  schema: Hex,
+  data: Hex,
+  recipient: Address = "0x0000000000000000000000000000000000000000",
+): Promise<Hex> {
+  return wallet.writeContract({
+    address: EAS_ADDRESS,
+    abi: EAS_ABI,
+    functionName: "attest",
+    args: [
+      {
+        schema,
+        data: { recipient, expirationTime: 0n, revocable: true, refUID: `0x${"00".repeat(32)}`, data, value: 0n },
+      },
+    ],
+    chain: null,
+    account: wallet.account as PrivateKeyAccount,
+  });
+}
+
+/**
+ * The identifier the contract assigned, read from the receipt of a sent attestation.
+ *
+ * Separate from sending so it can be redone. A run that recorded the hash and died
+ * before reading the receipt resumes here rather than by attesting again, which is
+ * the whole point of recording the hash first.
+ */
+export async function attestedUid(
+  publicClient: ReturnType<typeof publicClientFor>,
+  txHash: Hex,
+): Promise<Hex> {
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+  const log = receipt.logs.find(l => l.topics[0] === TOPIC_ATTESTED);
+  if (!log) throw new Error("the attestation emitted no Attested log, which should be impossible");
+  return log.data as Hex;
+}
+
+/** Send and read in one call. For the fork proof, where nothing can die between them. */
 export async function attestOnchain(
   publicClient: ReturnType<typeof publicClientFor>,
   wallet: ReturnType<typeof walletClientFor>,
@@ -225,33 +272,8 @@ export async function attestOnchain(
   data: Hex,
   recipient: Address = "0x0000000000000000000000000000000000000000",
 ): Promise<{ txHash: Hex; uid: Hex }> {
-  const txHash = await wallet.writeContract({
-    address: EAS_ADDRESS,
-    abi: EAS_ABI,
-    functionName: "attest",
-    args: [
-      {
-        schema,
-        data: {
-          recipient,
-          expirationTime: 0n,
-          revocable: true,
-          refUID: `0x${"00".repeat(32)}`,
-          data,
-          value: 0n,
-        },
-      },
-    ],
-    chain: null,
-    account: wallet.account as PrivateKeyAccount,
-  });
-  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-  // The identifier the CONTRACT assigned, which is not the offchain one. It is read
-  // from the log rather than guessed, and it is the identifier an indexer will
-  // return to a stranger, so the anchor row has to remember it.
-  const log = receipt.logs.find(l => l.topics[0] === TOPIC_ATTESTED);
-  if (!log) throw new Error("the attestation emitted no Attested log, which should be impossible");
-  return { txHash, uid: log.data as Hex };
+  const txHash = await sendAttest(wallet, schema, data, recipient);
+  return { txHash, uid: await attestedUid(publicClient, txHash) };
 }
 
 /**

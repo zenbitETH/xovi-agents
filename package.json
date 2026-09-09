@@ -19,7 +19,8 @@
     "mcp:server": "tsx --env-file=.env.local bin/mcp-server.ts",
     "query": "tsx --env-file=.env.local bin/query.ts",
     "subgraph:codegen": "graph codegen subgraph/subgraph.yaml --output-dir subgraph/generated",
-    "subgraph:build": "graph build subgraph/subgraph.yaml --output-dir subgraph/build"
+    "subgraph:build": "graph build subgraph/subgraph.yaml --output-dir subgraph/build",
+    "mcp:probe": "tsx bin/mcp-http-probe.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

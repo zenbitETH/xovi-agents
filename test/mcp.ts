@@ -1,7 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { MCP_PAYMENT_META_KEY, MCP_PAYMENT_REQUIRED_CODE, MCP_PAYMENT_RESPONSE_META_KEY } from "@x402/mcp";
-import { TOOL_NAME, atomicAmount } from "../lib/mcp/server";
+import { TOOL_NAME, atomicAmount, recordMcpSettlement } from "../lib/mcp/server";
+import type { Receipt } from "../lib/human/store";
 
 type Check = (ok: boolean, label: string) => void;
 
@@ -33,6 +34,26 @@ export async function mcpChecks(check: Check) {
   check(MCP_PAYMENT_META_KEY === "x402/payment", "150 · the request metadata key is defined");
   check(MCP_PAYMENT_RESPONSE_META_KEY === "x402/payment-response", "151 · the response metadata key is defined");
   check(atomicAmount("$0.01", 6) === "10000", "152 · a dollar price becomes the token's smallest unit");
+
+  // The settlement hook, exercised. A hook that writes the ledger and is reached by
+  // no check is the same shape as the defect it was written to fix.
+  const written: Receipt[] = [];
+  const fakeRecord = async (r: Receipt) => void written.push(r);
+  const settlement = { transaction: "0xdeadbeef", network: "eip155:84532" };
+  const authPayload = { payload: { authorization: { from: "0xpayer", to: "0xrecipient", value: "10000", nonce: "0xnonce" } } };
+
+  check(await recordMcpSettlement(settlement, authPayload, "eip155:84532", fakeRecord) === true,
+    "152b · a settled query records a receipt (seen to fail by dropping the call)");
+  check(written.length === 1 && written[0].source === "mcp",
+    "152c · under its own source, so two rails settling to one recipient leave rows that can be told apart");
+  check(written[0].transactionHash === "0xdeadbeef" && written[0].payer === "0xpayer" && written[0].amount === "10000",
+    "152d · carrying the settlement and the authorization rather than defaults");
+
+  check(await recordMcpSettlement(settlement, { payload: {} }, "eip155:84532", fakeRecord) === false,
+    "152e · a payload with no authorization writes nothing rather than a row naming nobody");
+  check(await recordMcpSettlement({}, authPayload, "eip155:84532", fakeRecord) === false,
+    "152f · and a settlement with no transaction writes nothing either");
+  check(written.length === 1, "152g · so the ledger still holds exactly the one real receipt");
 
   const client = new Client({ name: "suite", version: "0" });
   await client.connect(

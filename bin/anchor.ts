@@ -13,10 +13,11 @@ import { privateKeyToAccount } from "viem/accounts";
 import {
   EAS_ADDRESS,
   anchorTimestamp,
-  attestOnchain,
+  attestedUid,
   domainVersion,
   publicClientFor,
   requireAnchorChain,
+  sendAttest,
   walletClientFor,
 } from "../lib/anchor/eas";
 import { signedBy } from "../lib/anchor/confirmation";
@@ -140,12 +141,22 @@ async function main() {
     const anchored = await anchorTimestamp(pub, wallet, persisted.uid);
     await store.complete(persisted.uid, { timestampTx: anchored.txHash, timestampedAt: anchored.at });
 
-    const onchain = await attestOnchain(pub, wallet, schema, persisted.message.data);
-    await store.complete(persisted.uid, { attestTx: onchain.txHash, onchainUid: onchain.uid });
+    // Sent, then recorded, then read. The hash is written before the receipt is
+    // waited on: a death inside that wait must leave a row that resumes by reading
+    // the receipt, never one that resumes by attesting again.
+    let attestTx = record.attestTx as `0x${string}` | undefined;
+    if (next !== "resume-uid") {
+      attestTx = await sendAttest(wallet, schema, persisted.message.data);
+      await store.complete(persisted.uid, { attestTx });
+    } else {
+      console.log(`  resume clip ${o.clipId}: attestation ${attestTx} was sent and never read`);
+    }
+    const onchainUid = await attestedUid(pub, attestTx!);
+    await store.complete(persisted.uid, { onchainUid });
 
     console.log(`  clip ${o.clipId}  uid ${persisted.uid}`);
     console.log(`    timestamp ${anchored.alreadyAnchored ? "already at" : "at"} ${anchored.at}${anchored.txHash ? `, tx ${anchored.txHash}` : ""}`);
-    console.log(`    attest    tx ${onchain.txHash}, uid ${onchain.uid}`);
+    console.log(`    attest    tx ${attestTx}, uid ${onchainUid}`);
   }
   console.log("");
 }

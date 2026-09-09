@@ -9,19 +9,15 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
-import { TOOL_NAME, buildPaidTool } from "../lib/mcp/server";
+import { TOOL_NAME, buildPaidTool, registerObservationsTool } from "../lib/mcp/server";
 
 async function main() {
-  const { handler, price, network, payTo } = buildPaidTool();
+  const { price, network, payTo } = buildPaidTool();
   const server = new McpServer({ name: "xovi-agents", version: "0.1.0" });
 
-  server.tool(
-    TOOL_NAME,
-    `Confirmed clip observations, with the reviewer's signature checked (${price} per call)`,
-    { limit: z.number().int().min(1).max(50).optional() },
-    handler as never,
-  );
+  // The same registration the networked route uses. Defining the tool twice is how
+  // the offline checks would stop being evidence about the deployed one.
+  registerObservationsTool(server as never);
 
   // To stderr, because stdout is the protocol channel and anything written there
   // that is not a message corrupts the stream.
