@@ -61,6 +61,14 @@ This repository was created on 2026-09-06 and is being built across the event wi
 | Subgraph and paid query | built: the subgraph, and the paid query served over MCP as well as HTTP. Not indexing a deployed anchor |
 | Receipts ledger and fee sink | receipts built: a settlement is recorded against the payer. The fee sink is not started |
 
+## What the attestation asserts
+
+<!-- When the schema is registered, the legal lead's first sentence goes here, ahead of the paragraph below, and nothing else changes:
+     A schema definition for clip confirmations is registered on a public testnet for interoperability testing, with no production monitoring system deployed against it.
+     It is held out until then because it states a registration as fact. -->
+
+The human operator confirms; the confirmation is attested. The attestation asserts who confirmed and when, and makes that verifiable by third parties. It certifies no identity, no reputation, no payment and no biological fact. The agent proposes; no credential of its own can confirm or attest.
+
 ## Privacy
 
 ZENBIT S.A.S. de C.V. (Santiago de Querétaro, Mexico) is the data controller. For agents, the World ID identifier of the person who registered them is read to administer a free daily quota and to show operators, as true or false, whether a proposing agent was registered by a verified person; a keyed digest of it is kept for 30 days for the quota only. You may limit the use of your data, exercise your access, rectification, cancellation and objection rights, and revoke your consent at hola@zenbit.mx. Full privacy notice: https://zenbit.mx/en/privacy. Clip confirmations are collected in the Xovi confirmation interface, which carries its own notice.
