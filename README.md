@@ -6,7 +6,7 @@ A delegated agent pays for data, proposes a record, and cannot approve its own w
 
 [Xovi](https://xovi.axolodao.org) is a conservation dApp built around a public axolotl livestream. People watch the stream, mark behaviours they see, and submit them as clips. Other people confirm or reject those clips. Confirmed observations accrue as a record.
 
-This repository adds a machine to that loop, in the one position where a machine belongs. A person delegates to an agent identified by an ENS name. The agent pays USDC over x402 to read computer-vision candidate windows, which are segments the model thinks are worth a human's attention. It proposes a clip through a machine credential. Then it stops. A human operator confirms or rejects, exactly as they do for a clip a person submitted. That confirmation becomes an EAS attestation, its hash is anchored on Ethereum Sepolia, and a subgraph indexes the anchor so the result can be served through a paid query.
+This repository adds a machine to that loop, in the one position where a machine belongs. A person delegates to an agent. The agent pays USDC over x402 to read computer-vision candidate windows, which are segments the model thinks are worth a human's attention. It proposes a clip through a machine credential. Then it stops. A human operator confirms or rejects, exactly as they do for a clip a person submitted. The operator asserts that confirmation in an EAS attestation, which is designed to be anchored on Ethereum Sepolia and indexed by a subgraph so the result can be served through a paid query.
 
 The agent never sees a water reading, never confirms anything, and earns no credit for what it proposes.
 
