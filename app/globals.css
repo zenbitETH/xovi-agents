@@ -48,13 +48,13 @@
      this page is the one button in the toolbar and its focus ring. */
   --color-xv-gold: #f8c471;
 
-  /* Agent activity. A token rather than a literal because the same colour now
+  /* Agent activity. A token rather than a literal because the same hue now
      carries the same meaning in two repositories and must not drift between
      them.
 
      Contrast measured against the surface it is actually used on, which is not
      the one the guidance assumed. This app's card paints base-100, not the page
-     ground base-200, because it ports .xv-aquarium. So this colour sits at 4.13
+     ground base-200, because it ports .xv-aquarium. So this hue sits at 4.13
      here rather than 5.79: comfortably over the 3:1 that non-text UI needs, and
      under the 4.5 that text needs. It marks and it never letters. Teal, the
      human marker, is 3.59 on the same ground and lives under the same rule. */
@@ -681,7 +681,7 @@ body::after {
 
    The collision is gone rather than managed. Gold means "this control is active"
    (Xovi globals.css:570) and stays on the toolbar button; agent activity has its
-   own colour, so the two can no longer be read as one thing. The marker is still
+   own hue, so the two can no longer be read as one thing. The marker is still
    small, unshadowed and non-interactive, because that was right for its own
    reasons and not only for the collision.
 --------------------------------------------------------------------------- */
@@ -691,7 +691,7 @@ body::after {
 .ag-actor-agent .ag-feed-dot {
   background-color: var(--color-xv-agent);
 }
-/* Only the terminator. Neither party did this, and spending a semantic colour on
+/* Only the terminator. Neither party did this, and spending a semantic hue on
    "the run ended" would dilute both. */
 .ag-actor-system .ag-feed-dot {
   background-color: color-mix(in oklab, var(--color-base-content) 35%, transparent);

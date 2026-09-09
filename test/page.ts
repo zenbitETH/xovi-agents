@@ -56,13 +56,13 @@ export function pageChecks(check: Check) {
   check(proving.test("this proves it"), "178 · the proving check can see the verb (negative control)");
 
   /*
-   * Every step is attributed, and the two colours are held apart.
+   * Every step is attributed, and the two hues are held apart.
    *
    * The feed is the one surface showing a person and a machine acting in turn,
    * so a step that reaches the screen without an actor is a step drawn in the
-   * neutral colour, which reads as neither and quietly breaks the story. The
+   * neutral hue, which reads as neither and quietly breaks the story. The
    * mapping is exercised against the real function rather than inspected as
-   * text, so a new step added to the union without a colour fails here.
+   * text, so a new step added to the union without a hue fails here.
    */
   const everyStep: RunStep[] = [
     { step: "presenting" },
@@ -97,18 +97,18 @@ export function pageChecks(check: Check) {
    * The tone axis used the primary for its good state, which would have put teal
    * on agent rows and dissolved the distinction the marker exists to draw. The
    * marker carries the actor, the text carries the state, and neither reads the
-   * other's colour.
+   * other's hue.
    */
   const toneGood = css.slice(css.indexOf(".ag-tone-good {")).split("}")[0];
   check(!/var\(--color-primary\)/.test(toneGood), "211 · the good tone is not teal, so teal on a row means a person");
   const humanDot = css.slice(css.indexOf(".ag-actor-human .ag-feed-dot {")).split("}")[0];
   const agentDot = css.slice(css.indexOf(".ag-actor-agent .ag-feed-dot {")).split("}")[0];
   check(/var\(--color-primary\)/.test(humanDot) && /var\(--color-xv-agent\)/.test(agentDot),
-    "212 · the person's marker is teal and the agent's is the agent colour");
+    "212 · the person's marker is teal and the agent's is the agent hue");
   check(/--color-xv-agent:\s*#c58a5a/i.test(css) && !/#c58a5a/i.test(css.replace(/--color-xv-agent:\s*#c58a5a/i, "")),
-    "212b · the agent colour is declared once as a token and appears nowhere as a literal");
+    "212b · the agent hue is declared once as a token and appears nowhere as a literal");
   check(!/var\(--color-xv-gold\)/.test(agentDot),
-    "212c · and gold is not the agent colour, so the toolbar button means something else (negative control)");
+    "212c · and gold is not the agent hue, so the toolbar button means something else (negative control)");
   const dotRule = css.slice(css.indexOf(".ag-feed-dot {")).split("}")[0];
   check(!/box-shadow|border:/.test(dotRule) && /width:\s*0\.375rem/.test(dotRule),
     "213 · and the marker has no shadow and no border, so a marker cannot read as the button");
@@ -130,13 +130,40 @@ export function pageChecks(check: Check) {
    * screenshot showed it immediately. These two are the cheap half of what the
    * screenshot did.
    */
-  const rendered = new Set((ui.match(/\bag-[a-z0-9-]+/g) ?? []).filter(c => !c.endsWith("-")));
-  // The two families built by interpolation, expanded to what they can produce.
-  for (const t of ["good", "working", "stopped"]) rendered.add(`ag-tone-${t}`);
-  for (const a of ["human", "agent", "system"]) rendered.add(`ag-actor-${a}`);
-  const unstyled = [...rendered].filter(c => !new RegExp(`\\.${c}[\\s,{:.]`).test(css));
-  check(unstyled.length === 0, `214 · every class the interface renders has a rule (${unstyled.join(", ")})`);
-  check(!/\.ag-not-a-real-class[\s,{:.]/.test(css), "215 · the rule check can miss a class that has none (negative control)");
+  /*
+   * Parsed as rules rather than matched as substrings, because the first version
+   * of this was green on three variants of the defect it was written for.
+   *
+   * An emptied `.ag-header {}` passed, a rule commented out passed, and a new
+   * interpolated family rendered with no rule at all passed. Each was seen. So
+   * comments are stripped before anything is matched, a rule counts only if it
+   * declares something, and a class family this check does not know how to expand
+   * is a failure rather than a silent skip.
+   */
+  const live = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  // Innermost rules only, which is what the media queries leave behind.
+  const rules = [...live.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(m => ({ selector: m[1], body: m[2] }));
+  const styled = (name: string) =>
+    rules.some(r => new RegExp(`\\.${name}(?![a-z0-9-])`).test(r.selector) && /[a-z-]+\s*:/.test(r.body));
+
+  const tokens = ui.match(/\bag-[a-z0-9-]+/g) ?? [];
+  // A trailing hyphen is the left half of `ag-tone-${...}`. Each such family has
+  // to be expanded by hand below, so an unknown one is unasserted, not absent.
+  const FAMILIES: Record<string, string[]> = { "ag-tone-": ["good", "working", "stopped"], "ag-actor-": ["human", "agent", "system"] };
+  const renderedClasses = new Set(tokens.filter(t => !t.endsWith("-")));
+  for (const [prefix, values] of Object.entries(FAMILIES)) for (const v of values) renderedClasses.add(`${prefix}${v}`);
+  const unstyled = [...renderedClasses].filter(c => !styled(c));
+  check(unstyled.length === 0, `214 · every class the interface renders has a rule that declares something (${unstyled.join(", ")})`);
+  const unexpanded = [...new Set(tokens.filter(t => t.endsWith("-")))].filter(t => !(t in FAMILIES));
+  check(unexpanded.length === 0, `214b · every interpolated class family is one this check expands (${unexpanded.join(", ")})`);
+  check(!styled("ag-not-a-real-class"), "215 · the rule check can miss a class that has none (negative control)");
+
+  // The header's height is the token the app subtracts. If it is ever unset the
+  // two disagree and the viewport arithmetic is wrong while everything still
+  // looks well formed, which is how the last one of these got through.
+  const headerRule = rules.find(r => /\.ag-header(?![a-z0-9-])/.test(r.selector));
+  check(/height:\s*var\(--xv-header-h\)/.test(headerRule?.body ?? ""),
+    "214c · and the header declares the same height the app subtracts");
 
   const marks = ui.match(/<svg[\s\S]*?>/g) ?? [];
   const unsized = marks.filter(m => !/\swidth=/.test(m) || !/\sheight=/.test(m));

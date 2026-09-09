@@ -18,7 +18,7 @@ const REPO = "https://github.com/zenbitETH/xovi-agents";
  * Two independent axes, deliberately not folded into one.
  *
  * `actor` says whose activity a line is, and it is the only thing that carries
- * colour: teal for the person, gold for the agent. This feed is the one surface
+ * hue: teal for the person, gold for the agent. This feed is the one surface
  * in the project showing both interleaved, which is the thing the app exists to
  * make legible, and it reads as a story only if the two are told apart at a
  * glance rather than by reading.
@@ -28,7 +28,7 @@ const REPO = "https://github.com/zenbitETH/xovi-agents";
  *
  * Gold is not one of the two. It means "this control is active" (globals.css:570)
  * and stays on the toolbar button, so the button and the markers cannot be read
- * as the same signal. The agent's colour is its own token, measured at 4.13
+ * as the same signal. The agent's hue is its own token, measured at 4.13
  * against the surface it actually sits on, which marks and never letters.
  */
 export type Actor = "human" | "agent" | "system";
@@ -78,7 +78,7 @@ export function lineFor(step: RunStep): Line {
         tone: "stopped",
         // A rejection is the one refusal that is a person's judgement rather than
         // a machine's answer: someone looked at this window and said no. It is
-        // marked as their activity, which is the whole point of the two colours.
+        // marked as their activity, which is the whole point of the two hues.
         actor: step.kind === "rejected" ? "human" : "agent",
       };
     case "not-submitted":
