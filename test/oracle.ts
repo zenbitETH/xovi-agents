@@ -1,3 +1,9 @@
+// This import resolves to the library's CommonJS build, and only because this
+// project has no `type` field. Its `exports` map sends `import` to an ESM build
+// whose typed-data module does `import { isEqual } from "lodash"`, a named import
+// from a CommonJS package that Node's ESM loader refuses. So an ESM migration
+// breaks this oracle at import time, and it would break silently for anyone not
+// running the suite, which is the one property an instrument must not have.
 import { Offchain, OffchainAttestationVersion } from "@ethereum-attestation-service/eas-sdk";
 import { parseSignature } from "viem";
 import type { SignedObservation } from "../lib/anchor/offchain";
