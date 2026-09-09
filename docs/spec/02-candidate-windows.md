@@ -20,7 +20,7 @@ Written 2026-09-07, before the endpoint. The shape below came from the detector 
   "truncatedByCap": false,
   "continuesPrevious": false,
   "confidence": 620,
-  "reason": "sustained motion 3.4 s with floor occlusion; station by 8-frame vote (8/8); phenotype no signal, 5 candidates",
+  "reason": "sustained motion 3.4 s with floor occlusion; station by 8-frame vote (8/8); appearance signal did not resolve, 5 candidates",
   "detector": "…@0.1.0",
   "producedAt": "2026-09-07T04:11:00Z"
 }
@@ -31,6 +31,8 @@ Every departure from a naive shape exists for a reason that costs something if i
 **Times are seconds quantised to whole milliseconds, at the source.** `computeClipHash` takes `Math.round(t * 1000)`, so if the producer and the consumer round differently the same moment acquires two identities. Round once, where the number is made.
 
 **`confidence` is an integer per mille, not a float.** The column is per mille under a CHECK constraint, so a float in the window means somebody rounds later, and two agents round `.5` differently.
+
+**Nothing served, attested or persisted names a trait.** No field this endpoint emits, and no field it becomes downstream, carries a derivation, a threshold or the name of a characteristic: not `reason`, not `behaviorNote`, not `confidence`. A signal that separates one animal from another is described by what it did for the decision and never by what it measured, so a reader learns that the detector could not resolve an individual and learns nothing about the individual.
 
 **`reason` is capped at 280 characters.** It is not only the thing being sold. It is also the field that becomes `behaviorNote`, which the ingest route caps at 280 and requires at three or more whenever the tag is `other`. Capping at the source makes it usable verbatim.
 
@@ -52,7 +54,7 @@ The consequence is a rule for the agent and it is easy to get backwards. **A ref
 
 ## A window can be a maintenance event
 
-The detector finds where something moved, and some of what moves is an operator's hand and the cloud of sediment it stirs. The phenotype signal does not separate the two: a maintenance window reads the same colour as the animal does. This is measured rather than suspected and it is recorded here as a known limit rather than left to be discovered.
+The detector finds where something moved, and some of what moves is an operator's hand and the cloud of sediment it stirs. The appearance signal does not separate the two: a maintenance window reads the same as the animal does. This is measured rather than suspected and it is recorded here as a known limit rather than left to be discovered.
 
 Two things follow. **A served window may contain a person.** It discloses nothing new, because a window is a time range in a livestream that is already public and anyone may watch it, but the possibility is stated here rather than implied. And the endpoint's description must not say the detector finds behaviour. It finds motion worth a human's attention, and everything past that is the reviewer's judgement.
 
