@@ -114,6 +114,39 @@ export function pageChecks(check: Check) {
     "213 · and the marker has no shadow and no border, so a marker cannot read as the button");
 
   /*
+   * Every class the interface renders has a rule, and every inline mark has a size.
+   *
+   * These exist because the flex-chain guard below passed while the page was
+   * unusable. A rewrite of the layout block replaced the whole page-layout
+   * section and took the header rules with it, so `.ag-header`, `.ag-brand` and
+   * `.ag-brand svg` rendered against nothing. An inline SVG carrying only a
+   * viewBox scales to its container, so the mark grew to the full width of the
+   * header and pushed the app past the fold.
+   *
+   * The chain guard could not see it, and no version of it could: it asserts the
+   * container is well formed, and an unconstrained child breaks a container from
+   * the inside. A structural check and a rendering are different instruments, and
+   * two people read this markup without noticing a missing attribute while one
+   * screenshot showed it immediately. These two are the cheap half of what the
+   * screenshot did.
+   */
+  const rendered = new Set((ui.match(/\bag-[a-z0-9-]+/g) ?? []).filter(c => !c.endsWith("-")));
+  // The two families built by interpolation, expanded to what they can produce.
+  for (const t of ["good", "working", "stopped"]) rendered.add(`ag-tone-${t}`);
+  for (const a of ["human", "agent", "system"]) rendered.add(`ag-actor-${a}`);
+  const unstyled = [...rendered].filter(c => !new RegExp(`\\.${c}[\\s,{:.]`).test(css));
+  check(unstyled.length === 0, `214 · every class the interface renders has a rule (${unstyled.join(", ")})`);
+  check(!/\.ag-not-a-real-class[\s,{:.]/.test(css), "215 · the rule check can miss a class that has none (negative control)");
+
+  const marks = ui.match(/<svg[\s\S]*?>/g) ?? [];
+  const unsized = marks.filter(m => !/\swidth=/.test(m) || !/\sheight=/.test(m));
+  check(marks.length > 0 && unsized.length === 0,
+    `216 · every inline svg carries width and height, so it cannot scale to its container (${unsized.length} did not)`);
+  const brandRule = css.slice(css.indexOf(".ag-brand svg {")).split("}")[0];
+  check(/width:/.test(brandRule) && /height:/.test(brandRule),
+    "217 · and the mark is bounded in the stylesheet as well as on the element");
+
+  /*
    * The scrollless shell, guarded where it actually breaks.
    *
    * Xovi's home owns one viewport minus the header and does not scroll; the one

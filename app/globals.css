@@ -365,6 +365,83 @@ body::after {
 }
 
 /* ---------------------------------------------------------------------------
+   Header. Restored: the layout rewrite replaced the whole page-layout block and
+   took these with it, leaving every class the header renders with no rule at
+   all. The mark then had no width and no height, and an inline SVG carrying only
+   a viewBox scales to its container, so it grew to the header's full width and
+   pushed the app below the fold. The flex-chain guard passed throughout, because
+   it checks the container and an unconstrained child breaks a container from the
+   inside.
+--------------------------------------------------------------------------- */
+
+/* Header.tsx:144 geometry. Xovi frosts this into .xv-glass past scrollY 4,
+   which needs a client component; this page ships none, so it stays clear.
+   The height is the same token the app subtracts, so the two cannot disagree. */
+.ag-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  height: var(--xv-header-h);
+  flex-shrink: 0;
+  align-items: center;
+}
+.ag-header-inner {
+  display: flex;
+  width: 100%;
+  max-width: 48rem;
+  margin-inline: auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-inline: 1rem;
+}
+@media (min-width: 1024px) {
+  .ag-header-inner {
+    max-width: 80rem;
+  }
+}
+.ag-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+}
+/* Header.tsx:176 lockup: the mark beside the wordmark. Both dimensions are set,
+   and flex-shrink is pinned, because a flex item with an intrinsic aspect ratio
+   and no width is the thing that broke this page. */
+.ag-brand svg {
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+}
+.ag-wordmark {
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 1.75rem;
+  line-height: 1;
+}
+@media (min-width: 768px) {
+  .ag-brand svg {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+  .ag-wordmark {
+    font-size: 2.25rem;
+  }
+}
+.ag-wordmark-sub {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.ag-key i {
+  flex: 0 0 auto;
+}
+
+/* ---------------------------------------------------------------------------
    App layout, ported from Xovi's home route.
 
    Xovi's home is a full viewport HUD: app/page.tsx renders <ClipHud /> and

@@ -101,7 +101,17 @@ const PHASE_LABEL: Record<Phase, string> = {
 
 function Mark() {
   return (
-    <svg viewBox="0 0 1080 1080" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    // width and height on the element as well as in CSS. An inline SVG with only a
+    // viewBox scales to its container, and if a rule is ever lost again the mark
+    // falls back to 36 pixels rather than to the width of the page.
+    <svg
+      width="36"
+      height="36"
+      viewBox="0 0 1080 1080"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
       <path
         d="M638.942 896.88C594.968 973.04 485.032 973.04 441.058 896.88L95.4769 298.36C51.5025 222.2 106.47 127 194.419 127H885.581C973.53 127 1028.5 222.2 984.523 298.36L638.942 896.88Z"
         fill="#059C9C"
