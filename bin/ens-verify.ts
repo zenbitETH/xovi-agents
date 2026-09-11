@@ -20,22 +20,44 @@ import { WINDOWS_RECORD_KEY, resolveWindowsEndpoint } from "../lib/agent/ens";
 const ZERO = "0x0000000000000000000000000000000000000000";
 
 /**
- * A name that certainly resolves on this chain, read before anything else.
+ * Two names that certainly resolve on this chain, both read before anything else.
  *
- * Without it a `null` is not evidence. It means the same as an adapter that never
- * reached a resolver. Measured: the first probe of this work returned null for
- * three names AND for its control, and only a positive control turned that into
+ * Without a control a `null` is not evidence: it means the same as an endpoint that
+ * never reached a resolver. Measured, the first probe of this work returned null for
+ * three names AND for its own control, and only a positive control made it
  * information.
  *
- * What it was measured to do, precisely, on an rpc pointed at the wrong chain: the
- * registry read throws `returned no data ("0x")`, and the control converts that
- * into a sentence naming the rpc. So on that case it buys clarity rather than
- * correctness, and saying so is the point. The case it would buy correctness on is
- * an endpoint that answers with zeros instead of reverting, where every lookup
- * below would read as "not registered" and be believed. That one is the reason it
- * is here and it has not been observed.
+ * Why two, stated as what was measured rather than as what it first looked like.
+ * They do NOT reach different backends: both go through the same `0xeEeE` universal
+ * resolver and the same v2 root and `eth` registries, so a dark v2 side fails both
+ * and "one control would pass while v2 is down" is wrong. They diverge at the leaf.
+ * `ens.eth` is answered by `0xae66c62A`, which ENS's deployments table lists in the
+ * Sepolia v2 beta as `ENSV1Resolver`, the bridge that serves v1 records; and
+ * `chijesus99.eth` by its own per-account v2 resolver. So the pair buys one positive
+ * per leaf path, which is worth keeping because the founder's name may be registered
+ * through either app.
+ *
+ * What the pair does NOT buy is wrong-chain detection, and the way that was learned
+ * is the reason the chain id is now read separately. On `cloudflare-eth.com` both
+ * controls throw and the pair looked like a guard. On `ethereum-rpc.publicnode.com`,
+ * same chain id, all three names resolve, `xoviagents.eth` included, because
+ * mainnet's resolver walks up to the `eth` node for names that do not exist. One
+ * endpoint is not a chain, and a claim measured on one of them was published here as
+ * though it were.
+ *
+ * `chijesus99.eth` is not Zenbit's. It was harvested from a v2 registration log
+ * because no name Zenbit controls exists on v2 yet. It may lapse or be transferred,
+ * and if it
+ * stops resolving the fix is to harvest another v2 name, NOT to delete the control.
+ * A control that lapses makes this refuse loudly, which is the safe direction; a
+ * control that passes while proving the other version makes it lie, which is not.
+ * Three replacements checked the same way, each with its own per-account resolver
+ * and a live addr record: `wonderer.eth`, `keloidal.eth`, `carrioles.eth`.
  */
-const CONTROL = "ens.eth";
+const CONTROLS = [
+  { name: "ens.eth", leaf: "v1 records, via the ENSV1Resolver bridge" },
+  { name: "chijesus99.eth", leaf: "a native v2 resolver" },
+] as const;
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -47,7 +69,24 @@ async function main() {
   const rpc = process.env.AGENT_ENS_RPC_URL;
   const client = createPublicClient({ chain: sepolia, transport: http(rpc || undefined) });
 
-  console.log(`\n  chain    ${sepolia.id} (${sepolia.name})`);
+  /*
+   * The instrument before the instrument.
+   *
+   * This line used to print `sepolia.id` out of the client's configuration, which is
+   * an echo and not a reading: pointed at another network it announces the chain this
+   * tool believes in while every answer under it comes from a different one. That is
+   * the same class of object as the hardcoded registry address this file was rewritten
+   * to delete, so it is read from the endpoint instead.
+   *
+   * The controls cannot stand in for it. They prove the endpoint answers about names,
+   * not that it is the right endpoint to ask, and on one mainnet rpc all three names
+   * resolve because mainnet's resolver walks up to the `eth` node for names that do
+   * not exist. The run then enters the module and tells the operator to register a
+   * name that is already registered, or set a record, on Sepolia.
+   */
+  const answered = await client.getChainId().catch(() => null);
+
+  console.log(`\n  chain    ${sepolia.id} (${sepolia.name}), and the endpoint answered ${answered ?? "nothing"}`);
   console.log(`  rpc      ${rpc ?? "viem's default for this chain"}`);
   console.log(`  name     ${name || "(none set)"}`);
   console.log(`  record   ${WINDOWS_RECORD_KEY}\n`);
@@ -58,15 +97,25 @@ async function main() {
     return;
   }
 
-  // The instrument, before the measurement.
-  const controlResolver = await client.getEnsResolver({ name: CONTROL }).catch(() => null);
-  if (!controlResolver || controlResolver === ZERO) {
-    console.error(`  the control name ${CONTROL} did not resolve, so this endpoint is not answering`);
-    console.error(`  about names at all. Every answer below would be meaningless. Check the rpc.`);
+  if (answered !== sepolia.id) {
+    console.error(`  the rpc answered chain ${answered ?? "nothing"} and this tool reads ${sepolia.id}.`);
+    console.error(`  Every answer below would describe a network you are not talking to. Check the rpc.`);
     process.exitCode = 1;
     return;
   }
-  console.log(`  control  ${CONTROL} resolves to ${controlResolver}, so the chain path works\n`);
+
+  // The instrument, before the measurement, and both halves of it.
+  for (const control of CONTROLS) {
+    const resolved = await client.getEnsResolver({ name: control.name }).catch(() => null);
+    if (!resolved || resolved === ZERO) {
+      console.error(`  the control ${control.name} did not resolve, so this endpoint is not answering`);
+      console.error(`  through ${control.leaf}. Every answer below would be meaningless. Check the rpc.`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`  control  ${control.name} (${control.leaf}) resolves to ${resolved}`);
+  }
+  console.log();
 
   /*
    * The diagnosis the module refuses to spend a call on, read through the resolver
