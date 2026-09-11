@@ -70,8 +70,19 @@ export async function resolveWindowsEndpoint(
     throw new EndpointUnresolvable(`${name} could not be resolved: ${err instanceof Error ? err.message : "unknown"}`);
   }
   if (!record) {
+    // Both causes, because this cannot tell them apart and must not pretend to.
+    // A text lookup answers `null` for a name that does not exist and for a
+    // registered name with no record, identically. An earlier message named only
+    // the second, so an operator who mistyped the name was told the record was
+    // missing; they would then set a record on the name they meant, verify it, and
+    // still be broken, pointed at a different name that also has no record.
+    //
+    // Distinguishing them means reading the registry, which is a second call on
+    // every agent run to improve an error string. The behaviour here is already
+    // right, it fails closed; what was wrong was claiming to know why. The
+    // diagnosis lives in `bin/ens-verify.ts`, which is where somebody debugging is.
     throw new EndpointUnresolvable(
-      `${name} has no ${WINDOWS_RECORD_KEY} record, and a name that resolves to nothing is not a reason to read from elsewhere`,
+      `${name} resolved to no ${WINDOWS_RECORD_KEY} record: either the name is not registered on this chain, or it is registered and carries no such record. Run bin/ens-verify.ts to find out which. A name that resolves to nothing is not a reason to read from elsewhere`,
     );
   }
   return requireHttps(record, `the ${WINDOWS_RECORD_KEY} record on ${name}`);
