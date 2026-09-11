@@ -38,17 +38,18 @@ const ZERO = "0x0000000000000000000000000000000000000000";
  * through either app.
  *
  * What the pair does NOT buy is wrong-chain detection, and the way that was learned
- * is the reason the chain id is now read separately. On `cloudflare-eth.com` both
- * controls throw and the pair looked like a guard. On `ethereum-rpc.publicnode.com`,
- * same chain id, all three names resolve, `xoviagents.eth` included, because
- * mainnet's resolver walks up to the `eth` node for names that do not exist. One
- * endpoint is not a chain, and a claim measured on one of them was published here as
- * though it were.
+ * is the reason the chain id is now read separately. On `ethereum-rpc.publicnode.com`,
+ * chain id 1, all three names resolve, `xoviagents.eth` included, because mainnet's
+ * resolver walks up to the `eth` node for names that do not exist. An earlier probe
+ * against `cloudflare-eth.com` saw all three throw and read that as the guard already
+ * working. That endpoint answers `Internal error` to `eth_call` and `eth_getCode`
+ * alike, for a contract another provider returns bytecode for, so it was broken for
+ * the call rather than reporting anything about the network. A broken provider
+ * returned a clean, reproducible result that read as a property of the chain.
  *
  * `chijesus99.eth` is not Zenbit's. It was harvested from a v2 registration log
  * because no name Zenbit controls exists on v2 yet. It may lapse or be transferred,
- * and if it
- * stops resolving the fix is to harvest another v2 name, NOT to delete the control.
+ * and if it stops resolving the fix is to harvest another, NOT to delete the control.
  * A control that lapses makes this refuse loudly, which is the safe direction; a
  * control that passes while proving the other version makes it lie, which is not.
  * Three replacements checked the same way, each with its own per-account resolver

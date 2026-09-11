@@ -57,7 +57,7 @@ Five have been seen. Four of them exit inside the verifier's own diagnostics and
 | Cause | What it prints | Exit | Seen |
 |---|---|---|---|
 | no name configured | nothing to verify | 1 | observed, in the script |
-| rpc not answering about names | the control did not resolve, naming its version | 1 | observed, in the script |
+| rpc not answering about names | the control did not resolve, naming its leaf path | 1 | observed, in the script |
 | rpc on the wrong chain | both chain ids, the one answered and the one expected | 1 | observed, in the script |
 | not registered, or registered with no resolver | NO RESOLVER, naming both causes | 1 | observed, in the script |
 | registered with a resolver, no record | REFUSED, naming both causes | 1 | observed, through the module |
