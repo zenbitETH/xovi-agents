@@ -116,6 +116,26 @@ async function main() {
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    /*
+     * Blank, and deliberately not merely absent.
+     *
+     * Passing no `DATABASE_URL` was assumed to be enough and is not: `next start`
+     * runs Next's own env loader in the child, which reads `.env.local` and hands
+     * it the real Neon connection string after this file has finished deciding what
+     * the child may have. That is how a demo settlement reached the production
+     * ledger on 2026-09-11.
+     *
+     * Measured both ways before relying on it, because a loader that treats empty as
+     * unset would make this a comment rather than a guard: with the variable deleted
+     * `loadEnvConfig` repopulates it from `.env.local`; set to an empty string it
+     * survives untouched. `storeFrom` treats empty as no store, so the demo has
+     * nowhere to write even if something else changes.
+     *
+     * This is the second line of defence. The first is that the ledger refuses the
+     * fake facilitator's transaction hash outright, which holds however this is
+     * plumbed. Both, because the environment is the part somebody can wire wrong.
+     */
+    DATABASE_URL: "",
     X402_PAY_TO: PAY_TO,
     X402_NETWORK: "eip155:84532",
     X402_FACILITATOR_URL: facilitator.url,
