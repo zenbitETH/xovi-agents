@@ -628,6 +628,12 @@ async function main() {
   const strangerRead = await payingFetch(ROUTE_URL, stranger, routeFetch2);
   check(strangerRead.status === 200 && fac2.hits.settle === before2 + 1,
     "112 · an agent nobody has registered settles every time, which is the rail this was laid on");
+  // The restoration above is a guard, and until this line nothing asserted it: delete
+  // it and the suite stayed green while every settle below ran under the unrecordable
+  // hash, announcing it only through a warning we have just agreed nobody reads. This
+  // depends on the stranger's settlement having been RECORDED, so it goes red instead.
+  check(capStore.receipts.length === 2,
+    "112b · and it is recorded, which is what makes the restored hash above load-bearing");
 
   setCapForTest(null);
   await fac2.close();
