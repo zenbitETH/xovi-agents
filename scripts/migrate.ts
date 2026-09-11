@@ -45,7 +45,7 @@ export function splitStatements(text: string, file = "sql"): string[] {
     }
     // A block comment is the same class as the defect this function exists for: a
     // semicolon inside one ends a statement that has not ended. Nothing in `sql/`
-    // uses one today, which is the only reason it was not the bug that bit us.
+    // uses one today, which is the only reason it was not the bug that bit this runner.
     if (c === "/" && text[i + 1] === "*") {
       const close = text.indexOf("*/", i + 2);
       if (close === -1) throw new Error(`${file}: unterminated block comment at offset ${i}`);
