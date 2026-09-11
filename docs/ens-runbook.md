@@ -2,9 +2,9 @@
 
 The agent reads the endpoint it pays for out of a text record on a name, so that an operator can move the endpoint without shipping the agent again, and so that a reader can see what the agent is pointed at without being handed its configuration.
 
-Nothing is registered yet. `xoviagents.eth` has owner zero and resolver zero on Ethereum Sepolia, checked 2026-09-09 against a live endpoint with a positive control, so the name is available rather than merely unresolved.
+Nothing is registered yet. `xoviagents.eth` has no resolver, and no owner in either the v1 or the v2 registry on Ethereum Sepolia, checked 2026-09-11 against a live endpoint with a positive control on each version, so the name is available rather than merely unresolved.
 
-This is an ordinary L1 Sepolia name with one text record. There is no second version to evaluate: the successor has no mainnet and no L2 after its chain was cancelled, so nothing here is a migration decision.
+This is an ordinary Sepolia name with one text record, but there **is** a second version to evaluate and registering here lands on it. ENSv2 beta is live on Sepolia, and ENS documents the v1 contracts as still existing there but no longer in use, with the Universal Resolver and the Sepolia apps linked against v2. An earlier version of this document said there was no second version, and that sentence is what put a hardcoded v1 registry address in the verifier. Nothing in the agent changes: ENS states that an application which only reads ENS data needs no changes with a supported library, and the installed viem is 2.56.3 against a documented floor of 2.35.0.
 
 ## The order, and why it is not arbitrary
 
@@ -46,9 +46,9 @@ Expect the resolved url and a zero exit. The script runs the same function `bin/
 
 A text lookup answers `null` for a name that does not exist and for a registered name carrying no record, identically. The agent's own error names both causes and stops there, because distinguishing them costs a second call on every run to improve an error string, and its behaviour is already right: it fails closed.
 
-The verifier spends that call. It reads the registry owner and the resolver separately and says which of the two it found, so an operator who mistyped the name is told the name is unregistered rather than being sent to set a record on it.
+The verifier spends that call. It reads the name's resolver, which viem looks up through the universal resolver rather than through any registry, so an operator who mistyped the name is told the name has no resolver at all rather than being sent to set a record on it. It stops there instead of saying which of the two it is, because separating them needs a registry address: the v1 one is the registry ENS says is no longer in use, and the v2 one keys on the labelhash with its low four bytes cleared, so reading it with the plain labelhash answers zero for names that are registered.
 
-It also reads a control name first, and refuses to interpret anything if the control does not resolve. Without that, an endpoint that is not answering about names produces the same `null` as a name with no record, and the first probe of this work returned exactly that for three names and its own control.
+It reads the chain id from the endpoint before anything else and refuses if it is not Sepolia's, because the chain printed at the top was otherwise an echo of this tool's configuration rather than a reading of the network. Then it reads two control names, and refuses to interpret anything if either does not resolve. Without a control, an endpoint that is not answering about names produces the same `null` as a name with no record, and the first probe of this work returned exactly that for three names and its own control. Two rather than one, though not for the reason first written here: both controls go through the same universal resolver and the same v2 registries, so a dark v2 side fails both. They diverge at the leaf, `ens.eth` through the `ENSV1Resolver` bridge that serves v1 records and `chijesus99.eth` through its own v2 resolver, so the pair buys one positive per leaf path and the founder's name may be registered through either app.
 
 ## What each cause prints
 
@@ -57,12 +57,11 @@ Five have been seen. Four of them exit inside the verifier's own diagnostics and
 | Cause | What it prints | Exit | Seen |
 |---|---|---|---|
 | no name configured | nothing to verify | 1 | observed, in the script |
-| rpc not answering about names | the control did not resolve, check the rpc | 1 | observed, in the script |
-| rpc on the wrong chain | the same, because the control is read first | 1 | observed, in the script |
-| name not registered | NOT REGISTERED on chain 11155111 | 1 | observed, in the script |
-| registered, no resolver | NO RESOLVER set | 1 | expected, between steps 1 and 2 |
+| rpc not answering about names | the control did not resolve, naming its leaf path | 1 | observed, in the script |
+| rpc on the wrong chain | both chain ids, the one answered and the one expected | 1 | observed, in the script |
+| not registered, or registered with no resolver | NO RESOLVER, naming both causes | 1 | observed, in the script |
 | registered with a resolver, no record | REFUSED, naming both causes | 1 | observed, through the module |
 | record is not https | REFUSED, naming the protocol | 1 | expected, at step 3 |
 | record resolves | the url, and that the variable may be set | 0 | expected, at step 5 |
 
-The one that goes through the module was read against `ens.eth`, which is registered on Sepolia and carries a resolver. That combination is what the probe needs, because anything short of it returns at the owner or the resolver check above and the module is never entered. It is the positive control again, used here to drive a path rather than to validate a null.
+The one that goes through the module was read against `ens.eth` and again against `chijesus99.eth`, a v2 name, so both versions have been driven into the module. A name that is registered and carries a resolver is what the probe needs, because anything short of that returns at the resolver check above and the module is never entered. It is the positive control again, used to drive a path rather than to validate a null.
