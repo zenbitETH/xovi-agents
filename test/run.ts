@@ -506,6 +506,17 @@ async function main() {
   // wrote it to production on 2026-09-11. The guard is on the data rather than on
   // the plumbing, so it holds whichever database is on the other end.
   const fabricated = { ...receipt, transactionHash: FABRICATED_TX };
+  /* The guard announces itself on every refusal, which earns its place in production
+   * and earns nothing here, where the refusal is already asserted. Captured rather
+   * than silenced, and then checked: a guard that quietly stops announcing itself is
+   * one nobody hears from on the day it fires for real. */
+  const capturingWarn = async <T>(fn: () => Promise<T>): Promise<{ value: T; warned: string[] }> => {
+    const real = console.warn;
+    const warned: string[] = [];
+    console.warn = (...parts: unknown[]) => void warned.push(parts.map(String).join(" "));
+    try { return { value: await fn(), warned }; } finally { console.warn = real; }
+  };
+
   const refuses = (r: typeof receipt) => { try { assertNotFabricated(r); return false; } catch (e) { return e instanceof FabricatedReceipt; } };
   check(refuses(fabricated),
     "100a · a receipt carrying the fake facilitator's hash is refused (seen to fail)");
@@ -517,8 +528,10 @@ async function main() {
   let asked = 0;
   const counting = { ...store, recordReceipt: async () => { asked++; return true; } };
   setCapForTest({ registry: null as never, store: counting as never, freePerDay: 0 });
-  await recordSettlement(fabricated);
+  const refusal = await capturingWarn(() => recordSettlement(fabricated));
   check(asked === 0, "100c · and recordSettlement never reaches the store with it");
+  check(refusal.warned.length === 1 && /ledger guard/.test(refusal.warned[0]) && refusal.warned[0].includes(FABRICATED_TX),
+    "100g · while saying so once, naming the hash, so production hears it");
   await recordSettlement({ ...receipt, transactionHash: "0xreal" });
   check(asked === 1, "100d · while a real one does reach it (positive control for 100c)");
   setCapForTest(null);
@@ -597,11 +610,16 @@ async function main() {
   // function. The facilitator's default is the hash a local demo run produces, so a
   // settling read under it must leave the ledger exactly as it was.
   fac2.transaction = FABRICATED_TX;
-  const fabricatedRead = await payingFetch(ROUTE_URL, payerB, routeFetch2);
+  const fabricated2 = await capturingWarn(() => payingFetch(ROUTE_URL, payerB, routeFetch2));
+  const fabricatedRead = fabricated2.value;
+  check(fabricated2.warned.length === 1, "110c · the route's refusal announces itself exactly once");
   check(fabricatedRead.status === 200 && fac2.hits.settle === 2,
     "110a · a further read settles as well, so the write path was reached");
   check(capStore.receipts.length === 1,
     "110b · and yet the fabricated settlement leaves NO new row (the production incident)");
+  // Back to a recordable hash. Checks below here settle too, and leaving the
+  // unrecordable one in place would run them in a state this suite never had.
+  fac2.transaction = `0x${"cd".repeat(32)}`;
   check(capStore.counted === 2, "111 · a paid read adds nothing to the free count (negative control for 107)");
 
   // A payer the registry does not know pays like anyone else.

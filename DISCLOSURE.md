@@ -64,7 +64,7 @@ These are in the Xovi repository rather than this one, and they are disclosed he
 
 The last item predates the agent layer conceptually and was outstanding work on the existing project; it is listed because it was written inside the event window, not because it is claimed as a new feature.
 
-These changes are published in this repository under `upstream/xovi-changes/`, copied from the private repository at the commit named in that directory's README, with two kinds of comment redacted and marked. During the event window Zenbit also added to Xovi a migration for anchoring water-quality summaries, inert and with no callers; it remains private because it belongs to the water-quality monitoring layer and not to the agents rail, and it is declared here rather than published for that reason.
+Five of these six are published in this repository under `upstream/xovi-changes/`, copied from the private repository at the commit named in that directory's README, with two kinds of comment redacted and marked. The **rate limiting is declared rather than published**: the limiter is a shared Xovi module that the published ingest route calls into, and the two payment-adjacent endpoints it protects and the probe that watches it are Xovi's own rather than part of the agents rail, so publishing them would mean publishing that layer. During the event window Zenbit also added to Xovi a migration for anchoring water-quality summaries, inert and with no callers; it remains private because it belongs to the water-quality monitoring layer and not to the agents rail, and it is declared here rather than published for that reason.
 
 ## What is deliberately not here
 
