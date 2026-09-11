@@ -37,13 +37,14 @@ Each of these is exercised by the checks in this repository. `npm run local` dri
 - An **offchain attestation**: the human operator confirms, and the operator asserts that confirmation in an EAS attestation whose schema identifier, signed object and signer recovery are all exercised.
 - A **subgraph** and an **MCP server** that charges per query.
 - A **receipts ledger**: a settlement is recorded against the payer who made it.
+- The **attestation schema is registered** on Ethereum Sepolia, `0x8d4a9a6e…8c6d`, and one confirmation is anchored: attested at `0xd86c2902…5538` and its offchain identifier timestamped at `0x236b7c7a…dfb3`. The subgraph indexes that anchor and a paid query returns it.
 
 ### Designed and not running
 
 Named here rather than implied by the list above, because the difference is what a Continuity submission turns on.
 
-- **Nothing is registered or anchored on any network.** The attestation schema is not registered, no attestation has been timestamped, and the subgraph is not indexing a deployed anchor.
 - The **fee sink** is not started.
+- **No ENS name of ours is registered**, so the agent is given its endpoint directly and the resolution path, which is built and fail closed, has never run against a name that resolves.
 - The **subscription tier** that would lift the per-person cap, **agent rewards** for proposing particular behaviours, and the **reconciliation** between what agents pay for the read and what subscribers pay for the product are designed and are not built.
 
 ### The surface this opens, stated rather than left to be found
