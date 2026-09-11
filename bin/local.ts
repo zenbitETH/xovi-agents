@@ -36,8 +36,17 @@ import { startFakeIngest } from "../test/ingest";
  */
 const PORT = Number(process.env.PORT ?? 3001);
 
-/** A recipient that is not the payer, so a settlement is a payment and not a loop. */
-const PAY_TO = "0x000000000000000000000000000000000000dEaD";
+/**
+ * A recipient that is not the payer, so a settlement is a payment and not a loop.
+ *
+ * The default is the burn address because these runs settle nothing real and the
+ * only property that matters is that it differs from the payer. **It must not be on
+ * screen**: the run feed renders `to <payTo>` on the line above the signature, so a
+ * recording made against the default puts a burn address in front of a judge at the
+ * exact moment they are watching a payment. That is rule (iv) of the legal ruling,
+ * and the reason this reads the environment rather than being a constant.
+ */
+const PAY_TO = process.env.X402_PAY_TO ?? "0x000000000000000000000000000000000000dEaD";
 
 /*
  * next itself, not npx, and as its own process group.
