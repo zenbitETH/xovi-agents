@@ -28,10 +28,10 @@ Everything in **this repository**, which was created on 2026-09-06 and had no co
 
 ### Built and running
 
-Each of these is exercised by the checks in this repository, and the first four can be run end to end from a clean checkout with `npm run local`.
+Each of these is exercised by the checks in this repository. `npm run local` drives the **paid read** and the **delegated run** from a clean checkout, against a fake facilitator and a fake ingest; it does not run the agent client and it configures no database, so it exercises neither ENS resolution nor the caps.
 
 - An **x402-gated read endpoint** serving computer-vision candidate windows, priced per call and settled on Base Sepolia against a facilitator used for development and testnet workflows.
-- An **agent client** that resolves an ENS name to a role and a payment endpoint, pays for a window, and proposes a clip.
+- An **agent client** that pays for a window and proposes a clip. It resolves an ENS name to a role and a payment endpoint where one is configured, and **no name of ours is registered**, so that path is fail closed and unexercised and the endpoint is supplied directly.
 - **Delegation from a reader's own wallet**: the reader connects a browser wallet, signs one payment, and the agent's run is streamed back step by step as it happens. The reader supplies a signature and nothing else; the proposal is formed on the server from a window the server already holds.
 - **Proof-of-human caps**, so a per-wallet limit is not defeated by generating wallets.
 - An **offchain attestation**: the human operator confirms, and the operator asserts that confirmation in an EAS attestation whose schema identifier, signed object and signer recovery are all exercised.
