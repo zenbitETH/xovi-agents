@@ -88,9 +88,16 @@ async function main() {
     return;
   }
 
-  // The path the agent runs. No injected lookup.
+  // The path the agent runs. No injected lookup, and the name it resolves is the
+  // name diagnosed above. Passing `process.env` straight in read `AGENT_ENS_NAME`
+  // instead, so `--name X` diagnosed X and then certified whatever the environment
+  // pointed at: with `WINDOWS_URL` set and `AGENT_ENS_NAME` unset the fallback url
+  // was printed as X's record and exit was 0. That is a verifier certifying a name
+  // it never read, and an operator who believed it would set the variable and turn
+  // the agent off. It failed closed on a machine with no `WINDOWS_URL` and open on
+  // every deployment that has one.
   try {
-    const url = await resolveWindowsEndpoint(process.env);
+    const url = await resolveWindowsEndpoint({ ...process.env, AGENT_ENS_NAME: name });
     console.log(`\n  ${WINDOWS_RECORD_KEY} resolves to ${url}`);
     console.log(`  verified. AGENT_ENS_NAME may be set to ${name} and the deployment refreshed.\n`);
   } catch (err) {

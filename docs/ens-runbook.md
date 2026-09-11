@@ -52,14 +52,17 @@ It also reads a control name first, and refuses to interpret anything if the con
 
 ## What each cause prints
 
-Four of these have run through the real adapter. Three need a name to exist and are marked rather than dropped, because an operator meets them at a known step and needs to know what that step should print.
+Five have been seen. Four of them exit inside the verifier's own diagnostics and never reach `resolveWindowsEndpoint`, so what they prove is the script, not the module the agent runs. The fifth goes through that module with no injected lookup. The two still marked expected need a record to exist, and they are marked rather than dropped because an operator meets each at a known step and needs to know what that step should print.
 
 | Cause | What it prints | Exit | Seen |
 |---|---|---|---|
-| no name configured | nothing to verify | 1 | observed |
-| rpc not answering about names | the control did not resolve, check the rpc | 1 | observed |
-| rpc on the wrong chain | the same, because the control is read first | 1 | observed |
-| name not registered | NOT REGISTERED on chain 11155111 | 1 | observed |
+| no name configured | nothing to verify | 1 | observed, in the script |
+| rpc not answering about names | the control did not resolve, check the rpc | 1 | observed, in the script |
+| rpc on the wrong chain | the same, because the control is read first | 1 | observed, in the script |
+| name not registered | NOT REGISTERED on chain 11155111 | 1 | observed, in the script |
 | registered, no resolver | NO RESOLVER set | 1 | expected, between steps 1 and 2 |
+| registered with a resolver, no record | REFUSED, naming both causes | 1 | observed, through the module |
 | record is not https | REFUSED, naming the protocol | 1 | expected, at step 3 |
 | record resolves | the url, and that the variable may be set | 0 | expected, at step 5 |
+
+The one that goes through the module was read against `ens.eth`, which is registered on Sepolia and carries a resolver. That combination is what the probe needs, because anything short of it returns at the owner or the resolver check above and the module is never entered. It is the positive control again, used here to drive a path rather than to validate a null.
