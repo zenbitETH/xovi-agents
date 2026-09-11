@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import type { HumanStore, Receipt } from "./store";
+import { type HumanStore, type Receipt, assertNotFabricated } from "./store";
 
 /**
  * The store, over HTTP.
@@ -51,6 +51,10 @@ export function postgresStore(connectionString: string): HumanStore {
      * unique index can be the one that catches it.
      */
     recordReceipt: async (receipt: Receipt) => {
+      // Again here, and deliberately not only in `recordSettlement`: this is the
+      // function that reaches the real ledger, and it has callers that are not
+      // that one, `bin/db-probe.ts` among them.
+      assertNotFabricated(receipt);
       const rows = await sql`
         INSERT INTO receipts (source, payer, pay_to, amount, network, nonce, tx_hash)
         VALUES (${receipt.source}, ${receipt.payer}, ${receipt.payTo}, ${receipt.amount},

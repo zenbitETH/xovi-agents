@@ -20,6 +20,49 @@ export type Receipt = {
   source: "route" | "chain" | "mcp";
 };
 
+/**
+ * The transaction hash the fake facilitator settles with.
+ *
+ * It lives here rather than in `test/facilitator.ts` because the party that must
+ * recognise it is the write path, not the fake. A local demo run settles against
+ * that facilitator and is handed this hash; if the process serving that run holds
+ * a real `DATABASE_URL`, the receipt is written to the real ledger and the ledger
+ * then carries a settlement that never happened.
+ *
+ * That is not hypothetical. A row in the production ledger carries it, written on
+ * 2026-09-11 by a local demo run, because `next start` loads `.env.local` itself
+ * and so gains the database after `bin/local.ts` has finished deciding what the
+ * child may have. While this constant lived in the test tree the fake was the only
+ * party that knew what a fabricated settlement looks like, and the ledger had no
+ * way to refuse one.
+ */
+export const FABRICATED_TX = `0x${"11".repeat(32)}`;
+
+export class FabricatedReceipt extends Error {}
+
+/**
+ * Refuses a receipt whose settlement never happened.
+ *
+ * A property of the data rather than of the environment, which is the point. The
+ * row that reached production got there because a demo process held a real
+ * connection string, and every attempt to keep the demo away from the database is
+ * a thing somebody can plumb wrong once. This cannot be plumbed wrong: the hash
+ * itself is the evidence, and it is the same hash whichever database is on the
+ * other end.
+ *
+ * It throws rather than returning false because `recordReceipt` already answers
+ * false for "this receipt was already here", and a fabricated settlement is not a
+ * replay. Reporting one as the other would file the loudest thing in the ledger's
+ * life under its quietest.
+ */
+export function assertNotFabricated(receipt: Receipt): void {
+  if (receipt.transactionHash === FABRICATED_TX) {
+    throw new FabricatedReceipt(
+      `refusing a receipt carrying the fake facilitator's transaction hash ${FABRICATED_TX}: that settlement happened on no chain, so a demo run is writing to a real ledger`,
+    );
+  }
+}
+
 export type HumanStore = {
   /**
    * Take one free read, or refuse. **One operation, and that is the point.**

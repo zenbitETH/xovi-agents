@@ -28,22 +28,23 @@ Everything in **this repository**, which was created on 2026-09-06 and had no co
 
 ### Built and running
 
-Each of these is exercised by the checks in this repository. `npm run local` drives the **paid read** and the **delegated run** from a clean checkout, against a fake facilitator and a fake ingest; it does not run the agent client and it configures no database, so it exercises neither ENS resolution nor the caps.
+Each of these is exercised by the checks in this repository. `npm run local` drives the **paid read** and the **delegated run** from a clean checkout, against a fake facilitator and a fake ingest; it does not run the agent client, and it hands the child an empty `DATABASE_URL` so Next's own env loader cannot give it the production one, so it exercises neither ENS resolution nor the caps and has no ledger to write to.
 
 - An **x402-gated read endpoint** serving computer-vision candidate windows, priced per call and settled on Base Sepolia against a facilitator used for development and testnet workflows.
-- An **agent client** that pays for a window and proposes a clip. It resolves an ENS name to a role and a payment endpoint where one is configured, and **no name of ours is registered**, so that path is fail closed and unexercised and the endpoint is supplied directly.
+- An **agent client** that pays for a window and proposes a clip. It resolves an ENS name to a role and a payment endpoint where one is configured, and **no name belonging to Zenbit is registered**, so that path is fail closed and unexercised and the endpoint is supplied directly.
 - **Delegation from a reader's own wallet**: the reader connects a browser wallet, signs one payment, and the agent's run is streamed back step by step as it happens. The reader supplies a signature and nothing else; the proposal is formed on the server from a window the server already holds.
 - **Proof-of-human caps**, so a per-wallet limit is not defeated by generating wallets.
 - An **offchain attestation**: the human operator confirms, and the operator asserts that confirmation in an EAS attestation whose schema identifier, signed object and signer recovery are all exercised.
 - A **subgraph** and an **MCP server** that charges per query.
 - A **receipts ledger**: a settlement is recorded against the payer who made it.
+- The **attestation schema is registered** on Ethereum Sepolia, `0x8d4a9a6e…8c6d`, and one confirmation is anchored: attested at `0xd86c2902…5538` and its offchain identifier timestamped at `0x236b7c7a…dfb3`. The subgraph indexes that anchor and a paid query returns it.
 
 ### Designed and not running
 
 Named here rather than implied by the list above, because the difference is what a Continuity submission turns on.
 
-- **Nothing is registered or anchored on any network.** The attestation schema is not registered, no attestation has been timestamped, and the subgraph is not indexing a deployed anchor.
 - The **fee sink** is not started.
+- **No ENS name belonging to Zenbit is registered**, so the agent is given its endpoint directly. The resolution path is built and fail closed, and has been driven through the real adapter against two registered names that carry no record. What has never run is a **successful** resolution, which needs a record to exist.
 - The **subscription tier** that would lift the per-person cap, **agent rewards** for proposing particular behaviours, and the **reconciliation** between what agents pay for the read and what subscribers pay for the product are designed and are not built.
 
 ### The surface this opens, stated rather than left to be found
@@ -58,11 +59,12 @@ These are in the Xovi repository rather than this one, and they are disclosed he
 - **Done.** A clip-proposal capability, scoped to a single station, added to the existing credential vocabulary.
 - **Done.** A clip ingestion endpoint for machine credentials.
 - **Done.** A fix to the self-review guard so that it compares the responsible human rather than the submitting address, which a delegated agent trivially defeats.
+- **Done.** **Operator-signed confirmations.** The reviewer signs a readable EIP-191 message over the clip id, its hash, the decision, a single-use nonce and the chain id, and the row keeps the signature, the nonce and the chain id. Before it, "a human confirmed this" rested on a session cookie and an attestation signed by a backend key, so possession of that key or of the database url produced a record indistinguishable from a genuine one, and a genuine one could not be shown to a third party either. Rows decided earlier are not backfilled and a null signature means exactly that.
 - **Done.** Rate limiting on two payment-adjacent endpoints, and a probe that goes red when either limiter is removed.
 
 The last item predates the agent layer conceptually and was outstanding work on the existing project; it is listed because it was written inside the event window, not because it is claimed as a new feature.
 
-These changes are published in this repository under `upstream/xovi-changes/`, copied from the private repository at the commit named in that directory's README, with two kinds of comment redacted and marked. During the event window Zenbit also added to Xovi a migration for anchoring water-quality summaries, inert and with no callers; it remains private because it belongs to the water-quality monitoring layer and not to the agents rail, and it is declared here rather than published for that reason.
+Five of these six are published in this repository under `upstream/xovi-changes/`, copied from the private repository at the commit named in that directory's README, with two kinds of comment redacted and marked. The **rate limiting is declared rather than published**: the limiter is a shared Xovi module that the published ingest route calls into, and the two payment-adjacent endpoints it protects and the probe that watches it are Xovi's own rather than part of the agents rail, so publishing them would mean publishing that layer. During the event window Zenbit also added to Xovi a migration for anchoring water-quality summaries, inert and with no callers; it remains private because it belongs to the water-quality monitoring layer and not to the agents rail, and it is declared here rather than published for that reason.
 
 ## What is deliberately not here
 
