@@ -67,25 +67,24 @@ async function main() {
   // The spawned server needs its own configuration and does NOT inherit this
   // process's environment. `StdioClientTransport` with no `env` uses the SDK's
   // `getDefaultEnvironment()`, which passes exactly HOME, LOGNAME, PATH, SHELL, TERM
-  // and USER — measured against the installed package, not read from its docs. So
-  // `X402_PAY_TO`, `SUBGRAPH_URL` and `ANCHOR_RPC_URL` all arrived unset and the
-  // server died on the first of them before the client had sent anything. It failed
-  // loudly, which is the only reason this was ever found.
-  //
-  // `--env-file` is passed to the child as well: the parent gets it from the npm
-  // script, and a child spawned by name gets nothing from that.
-  // The spawned server needs its own configuration and does NOT inherit this
-  // process's environment. `StdioClientTransport` with no `env` uses the SDK's
-  // `getDefaultEnvironment()`, which passes exactly HOME, LOGNAME, PATH, SHELL, TERM
   // and USER, measured against the installed package rather than read from its docs.
   // So `X402_PAY_TO`, `SUBGRAPH_URL` and `ANCHOR_RPC_URL` all arrived unset and the
   // server died on the first of them before the client had sent anything. It failed
   // loudly, which is the only reason this was ever found.
   //
-  // Named rather than spreading the whole environment, for two reasons. The payer
-  // key is read HERE and the server never needs it, so handing it over gives a child
-  // a credential for no purpose. And the parent already runs under `--env-file`, so
-  // passing that flag to the child too would be two mechanisms for one need.
+  // Named rather than spreading the whole environment: the payer key is read HERE
+  // and the server never needs it, so handing it over gives a child a credential
+  // for no purpose.
+  //
+  // **The list comes from the import graph, not from what throws.** The first
+  // version of it was derived by asking which variables make the server fail, which
+  // found six and missed `DATABASE_URL`. That one is read by `recordSettlement`
+  // through `storeFrom`, which returns quietly when it is absent, so a paid query
+  // would have settled real testnet USDC and written no receipt, silently, while
+  // the deployed server wrote one. **A variable that throws when missing announces
+  // itself. A variable that is merely read does not, and that is the kind worth
+  // hunting.** The cap's own variables are not here because this path never calls
+  // it; add them the day it does.
   const SERVER_ENV = [
     "SUBGRAPH_URL",
     "ANCHOR_RPC_URL",
@@ -93,6 +92,7 @@ async function main() {
     "X402_PRICE",
     "X402_NETWORK",
     "X402_FACILITATOR_URL",
+    "DATABASE_URL",
   ] as const;
   const childEnv: Record<string, string> = { ...getDefaultEnvironment() };
   for (const k of SERVER_ENV) if (process.env[k]) childEnv[k] = process.env[k] as string;
