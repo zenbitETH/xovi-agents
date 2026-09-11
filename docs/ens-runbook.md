@@ -48,7 +48,7 @@ A text lookup answers `null` for a name that does not exist and for a registered
 
 The verifier spends that call. It reads the name's resolver, which viem looks up through the universal resolver rather than through any registry, so an operator who mistyped the name is told the name has no resolver at all rather than being sent to set a record on it. It stops there instead of saying which of the two it is, because separating them needs a registry address: the v1 one is the registry ENS says is no longer in use, and the v2 one keys on the labelhash with its low four bytes cleared, so reading it with the plain labelhash answers zero for names that are registered.
 
-It also reads two control names first, one on each version, and refuses to interpret anything if either does not resolve. Without a control, an endpoint that is not answering about names produces the same `null` as a name with no record, and the first probe of this work returned exactly that for three names and its own control. Two rather than one because `ens.eth` is a v1 name and the founder's name will be a v2 name, so a single v1 control would pass while the v2 side was dark and the one call that matters would come back null.
+It reads the chain id from the endpoint before anything else and refuses if it is not Sepolia's, because the chain printed at the top was otherwise an echo of this tool's configuration rather than a reading of the network. Then it reads two control names, and refuses to interpret anything if either does not resolve. Without a control, an endpoint that is not answering about names produces the same `null` as a name with no record, and the first probe of this work returned exactly that for three names and its own control. Two rather than one, though not for the reason first written here: both controls go through the same universal resolver and the same v2 registries, so a dark v2 side fails both. They diverge at the leaf, `ens.eth` through the `ENSV1Resolver` bridge that serves v1 records and `chijesus99.eth` through its own v2 resolver, so the pair buys one positive per leaf path and the founder's name may be registered through either app.
 
 ## What each cause prints
 
@@ -58,7 +58,7 @@ Five have been seen. Four of them exit inside the verifier's own diagnostics and
 |---|---|---|---|
 | no name configured | nothing to verify | 1 | observed, in the script |
 | rpc not answering about names | the control did not resolve, naming its version | 1 | observed, in the script |
-| rpc on the wrong chain | the same, because the controls are read first | 1 | observed, in the script |
+| rpc on the wrong chain | both chain ids, the one answered and the one expected | 1 | observed, in the script |
 | not registered, or registered with no resolver | NO RESOLVER, naming both causes | 1 | observed, in the script |
 | registered with a resolver, no record | REFUSED, naming both causes | 1 | observed, through the module |
 | record is not https | REFUSED, naming the protocol | 1 | expected, at step 3 |
