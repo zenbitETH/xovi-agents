@@ -30,7 +30,7 @@ export function sdkOffchain(chainId: number, version: string, verifyingContract:
   return new Offchain({ address: verifyingContract, version, chainId: BigInt(chainId) }, OffchainAttestationVersion.Version2, {} as never);
 }
 
-/** Our object in the shape the library expects, with the signature split into its parts. */
+/** The object in the shape the library expects, with the signature split into its parts. */
 export function asSdkAttestation(o: SignedObservation, primaryType = "Attest") {
   const { r, s, v } = parseSignature(o.signature);
   return {

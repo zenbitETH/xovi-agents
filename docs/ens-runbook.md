@@ -38,7 +38,7 @@ AGENT_ENS_NAME=<the name> npm run ens:verify
 
 Expect the resolved url and a zero exit. The script runs the same function `bin/agent.ts` runs, with no injected lookup, so what passes here is what the agent will execute.
 
-**6. Set `AGENT_ENS_NAME` in the deployment environment and redeploy.** Only now, and read the sequencing note in step 8 before you do. `WINDOWS_URL` may stay set and it will not be read: once a name is configured the module resolves through the name or raises, and it never falls back to the url. **That is deliberate and it is not a safety net.** If the name stops resolving the agent stops, and leaving `WINDOWS_URL` in place prevents none of that. What it does is make the recovery in step 8 a one variable change rather than two.
+**6. Set `AGENT_ENS_NAME` in the deployment environment and redeploy.** Only now, and read the sequencing note in step 8 before you do. **Leave `WINDOWS_URL` set.** It will not be read: once a name is configured the module resolves through the name or raises, and it never falls back to the url. **That is deliberate and it is not a safety net.** If the name stops resolving the agent stops, and leaving `WINDOWS_URL` in place prevents none of that. What it does is make the recovery in step 8 a one variable change rather than two.
 
 **7. Confirm the deployed agent reads through the name**, not merely that the deployment succeeded.
 
