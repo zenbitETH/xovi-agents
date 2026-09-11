@@ -55,12 +55,12 @@ This repository was created on 2026-09-06 and is being built across the event wi
 | Leg | State |
 |---|---|
 | Agent identity over ENS | built and fail closed: the four resolution branches are proven against an injected resolver, and the real viem lookup has since been observed refusing a registered name that carries no record. No name of ours is registered, so the successful path is unexercised and the agent is given its endpoint directly |
-| Paid read over x402 | built, and exercised end to end against a faked facilitator |
-| Agent proposes a clip | built, and exercised against the ingest route faked from its own contract |
+| Paid read over x402 | built, and settled repeatedly on Base Sepolia through the public testnet facilitator, most recently `0x4d609e7b…aa39`. The suite exercises the refusal against a fake; the settlements are real |
+| Agent proposes a clip | built, and exercised twice over: against a fake of the ingest route in the suite, and live against the real route, which is where clip 259 came from |
 | Proof of human, per person caps | built: registry lookup, a keyed digest of the identifier kept for 30 days, and a per person daily allowance |
-| Attestation and onchain anchor | built offchain: the frozen schema, the signed object and its recovery. Nothing is registered or anchored on a network yet |
-| Subgraph and paid query | built: the subgraph, and the paid query served over MCP as well as HTTP. Not indexing a deployed anchor |
-| Receipts ledger and fee sink | receipts built: a settlement is recorded against the payer. The fee sink is not started |
+| Attestation and onchain anchor | **registered and anchored.** The schema is `0x8d4a9a6e…8c6d` on Ethereum Sepolia, registered in block 11680348; clip 259's confirmation is attested at `0xd86c2902…5538` and its offchain identifier timestamped at `0x236b7c7a…dfb3` |
+| Subgraph and paid query | **indexing the deployed anchor.** The subgraph returns clip 259's observation filtered on the schema identifier as `topic3`, and a paid query over MCP returns it after settling |
+| Receipts ledger and fee sink | receipts built and written by real settlements, recorded against the payer. **The fee sink is not started** |
 
 ## What the attestation asserts
 
