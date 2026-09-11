@@ -17,7 +17,7 @@ import { loadLedger, unrefused } from "../lib/agent/ledger";
 import { ATTEMPTS, buildPayer, payingFetch } from "../lib/agent/pay";
 import { PROPOSAL_KEYS, UnproposableWindow, propose, toProposal } from "../lib/agent/propose";
 import { humanBehind } from "../lib/human/registry";
-import { freeReadsPerDay, utcDay } from "../lib/human/store";
+import { FABRICATED_TX, FabricatedReceipt, assertNotFabricated, freeReadsPerDay, utcDay } from "../lib/human/store";
 import { applyEmbargo, dropsForEmbargo, embargoedAliases } from "../lib/windows/embargo";
 import { SnapshotUnavailable, loadSnapshot } from "../lib/windows/snapshot";
 import { windowProblems } from "../lib/windows/types";
@@ -25,7 +25,7 @@ import { PaymentMisconfigured, buildServer, paymentHeaderFrom, resetServerForTes
 import { startFakeFacilitator } from "./facilitator";
 import { startFakeIngest } from "./ingest";
 import { AGENT_ONE, AGENT_OTHER, AGENT_TWO, AGENT_UNREGISTERED, HUMAN_A, fakeRegistry, fakeStore } from "./human";
-import { RETENTION_DAYS, setCapForTest, takeFreeRead } from "../lib/human/cap";
+import { RETENTION_DAYS, recordSettlement, setCapForTest, takeFreeRead } from "../lib/human/cap";
 import { NoDerivationKey, deriveIdentifier } from "../lib/human/derive";
 import { anchorChecks } from "./anchor";
 import { mcpChecks } from "./mcp";
@@ -500,6 +500,28 @@ async function main() {
     "99 · while a genuinely different settlement is recorded (negative control)");
   check(store.receipts.length === 2, "100 · so two rows exist after four attempts");
 
+  // A settlement the ledger cannot believe. The fake facilitator answers with one
+  // hash for every settle, and a demo process holding a real connection string
+  // wrote it to production on 2026-09-11. The guard is on the data rather than on
+  // the plumbing, so it holds whichever database is on the other end.
+  const fabricated = { ...receipt, transactionHash: FABRICATED_TX };
+  const refuses = (r: typeof receipt) => { try { assertNotFabricated(r); return false; } catch (e) { return e instanceof FabricatedReceipt; } };
+  check(refuses(fabricated),
+    "100a · a receipt carrying the fake facilitator's hash is refused (seen to fail)");
+  check(!refuses(receipt),
+    "100b · and an ordinary settlement is not (negative control)");
+
+  // Counted rather than inspected: "it never reaches the store" is a claim about
+  // calls, and only a counter can hold it.
+  let asked = 0;
+  const counting = { ...store, recordReceipt: async () => { asked++; return true; } };
+  setCapForTest({ registry: null as never, store: counting as never, freePerDay: 0 });
+  await recordSettlement(fabricated);
+  check(asked === 0, "100c · and recordSettlement never reaches the store with it");
+  await recordSettlement({ ...receipt, transactionHash: "0xreal" });
+  check(asked === 1, "100d · while a real one does reach it (positive control for 100c)");
+  setCapForTest(null);
+
   check(utcDay(new Date("2026-09-07T23:59:59Z")) === "2026-09-07" && utcDay(new Date("2026-09-08T00:00:01Z")) === "2026-09-08",
     "101 · the window turns over at UTC midnight, not at whoever is watching");
   check(freeReadsPerDay({}) === 20 && freeReadsPerDay({ HUMAN_FREE_READS_PER_DAY: "3" }) === 3,
@@ -547,6 +569,9 @@ async function main() {
   check(fac2.hits.settle === 0, "106 · and nothing settled, so the allowance really is free");
   check(capStore.counted === 2, "107 · two free reads are counted against the human, not the address");
 
+  // A plausible hash, because the facilitator's default is the one the ledger
+  // refuses and this check is about a settlement that is supposed to be recorded.
+  fac2.transaction = `0x${"ab".repeat(32)}`;
   const third = await payingFetch(ROUTE_URL, payerB, routeFetch2);
   check(third.status === 200, "108 · the second agent is still served");
   check(
@@ -555,6 +580,16 @@ async function main() {
   );
   check(capStore.receipts.length === 1 && capStore.receipts[0].source === "route",
     "110 · and the settlement leaves exactly one receipt");
+
+  // The production incident, end to end and through the route rather than at the
+  // function. The facilitator's default is the hash a local demo run produces, so a
+  // settling read under it must leave the ledger exactly as it was.
+  fac2.transaction = FABRICATED_TX;
+  const fabricatedRead = await payingFetch(ROUTE_URL, payerB, routeFetch2);
+  check(fabricatedRead.status === 200 && fac2.hits.settle === 2,
+    "110a · a further read settles as well, so the write path was reached");
+  check(capStore.receipts.length === 1,
+    "110b · and yet the fabricated settlement leaves NO new row (the production incident)");
   check(capStore.counted === 2, "111 · a paid read adds nothing to the free count (negative control for 107)");
 
   // A payer the registry does not know pays like anyone else.

@@ -1,7 +1,7 @@
 import type { EnvLike } from "../agent/pay";
 import { deriveIdentifier } from "./derive";
 import { type HumanRegistry, humanBehind, registryFrom } from "./registry";
-import { type HumanStore, type Receipt, freeReadsPerDay, storeFrom, utcDay } from "./store";
+import { type HumanStore, type Receipt, assertNotFabricated, freeReadsPerDay, storeFrom, utcDay } from "./store";
 
 /**
  * The allowance, and the one thing that makes it safe.
@@ -96,6 +96,9 @@ export async function recordSettlement(receipt: Receipt, env: EnvLike = process.
   const cap = capFrom(env);
   if (!cap.store) return;
   try {
+    // Before the store, so no implementation has to be trusted to carry the guard
+    // and the fabricated one never becomes a query.
+    assertNotFabricated(receipt);
     await cap.store.recordReceipt(receipt);
   } catch (err) {
     // Swallowed on purpose and never silently. The caller has been charged and

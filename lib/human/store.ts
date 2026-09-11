@@ -38,6 +38,31 @@ export type Receipt = {
  */
 export const FABRICATED_TX = `0x${"11".repeat(32)}`;
 
+export class FabricatedReceipt extends Error {}
+
+/**
+ * Refuses a receipt whose settlement never happened.
+ *
+ * A property of the data rather than of the environment, which is the point. The
+ * row that reached production got there because a demo process held a real
+ * connection string, and every attempt to keep the demo away from the database is
+ * a thing somebody can plumb wrong once. This cannot be plumbed wrong: the hash
+ * itself is the evidence, and it is the same hash whichever database is on the
+ * other end.
+ *
+ * It throws rather than returning false because `recordReceipt` already answers
+ * false for "this receipt was already here", and a fabricated settlement is not a
+ * replay. Reporting one as the other would file the loudest thing in the ledger's
+ * life under its quietest.
+ */
+export function assertNotFabricated(receipt: Receipt): void {
+  if (receipt.transactionHash === FABRICATED_TX) {
+    throw new FabricatedReceipt(
+      `refusing a receipt carrying the fake facilitator's transaction hash ${FABRICATED_TX}: that settlement happened on no chain, so a demo run is writing to a real ledger`,
+    );
+  }
+}
+
 export type HumanStore = {
   /**
    * Take one free read, or refuse. **One operation, and that is the point.**

@@ -32,13 +32,17 @@ export type FakeFacilitator = {
   /** Every settle body seen, so a retry can be proved to resend the same bytes
    *  rather than a fresh signature over a fresh nonce. */
   settleBodies: string[];
+  /** What /settle reports as the transaction. Defaults to the hash the ledger
+   *  refuses, because that is what a demo run must produce: the default has to be
+   *  the unrecordable one, or a fake that is safe only when somebody remembers to
+   *  configure it is not a guard. A check that needs a receipt to exist sets a
+   *  plausible hash here and says why. */
+  transaction: string;
   reset(): void;
   close(): Promise<void>;
 };
 
 const NETWORK = "eip155:84532";
-// The one the ledger refuses. Defined in lib so the write path knows it too.
-const FAKE_TX = FABRICATED_TX;
 
 export async function startFakeFacilitator(): Promise<FakeFacilitator> {
   const state = {
@@ -46,6 +50,7 @@ export async function startFakeFacilitator(): Promise<FakeFacilitator> {
     settleSucceeds: true,
     settleFailuresRemaining: 0,
     settleBodies: [] as string[],
+    transaction: FABRICATED_TX,
   };
 
   const server = createServer((req, res) => {
@@ -81,17 +86,17 @@ export async function startFakeFacilitator(): Promise<FakeFacilitator> {
         return send({
           success: false,
           errorReason: "invalid_exact_evm_transaction_failed",
-          transaction: FAKE_TX,
+          transaction: state.transaction,
           network: NETWORK,
         });
       }
       if (state.settleSucceeds) {
-        return send({ success: true, transaction: FAKE_TX, network: NETWORK });
+        return send({ success: true, transaction: state.transaction, network: NETWORK });
       }
       // transaction and network are required by settleResponseSchema even on a
       // refusal, so a failure that omits them is rejected as malformed and the
       // route reports a parse error rather than the refusal it was handed.
-      return send({ success: false, errorReason: "insufficient_funds", transaction: FAKE_TX, network: NETWORK });
+      return send({ success: false, errorReason: "insufficient_funds", transaction: state.transaction, network: NETWORK });
     }
     res.writeHead(404, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: `no route for ${path}` }));
@@ -109,6 +114,12 @@ export async function startFakeFacilitator(): Promise<FakeFacilitator> {
     get hits() {
       return state.hits;
     },
+    get transaction() {
+      return state.transaction;
+    },
+    set transaction(v: string) {
+      state.transaction = v;
+    },
     get settleSucceeds() {
       return state.settleSucceeds;
     },
@@ -125,6 +136,7 @@ export async function startFakeFacilitator(): Promise<FakeFacilitator> {
       return state.settleBodies;
     },
     reset() {
+      state.transaction = FABRICATED_TX;
       state.hits.supported = 0;
       state.hits.verify = 0;
       state.hits.settle = 0;
