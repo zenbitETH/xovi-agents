@@ -44,7 +44,7 @@ Each of these is exercised by the checks in this repository. `npm run local` dri
 Named here rather than implied by the list above, because the difference is what a Continuity submission turns on.
 
 - The **fee sink** is not started.
-- **No ENS name belonging to Zenbit is registered**, so the agent is given its endpoint directly and the resolution path, which is built and fail closed, has never run against a name that resolves.
+- **No ENS name belonging to Zenbit is registered**, so the agent is given its endpoint directly. The resolution path is built and fail closed, and has been driven through the real adapter against two registered names that carry no record. What has never run is a **successful** resolution, which needs a record to exist.
 - The **subscription tier** that would lift the per-person cap, **agent rewards** for proposing particular behaviours, and the **reconciliation** between what agents pay for the read and what subscribers pay for the product are designed and are not built.
 
 ### The surface this opens, stated rather than left to be found
@@ -59,6 +59,7 @@ These are in the Xovi repository rather than this one, and they are disclosed he
 - **Done.** A clip-proposal capability, scoped to a single station, added to the existing credential vocabulary.
 - **Done.** A clip ingestion endpoint for machine credentials.
 - **Done.** A fix to the self-review guard so that it compares the responsible human rather than the submitting address, which a delegated agent trivially defeats.
+- **Done.** **Operator-signed confirmations.** The reviewer signs a readable EIP-191 message over the clip id, its hash, the decision, a single-use nonce and the chain id, and the row keeps the signature, the nonce and the chain id. Before it, "a human confirmed this" rested on a session cookie and an attestation signed by a backend key, so possession of that key or of the database url produced a record indistinguishable from a genuine one, and a genuine one could not be shown to a third party either. Rows decided earlier are not backfilled and a null signature means exactly that.
 - **Done.** Rate limiting on two payment-adjacent endpoints, and a probe that goes red when either limiter is removed.
 
 The last item predates the agent layer conceptually and was outstanding work on the existing project; it is listed because it was written inside the event window, not because it is claimed as a new feature.

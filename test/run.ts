@@ -26,6 +26,7 @@ import { startFakeFacilitator } from "./facilitator";
 import { startFakeIngest } from "./ingest";
 import { AGENT_ONE, AGENT_OTHER, AGENT_TWO, AGENT_UNREGISTERED, HUMAN_A, fakeRegistry, fakeStore } from "./human";
 import { RETENTION_DAYS, recordSettlement, setCapForTest, takeFreeRead } from "../lib/human/cap";
+import { postgresStore } from "../lib/human/postgres";
 import { NoDerivationKey, deriveIdentifier } from "../lib/human/derive";
 import { anchorChecks } from "./anchor";
 import { mcpChecks } from "./mcp";
@@ -521,6 +522,17 @@ async function main() {
   await recordSettlement({ ...receipt, transactionHash: "0xreal" });
   check(asked === 1, "100d · while a real one does reach it (positive control for 100c)");
   setCapForTest(null);
+
+  // The Postgres copy of the guard, asserted so that nobody removes it later as dead
+  // code. The connection string is well formed and unreachable: `neon()` validates
+  // the format eagerly, so a malformed one never reaches the guard at all.
+  const DEAD = "postgresql://u:p@localhost:1/db";
+  const pg = async (r: typeof receipt) =>
+    postgresStore(DEAD).recordReceipt(r).then(() => "recorded", e => (e instanceof FabricatedReceipt ? "guard" : "network"));
+  check(await pg(fabricated) === "guard",
+    "100e · the Postgres store refuses it too, before it opens a connection");
+  check(await pg(receipt) === "network",
+    "100f · while an ordinary one passes the guard and fails at the connection (negative control for 100e)");
 
   check(utcDay(new Date("2026-09-07T23:59:59Z")) === "2026-09-07" && utcDay(new Date("2026-09-08T00:00:01Z")) === "2026-09-08",
     "101 · the window turns over at UTC midnight, not at whoever is watching");

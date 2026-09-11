@@ -134,6 +134,12 @@ async function main() {
      * This is the second line of defence. The first is that the ledger refuses the
      * fake facilitator's transaction hash outright, which holds however this is
      * plumbed. Both, because the environment is the part somebody can wire wrong.
+     *
+     * And this closes one name rather than the door. `HUMAN_ID_KEY`, `AGENTBOOK_*`,
+     * `ANCHOR_RPC_URL`, `SUBGRAPH_URL`, `HUMAN_FREE_READS_PER_DAY` and
+     * `EMBARGOED_ALIASES` reach the child by the same route and are read only or
+     * unused today, so the next **writing** counterparty added here arrives exactly
+     * as the database did unless it is blanked beside it.
      */
     DATABASE_URL: "",
     X402_PAY_TO: PAY_TO,

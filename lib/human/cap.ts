@@ -1,7 +1,7 @@
 import type { EnvLike } from "../agent/pay";
 import { deriveIdentifier } from "./derive";
 import { type HumanRegistry, humanBehind, registryFrom } from "./registry";
-import { type HumanStore, type Receipt, assertNotFabricated, freeReadsPerDay, storeFrom, utcDay } from "./store";
+import { FabricatedReceipt, type HumanStore, type Receipt, assertNotFabricated, freeReadsPerDay, storeFrom, utcDay } from "./store";
 
 /**
  * The allowance, and the one thing that makes it safe.
@@ -101,6 +101,15 @@ export async function recordSettlement(receipt: Receipt, env: EnvLike = process.
     assertNotFabricated(receipt);
     await cap.store.recordReceipt(receipt);
   } catch (err) {
+    if (err instanceof FabricatedReceipt) {
+      // A refusal, not a failure, and it must not borrow the failure's sentence.
+      // Every run against the fake facilitator reaches this line, so wording it as a
+      // bookkeeping error trains a reader to skim the one line they must not skim on
+      // the day it appears in production, where it means a demo process is pointed at
+      // the real ledger.
+      console.warn(`ledger guard: refused a fabricated settlement ${receipt.transactionHash} and wrote no row. In production this means a demo run is pointed at a real database.`);
+      return;
+    }
     // Swallowed on purpose and never silently. The caller has been charged and
     // served, so failing their request over a bookkeeping write would be the
     // larger wrong, but a receipt that went missing has to be findable afterwards
