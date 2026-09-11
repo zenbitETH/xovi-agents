@@ -91,18 +91,19 @@ export async function anchorChecks(check: Check) {
   const signed = await signObservation(account, domain, message);
   check(await verifyObservation(signed), "135 · the offchain identifier re-derives and the attester recovers from the stored object");
 
-  // The instrument that is not us. Everything above this line is our code agreeing
-  // with our code, which is exactly what cannot detect a wrong domain.
+  // The instrument that is not this repository's own code. Everything above this
+  // line is this repository's code agreeing with itself, which is exactly what
+  // cannot detect a wrong domain.
   check(sdkAccepts(signed), "135b · and the attestation library, as an independent oracle, accepts the object this repository produced");
   check(sdkUid(signed) === signed.uid, "135c · and computes the same identifier for it, byte for byte");
 
   // The failure this oracle exists for, in the shape it would have shipped in.
   // Signed under the contract's own domain name rather than the offchain one: it
-  // still re-derives from itself, so our own invariant stays green, and the library
+  // still re-derives from itself, so this repository's own invariant stays green, and the library
   // and every explorer that uses it reject it.
   const wrongDomain = await signObservation(account, { ...domain, name: "EAS" }, message);
   check(await verifyObservation(wrongDomain),
-    "135d · an object signed under the contract's own domain still satisfies our own re-derivation (negative control, and the reason self-consistency is not evidence)");
+    "135d · an object signed under the contract's own domain still satisfies this repository's own re-derivation (negative control, and the reason self-consistency is not evidence)");
   check(!sdkAccepts(wrongDomain),
     "135e · and the oracle rejects it, which is the only check here that would have caught it (seen to fail)");
 

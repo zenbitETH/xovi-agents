@@ -63,7 +63,7 @@ The registration function puts the agent address and a nonce into the World ID *
 
 ### P4. The registry is last writer wins, and the cap inherits that
 
-- **This is documented behaviour of a third party system, not a defect in it.** The registry works as its authors built it; what follows is what our design inherits from that, written so the next reader does not have to derive it.
+- **This is documented behaviour of a third party system, not a defect in it.** The registry works as its authors built it; what follows is what this design inherits from it, written so the next reader does not have to derive it.
 - **Mechanism:** none, and that is the point of writing it down. `lookupHuman[agent] = nullifierHash` is an unconditional overwrite, so anyone able to produce a valid proof for the signal made of an agent address and its next nonce can rebind an agent that is not theirs. The nonce prevents replay, not rebinding.
 - **What it does not defeat:** the cap. A person has one identifier, and registering more agents only divides the same allowance, which is what sybil resistance means here.
 - **What it does enable:** griefing. Rebinding somebody's agent onto an exhausted identifier stops their reads being free.
@@ -72,7 +72,7 @@ The registration function puts the agent address and a nonce into the World ID *
 
 ## The order the demonstration has to run in
 
-The free path and the evidence for the paid read contradict each other on purpose, and the contradiction has to be scheduled rather than discovered. Once the founder's payer is a registered human and the database exists, that payer's reads are free, so the probe that produces a settlement transaction for the paid read finds a 200 with no receipt and reports that nothing settled. The endpoint is working; the probe is asking for the one thing this feature exists to prevent.
+The free path and the evidence for the paid read contradict each other on purpose, and the contradiction has to be scheduled rather than discovered. Once the operator's payer is a registered human and the database exists, that payer's reads are free, so the probe that produces a settlement transaction for the paid read finds a 200 with no receipt and reports that nothing settled. The endpoint is working; the probe is asking for the one thing this feature exists to prevent.
 
 So the explorer evidence is produced first, either before the payer is registered or with the free count set to zero, which `HUMAN_FREE_READS_PER_DAY=0` does because zero is a valid count rather than a missing one. The cap is turned on afterwards, for the demonstration that shows a free read and a second agent settling. The probe says so in its own failure message, so somebody meeting this at three in the morning is told the cause rather than left to find it.
 
@@ -88,7 +88,7 @@ The identifier is a World ID nullifier. It names no person, and it is the same v
 
 **The identifier never appears in a log, not truncated and not whole.** The code has always complied; this sentence used to say truncated, which promised less than the code delivered, and a document that misdescribes its own code in either direction is the thing an audit exists to catch.
 
-No real identifier goes into this repository, a pull request body, a comment, or this file. Fixtures use invented values. The founder's is the founder's.
+No real identifier goes into this repository, a pull request body, a comment, or this file. Fixtures use invented values. A real one belongs to the person it identifies and stays with them.
 
 ## Storage
 

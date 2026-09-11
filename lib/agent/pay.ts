@@ -157,7 +157,7 @@ export async function payingFetch(
   const required = http.getPaymentRequiredResponse(name => first.headers.get(name), body);
   // Signed ONCE, outside the retry. This is the whole safety argument: an
   // authorization carries a nonce the token refuses to reuse, so resending these
-  // exact bytes is at most once by the primitive rather than by our care. Signing
+  // exact bytes is at most once by the primitive rather than by care taken here. Signing
   // again would mint a fresh nonce and a second authorization, which is a real
   // double spend and is what the original no-retry rule was protecting against.
   const payload = await http.createPaymentPayload(required);
@@ -186,7 +186,7 @@ export async function payingFetch(
   // a flake ridden out on the third looked identical to one that never happened.
   onAttempt?.({ attempt: attempts, outcome: result.paymentStatus });
 
-  // A refusal saying the authorization is spent is the token telling us the FIRST
+  // A refusal saying the authorization is spent is the token reporting that the FIRST
   // attempt landed. It is the retry's own success arriving as an error, and reading
   // it as a failure would report a payment that happened as one that did not, which
   // is the same wrong direction as printing "no receipt" over a settled call.

@@ -19,7 +19,7 @@ dataSources:
     source:
       address: "0xC2679fBD37d54388Ce493F1DB75320D236e1815e"
       abi: EAS
-      # Safe by argument rather than by buffer. No attestation carrying our schema
+      # Safe by argument rather than by buffer. No attestation carrying this schema
       # identifier can exist before the schema is registered, and the registry
       # returned a zero record for it on 2026-09-09 when this block was captured,
       # confirmed on three independent endpoints. Any block at or before the

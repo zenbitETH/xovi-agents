@@ -10,7 +10,7 @@ export class QueryUnavailable extends Error {}
  * What the paid query answers with.
  *
  * Deliberately more than the index holds. An index can only say that an
- * attestation exists under our schema; what a caller wants is the confirmation
+ * attestation exists under this project's schema; what a caller wants is the confirmation
  * itself and whether it checks out, so this walks the reachability path on their
  * behalf: the index for the identifier, the chain for the attested fields, and a
  * recovery against the published template. That last field is the product.

@@ -143,7 +143,7 @@ async function main() {
     "Q3 · and the identifier the contract assigns is NOT the offchain one, which is why nothing joins them on chain");
 
   // The reachability path, walked as a stranger would walk it: an identifier from
-  // an index, a public endpoint for the chain, and nothing of ours.
+  // an index, a public endpoint for the chain, and nothing belonging to Zenbit.
   const fetched = await attestationData(pub, onchain.uid);
   const fields = decodeAbiParameters(OBSERVATION_ABI, fetched.data);
   check(fetched.schema === uid, "Q4 · a stranger holding only that identifier reads it back under the frozen schema");
@@ -153,7 +153,7 @@ async function main() {
       fields[4],
       fields[3],
     ),
-    "Q5 · and recovers the reviewer from the chain alone, with no endpoint of ours in the path",
+    "Q5 · and recovers the reviewer from the chain alone, with no Zenbit endpoint in the path",
   );
 
   console.log(`\n  ${n - bad}/${n} passed\n`);

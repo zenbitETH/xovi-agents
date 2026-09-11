@@ -38,9 +38,25 @@ AGENT_ENS_NAME=<the name> npm run ens:verify
 
 Expect the resolved url and a zero exit. The script runs the same function `bin/agent.ts` runs, with no injected lookup, so what passes here is what the agent will execute.
 
-**6. Set `AGENT_ENS_NAME` in the deployment environment and redeploy.** Only now. `WINDOWS_URL` may stay set; it will not be read, and leaving it is a smaller change than removing it.
+**6. Set `AGENT_ENS_NAME` in the deployment environment and redeploy.** Only now, and read the sequencing note in step 8 before you do. **Leave `WINDOWS_URL` set.** It will not be read: once a name is configured the module resolves through the name or raises, and it never falls back to the url. **That is deliberate and it is not a safety net.** If the name stops resolving the agent stops, and leaving `WINDOWS_URL` in place prevents none of that. What it does is make the recovery in step 8 a one variable change rather than two.
 
 **7. Confirm the deployed agent reads through the name**, not merely that the deployment succeeded.
+
+**8. If the deployed agent starts failing after step 7, this is what it looks like and this is the fix.**
+
+**What you see.** The run fails with `EndpointUnresolvable` and this message: *`<name>` resolved to no `x402:windows` record: either the name is not registered on this chain, or it is registered and carries no such record.* That message is byte identical for a name that never existed and for a registered name carrying no record, which is why it names both and why it cannot tell you which.
+
+**What to run.** `AGENT_ENS_NAME=<name> npx tsx bin/ens-verify.ts`. **`NO RESOLVER` on a name that resolved yesterday is the reset.** It is distinguishable from a name that never existed only by the fact that it used to work, so the evidence is your memory of step 7 passing rather than anything the tool can print.
+
+**The fix.** Unset `AGENT_ENS_NAME` and redeploy. Blanking it works as well as deleting it, since the module trims the value and an empty one takes the url branch. The agent reads `WINDOWS_URL` again and the run recovers. One variable.
+
+**This works only while `WINDOWS_URL` is still set**, which is what step 6 is for. With both empty the failure changes to `neither AGENT_ENS_NAME nor WINDOWS_URL is set`, a different message than the one that sent you here, and the recovery becomes two variables rather than one.
+
+It is written down because the agent is fail closed by design: a configured name that resolves to nothing raises rather than reading from somewhere else, so a name that disappears takes the agent with it rather than degrading it. The most likely cause is not an error in this repository. The ENS app displayed a notice on 2026-09-11 that registered names and state on Sepolia may be reset periodically due to routine contract deployments, naming 2026-07-30 as the most recent. That is attributed to the app and dated because it is a banner rather than a page anyone can be pointed at.
+
+**Sequencing, which is the cheap half of this.** Set `AGENT_ENS_NAME` after the video is recorded and verified, never before. The recording is the artefact that cannot be redone in an hour, while the deployed endpoint is repaired with one variable. A reset before recording then costs nothing, because the name is not wired yet, and a reset after costs a redeploy.
+
+It does not remove the exposure and nothing here claims it does. Judging continues after submission, so the window extends past anything an operator controls. What the sequencing buys is that the failure is one variable deep and that the variable is named here, which is the difference between a recoverable outage and a dead demo nobody can explain.
 
 ## What the verifier tells you that the agent cannot
 
@@ -48,7 +64,7 @@ A text lookup answers `null` for a name that does not exist and for a registered
 
 The verifier spends that call. It reads the name's resolver, which viem looks up through the universal resolver rather than through any registry, so an operator who mistyped the name is told the name has no resolver at all rather than being sent to set a record on it. It stops there instead of saying which of the two it is, because separating them needs a registry address: the v1 one is the registry ENS says is no longer in use, and the v2 one keys on the labelhash with its low four bytes cleared, so reading it with the plain labelhash answers zero for names that are registered.
 
-It reads the chain id from the endpoint before anything else and refuses if it is not Sepolia's, because the chain printed at the top was otherwise an echo of this tool's configuration rather than a reading of the network. Then it reads two control names, and refuses to interpret anything if either does not resolve. Without a control, an endpoint that is not answering about names produces the same `null` as a name with no record, and the first probe of this work returned exactly that for three names and its own control. Two rather than one, though not for the reason first written here: both controls go through the same universal resolver and the same v2 registries, so a dark v2 side fails both. They diverge at the leaf, `ens.eth` through the `ENSV1Resolver` bridge that serves v1 records and `chijesus99.eth` through its own v2 resolver, so the pair buys one positive per leaf path and the founder's name may be registered through either app.
+It reads the chain id from the endpoint before anything else and refuses if it is not Sepolia's, because the chain printed at the top was otherwise an echo of this tool's configuration rather than a reading of the network. Then it reads two control names, and refuses to interpret anything if either does not resolve. Without a control, an endpoint that is not answering about names produces the same `null` as a name with no record, and the first probe of this work returned exactly that for three names and its own control. Two rather than one, though not for the reason first written here: both controls go through the same universal resolver and the same v2 registries, so a dark v2 side fails both. They diverge at the leaf, `ens.eth` through the `ENSV1Resolver` bridge that serves v1 records and `chijesus99.eth` through its own v2 resolver, so the pair buys one positive per leaf path and the operator's name may be registered through either app.
 
 ## What each cause prints
 

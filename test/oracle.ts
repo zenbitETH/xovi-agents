@@ -9,7 +9,7 @@ import { parseSignature } from "viem";
 import type { SignedObservation } from "../lib/anchor/offchain";
 
 /**
- * An instrument that is not us.
+ * An instrument that is not this repository's own code.
  *
  * Everything else in this suite is this repository's code agreeing with this
  * repository's code, and that is not evidence about an encoding somebody else
@@ -30,7 +30,7 @@ export function sdkOffchain(chainId: number, version: string, verifyingContract:
   return new Offchain({ address: verifyingContract, version, chainId: BigInt(chainId) }, OffchainAttestationVersion.Version2, {} as never);
 }
 
-/** Our object in the shape the library expects, with the signature split into its parts. */
+/** The object in the shape the library expects, with the signature split into its parts. */
 export function asSdkAttestation(o: SignedObservation, primaryType = "Attest") {
   const { r, s, v } = parseSignature(o.signature);
   return {
@@ -56,7 +56,7 @@ export function asSdkAttestation(o: SignedObservation, primaryType = "Attest") {
         { name: "salt", type: "bytes32" },
       ],
     },
-    // `version` is already the first field of our message, which is what the
+    // `version` is already the first field of the message, which is what the
     // encoding requires, so it is not added again here.
     message: { ...o.message },
     signature: { r, s, v: Number(v) },

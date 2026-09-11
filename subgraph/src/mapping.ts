@@ -6,7 +6,7 @@ import { Observation, TimeAnchor } from "../generated/schema";
  * The account that anchors. A timestamp log carries only a hash and a block time,
  * with no schema and no attester, so the sender is the only thing that attributes
  * one, and anybody may timestamp anything. Without this check the index would
- * collect every timestamp on the chain and present them as ours.
+ * collect every timestamp on the chain and present them as this project's.
  */
 const ANCHOR = Address.fromString("0x51F1D0074793E7Fa336f538299ad7D3e439e2b09");
 

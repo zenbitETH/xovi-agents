@@ -34,7 +34,7 @@ async function main() {
     transactionHash: `${MARK}-tx`,
   };
   check(await store.recordReceipt(receipt), "a settlement is recorded");
-  check(!(await store.recordReceipt(receipt)), "the same one again is refused by the database, not by us");
+  check(!(await store.recordReceipt(receipt)), "the same one again is refused by the database, not by application code");
   check(
     !(await store.recordReceipt({ ...receipt, nonce: `${MARK}-nonce-2` })),
     "a replay under a different nonce is still caught, by the transaction hash",
