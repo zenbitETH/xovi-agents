@@ -60,9 +60,23 @@ async function main() {
   // the facilitator, and a transport moves bytes.
   const url = process.argv.includes("--url") ? arg("--url", "") : "";
   if (url) console.log(`  over http: ${url}`);
+  // The spawned server needs its own configuration and does NOT inherit this
+  // process's environment. `StdioClientTransport` with no `env` uses the SDK's
+  // `getDefaultEnvironment()`, which passes exactly HOME, LOGNAME, PATH, SHELL, TERM
+  // and USER — measured against the installed package, not read from its docs. So
+  // `X402_PAY_TO`, `SUBGRAPH_URL` and `ANCHOR_RPC_URL` all arrived unset and the
+  // server died on the first of them before the client had sent anything. It failed
+  // loudly, which is the only reason this was ever found.
+  //
+  // `--env-file` is passed to the child as well: the parent gets it from the npm
+  // script, and a child spawned by name gets nothing from that.
   const transport = url
     ? new StreamableHTTPClientTransport(new URL(url))
-    : new StdioClientTransport({ command: "npx", args: ["tsx", "bin/mcp-server.ts"] });
+    : new StdioClientTransport({
+        command: "npx",
+        args: ["tsx", "--env-file=.env.local", "bin/mcp-server.ts"],
+        env: process.env as Record<string, string>,
+      });
   await client.connect(transport);
 
   const tools = await client.listTools();
