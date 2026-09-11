@@ -34,7 +34,7 @@ const ZERO = "0x0000000000000000000000000000000000000000";
  * `ens.eth` is answered by `0xae66c62A`, which ENS's deployments table lists in the
  * Sepolia v2 beta as `ENSV1Resolver`, the bridge that serves v1 records; and
  * `chijesus99.eth` by its own per-account v2 resolver. So the pair buys one positive
- * per leaf path, which is worth keeping because the founder's name may be registered
+ * per leaf path, which is worth keeping because the operator's name may be registered
  * through either app.
  *
  * What the pair does NOT buy is wrong-chain detection, and the way that was learned
@@ -125,7 +125,7 @@ async function main() {
    * An earlier version read the owner out of the v1 registry at a hardcoded address
    * to separate "not registered" from "registered with no record". ENS documents
    * that registry as no longer in use on Sepolia, so a name registered on v2 would
-   * have been reported NOT REGISTERED: the tool would deny the founder's own
+   * have been reported NOT REGISTERED: the tool would deny the operator's own
    * registration and the obvious conclusion would be that registering had failed.
    *
    * Reading the v2 registry instead was tried and rejected on a measurement. Its
