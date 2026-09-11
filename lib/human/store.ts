@@ -20,6 +20,24 @@ export type Receipt = {
   source: "route" | "chain" | "mcp";
 };
 
+/**
+ * The transaction hash the fake facilitator settles with.
+ *
+ * It lives here rather than in `test/facilitator.ts` because the party that must
+ * recognise it is the write path, not the fake. A local demo run settles against
+ * that facilitator and is handed this hash; if the process serving that run holds
+ * a real `DATABASE_URL`, the receipt is written to the real ledger and the ledger
+ * then carries a settlement that never happened.
+ *
+ * That is not hypothetical. A row in the production ledger carries it, written on
+ * 2026-09-11 by a local demo run, because `next start` loads `.env.local` itself
+ * and so gains the database after `bin/local.ts` has finished deciding what the
+ * child may have. While this constant lived in the test tree the fake was the only
+ * party that knew what a fabricated settlement looks like, and the ledger had no
+ * way to refuse one.
+ */
+export const FABRICATED_TX = `0x${"11".repeat(32)}`;
+
 export type HumanStore = {
   /**
    * Take one free read, or refuse. **One operation, and that is the point.**

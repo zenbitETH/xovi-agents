@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { FABRICATED_TX } from "../lib/human/store";
 
 /**
  * A facilitator that answers on localhost, so the route can be driven end to end
@@ -36,7 +37,8 @@ export type FakeFacilitator = {
 };
 
 const NETWORK = "eip155:84532";
-const FAKE_TX = `0x${"11".repeat(32)}`;
+// The one the ledger refuses. Defined in lib so the write path knows it too.
+const FAKE_TX = FABRICATED_TX;
 
 export async function startFakeFacilitator(): Promise<FakeFacilitator> {
   const state = {
