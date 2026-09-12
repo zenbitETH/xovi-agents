@@ -206,4 +206,4 @@ No fee contract. Payments settle to an address held by a person, and a contract 
 
 No revocation path. The schema is revocable, which preserves the ability, and no code exercises it; a contested confirmation today is handled by the reviewing application, which owns the decision.
 
-No mainnet anything. The schema is registered on Ethereum Sepolia, payments settle on Base Sepolia, and the identity read that the paid endpoint performs happens on a third chain that is not a testnet. That last one is stated wherever it is relevant rather than left for a reviewer to discover by counting.
+No mainnet write. The schema is registered on Ethereum Sepolia, payments settle on Base Sepolia, and the identity read that the paid endpoint performs happens on a third chain that is not a testnet. That last one is stated wherever it is relevant rather than left for a reviewer to discover by counting.
