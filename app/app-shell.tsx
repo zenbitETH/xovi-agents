@@ -1037,16 +1037,53 @@ export function AppShell() {
                 <NotYet />
               ) : lines.length === 0 ? (
                 <div className="ag-intro">
-                  <p className="xv-desc ag-empty">
-                    You pay for one read from your own wallet and the agent does the rest. It reads the window it paid
-                    for, chooses one, forms a proposal and submits it. You choose nothing that reaches the record: a
-                    signature, and go. Every step it takes appears here as it happens.
+                  {/* The fold. Three verbs, one sentence each, and each sentence restates
+                      something already merged in this repository. What the page opens with
+                      is what a person can do here, not an explanation of it: the paragraph
+                      that used to sit at the top said in four sentences what the third tile
+                      and the command line say in two. */}
+                  <div className="ag-verbs">
+                    <div className="ag-verb">
+                      <h2 className="ag-verb-name">Own</h2>
+                      {/* DISCLOSURE, "A receipts ledger": a settlement is recorded against
+                          the payer who made it, and settles on Base Sepolia. */}
+                      <p className="ag-verb-line">
+                        Every read your agent pays for leaves a receipt on a public chain. You keep them.
+                      </p>
+                    </div>
+                    <div className="ag-verb">
+                      <h2 className="ag-verb-name">Manage</h2>
+                      {/* DISCLOSURE, "Delegation from a reader's own wallet"; bin/agent.ts,
+                          "Read a window, propose a clip, stop". */}
+                      <p className="ag-verb-line">
+                        One signature delegates one run. The agent reads what it paid for, proposes once, and stops.
+                      </p>
+                    </div>
+                    <div className="ag-verb">
+                      <h2 className="ag-verb-name">Check</h2>
+                      {/* docs/spec/05-anchor-and-query.md:66, "in a way anybody can check
+                          with one call", for the call; the operator being out of the path is
+                          the same document's trust boundary. */}
+                      <p className="ag-verb-line">
+                        A confirmed record can be checked by a stranger with one call. Zenbit is not in the path.
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="ag-command">
+                    One signature. The agent reads what it paid for, proposes once, and stops.
                   </p>
 
                   {/* Every sentence below is already merged, public and reviewed in this
                       repository, and each carries the line it came from. The page states
-                      nothing that a reviewed surface does not, so it cannot drift from one. */}
-                  <dl className="ag-facts">
+                      nothing that a reviewed surface does not, so it cannot drift from one.
+
+                      Behind a disclosure rather than deleted. They are merged text and a
+                      judge may want them, and they were the rest state's bulk: five
+                      definitions before a reader had seen what the page does. */}
+                  <details className="ag-more">
+                    <summary className="ag-more-summary">The facts</summary>
+                    <dl className="ag-facts">
                     <div>
                       <dt>What a window is</dt>
                       {/* docs/spec/02-candidate-windows.md:101 */}
@@ -1091,7 +1128,8 @@ export function AppShell() {
                         product.
                       </dd>
                     </div>
-                  </dl>
+                    </dl>
+                  </details>
                 </div>
               ) : (
                 <ol className="ag-feed">

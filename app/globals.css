@@ -722,6 +722,71 @@ body::after {
 }
 
 /* ---------------------------------------------------------------------------
+   The fold: three verbs, one sentence each.
+
+   What a person can do here, before any explanation of it. The tiles carry no
+   actor hue: teal means a person and the agent hue means the machine everywhere
+   in this interface, and a tile is neither, so they take the neutral surface the
+   cards use and are told apart by weight and position.
+--------------------------------------------------------------------------- */
+.ag-verbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem;
+  padding: 0.25rem;
+}
+
+.ag-verb {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  border-radius: 0.75rem;
+  background-color: color-mix(in srgb, var(--color-base-content) 4%, transparent);
+}
+
+.ag-verb-name {
+  margin: 0;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 1.125rem;
+  line-height: 1.1;
+}
+
+.ag-verb-line {
+  margin: 0;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  opacity: 0.8;
+}
+
+/* The one line under the tiles. Gold is the action colour in Xovi and stays on
+   the button, so this is weight and not hue. */
+.ag-command {
+  margin: 0.875rem 0.25rem 0.25rem;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+/* The five definitions, kept and folded away. They are merged text and a reader
+   may want them; they are not what the page opens with. */
+.ag-more {
+  margin: 0.75rem 0.25rem 0;
+}
+
+.ag-more-summary {
+  cursor: pointer;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+/* ---------------------------------------------------------------------------
    Sections, as a strip rather than a left rail.
 
    The design draws a vertical rail. Here it is horizontal and lives in the top

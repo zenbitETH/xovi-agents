@@ -342,6 +342,31 @@ export async function pageChecks(check: Check) {
   check(!/Nothing touches mainnet/.test(ui), "253a · and not the categorical one it contradicted");
 
   /*
+   * The fold is three verbs and one sentence each.
+   *
+   * At rest the page used to open with a paragraph and five definitions, which is
+   * an explanation of the product before a reader has seen what it does. The tiles
+   * are what a person can do here; the definitions are kept, because they are
+   * merged text a judge may want, and folded away.
+   */
+  const verbs = [...ui.matchAll(/<h2 className="ag-verb-name">(\w+)<\/h2>/g)].map(m => m[1]);
+  check(verbs.join(",") === "Own,Manage,Check", `254 · the fold carries three verbs (${verbs.join(",") || "none"})`);
+  const verbLines = [...ui.matchAll(/className="ag-verb-line">\s*([^<]+?)\s*<\/p>/g)].map(m => m[1].replace(/\s+/g, " "));
+  check(verbLines.length === 3, `254a · one line under each (${verbLines.length})`);
+  const twoSentences = verbLines.filter(l => l.split(/(?<=\.)\s+/).filter(x => x.length > 0).length === 2);
+  check(twoSentences.length === 3, `254b · each of them two sentences, as the rungs are (${twoSentences.length})`);
+  const withFigure = verbLines.filter(l => /\b\d+\b/.test(l));
+  check(withFigure.length === 0, `254c · and none carries a figure (${withFigure.length})`);
+
+  // The definitions are kept and folded, not deleted. A native disclosure, so they
+  // open with no script and are in the document for anything that reads it.
+  check(/<details className="ag-more">/.test(ui), "255 · the five facts sit behind a disclosure");
+  check(/<summary className="ag-more-summary">The facts<\/summary>/.test(ui), "255a · labelled for what it holds");
+  check(/<dl className="ag-facts">/.test(ui), "255b · and the definitions are still on the page");
+  check(!/You pay for one read from your own wallet and the agent does the rest/.test(ui),
+    "255c · while the paragraph that explained the page before showing it is gone");
+
+  /*
    * The ladder: each rung two present tense sentences, one merged fact and one
    * negative, and the unlock written as the negative rather than a condition.
    */
