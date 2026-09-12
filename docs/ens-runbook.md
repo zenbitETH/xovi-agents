@@ -12,7 +12,7 @@ This is an ordinary Sepolia name with one text record, but there **is** a second
 
 Setting it does not add a name alongside the configured url. It makes `WINDOWS_URL` **unused**, deliberately: a name that resolves to nothing is not permission to read from somewhere else, so the agent raises rather than falling back. That is the correct behaviour and it is why the order matters. Set the variable before the record resolves and the agent is not degraded, it is off.
 
-So every step below is verified before the one after it, and the variable is the last thing that changes.
+So every step below is verified before the one after it, and the name is not set until the record it points at resolves. It is no longer the last thing that changes: step 6 sets `WINDOWS_URL` after step 7 has passed, for the recovery rather than for the read.
 
 ## Steps
 
@@ -70,9 +70,15 @@ It is written down because the agent is fail closed by design: a configured name
 
 It has happened at least once. ENS's Beta announcement says of the redeployed registry: *"This creates a clean testing environment for the updated architecture, which means names registered during earlier Alpha phases won't appear in the Beta registry"*, and that *"If you participated in previous App or Explorer testing, you should expect to start fresh in Beta"* (`ens.domains/blog/post/ensv2-beta-public-testing`, read 2026-09-12). So the banner describes something with a precedent rather than a possibility.
 
-**Sequencing, which is the cheap half of this.** Set `AGENT_ENS_NAME` after the video is recorded and verified, never before. The recording is the artefact that cannot be redone in an hour, while the agent's run is repaired with one variable. A reset before recording then costs nothing, because the name is not wired yet, and a reset after costs one variable on the next run.
+**Sequencing, and it points the other way now.** Set `AGENT_ENS_NAME` **for the recording**, not after it. The recording is the demonstration, so a video made with the endpoint supplied directly demonstrates an endpoint being supplied directly; what is worth showing is the agent taking it from the record.
 
-It does not remove the exposure and nothing here claims it does. Judging continues after submission, so the window extends past anything an operator controls. What the sequencing buys is that the failure is one variable deep and that the variable is named here, which is the difference between a recoverable outage and a dead demo nobody can explain.
+> **Corrected 2026-09-12: this said `Set AGENT_ENS_NAME after the video is recorded and verified, never before`.** That was written when the variable was believed to live in a deployment, where *not wired yet* named a real state worth protecting. Once it became a per invocation variable there is no unwired state, so the justification did not merely become false, **its subject stopped existing**, and the sentence went on parsing and sounding prudent while being advice about nothing.
+
+**Re-run step 7 immediately before recording, and again immediately before submitting.** One command, and it is the only thing separating a working demonstration from a recording of one.
+
+**The residual is a judgement rather than a fix, and this step will not pretend otherwise.** A recording cannot break, so the exposure is no longer a dead demo. It is that a reset after recording leaves a video showing something the repository can no longer do. If the verifier fails at that point there are two moves: re-register the name and re-record, or submit with the video as it stands and the repository unable to reproduce it. Both are defensible and they cost different things, one is time that may not exist and the other is a claim a judge cannot check. **Nothing here decides that, and no step should imply a fix exists where a choice does.**
+
+The exposure is not removed by any of this and nothing here claims it is. Judging continues after submission, so the window extends past anything an operator controls. What the ordering buys is that the failure is one variable deep, that the variable is named here, and that whoever meets it knows they are choosing rather than repairing.
 
 ## What the verifier tells you that the agent cannot
 
