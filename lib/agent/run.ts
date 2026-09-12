@@ -268,8 +268,12 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
     }
     if (result.kind === "duplicate") {
       duplicates += 1;
-      // Recorded per window, so the next run starts where this one left off
-      // rather than offering the same clip again.
+      // Recorded per window. Which runner remembers depends on the ledger it was
+      // given: `bin/agent.ts` keeps a file, so its next run starts where this one
+      // left off, while the run route builds a memory ledger per invocation, so a
+      // browser run walks from the first window every time and pays one ingest
+      // request per window already proposed. The refusal is still worth recording
+      // here, because it is what makes this run's own walk terminate.
       ledger.remember(window.windowId, "the ingest already holds this clip");
       yield { step: "declined", kind: "duplicate", detail: DECLINE_SENTENCE.duplicate };
       continue;

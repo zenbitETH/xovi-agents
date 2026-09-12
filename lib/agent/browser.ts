@@ -101,6 +101,28 @@ export async function disconnect(): Promise<"revoked" | "forgotten"> {
   }
 }
 
+/**
+ * The account the wallet already grants, without asking for it.
+ *
+ * `eth_accounts` reads a permission that has been given; `eth_requestAccounts`
+ * asks for one and opens the wallet. A page that only knows the second treats
+ * every reload as a first visit, so a person who connected a minute ago is asked
+ * again, and the prompt teaches them that the button does nothing they can rely
+ * on.
+ *
+ * Null on anything at all: no wallet, no grant, a provider that throws. None of
+ * those is an error worth a message, they are all the same fact, which is that
+ * there is nobody connected yet.
+ */
+export async function restoreConnection(): Promise<`0x${string}` | null> {
+  try {
+    const accounts = (await injected().request({ method: "eth_accounts" })) as `0x${string}`[];
+    return accounts?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function connect(): Promise<`0x${string}`> {
   const provider = injected();
   const accounts = (await provider.request({ method: "eth_requestAccounts" })) as `0x${string}`[];

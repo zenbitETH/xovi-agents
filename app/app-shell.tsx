@@ -10,6 +10,7 @@ import {
   disconnect,
   ensureBaseSepolia,
   onWalletChange,
+  restoreConnection,
   signChallenge,
 } from "~~/lib/agent/browser";
 import type { RunStep } from "~~/lib/agent/run";
@@ -1223,6 +1224,25 @@ export function AppShell() {
     // run moves through signing, running and finished, and reading the ledger at
     // each of them was about six requests for one settlement.
   }, [address, phase === "finished"]);
+
+  /**
+   * A reload is not a first visit.
+   *
+   * The wallet is asked what it already grants, silently, so a person who
+   * connected a minute ago is not asked again. Only the button prompts.
+   */
+  useEffect(() => {
+    let live = true;
+    void restoreConnection().then(async restored => {
+      if (!live || restored === null) return;
+      setAddress(restored);
+      setChain(await currentChain());
+      setPhase("ready");
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   /**
    * What the wallet does on its own.

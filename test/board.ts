@@ -124,14 +124,28 @@ export async function boardChecks(check: Check) {
   const gatedBoard = boardFrom(all);
   check(!gatedBoard.cells.some(c => c.day === "2026-09-03" && c.species === "mexicanum" && c.onOffer),
     "274a · and the board does not offer it");
+  /*
+   * The status alone proves nothing here.
+   *
+   * This environment has no facilitator, so the resource server answers 503 to
+   * any request it reaches, and a check on the status stays green with the gate
+   * taken out of the route entirely. The sentence is the gate's own, so the body
+   * is what distinguishes the two.
+   */
+  const GATE_SENTENCE = "not screened against the embargo list in force";
   const refused = await windowsGET(new Request("http://127.0.0.1/api/agent/windows?day=2026-09-03&species=mexicanum"));
-  check(refused.status === 503, `274b · the cell answers 503 before any 402 (${refused.status})`);
   const refusedBody = JSON.stringify(await refused.json());
+  check(refused.status === 503 && refusedBody.includes(GATE_SENTENCE), `274b · the cell is refused by the gate and says so (${refused.status})`);
   check(!/\d+/.test(refusedBody.replace(/2026-\d\d-\d\d/g, "")), "274c · and says nothing of how many it would have dropped");
 
   process.env.EMBARGOED_ALIASES = "";
   const ungated = cellState(all, "2026-09-03", "mexicanum");
   check(ungated.kind === "offer", `274d · with no list in force the same cell is on offer (negative control, ${ungated.kind})`);
+  // And the same request no longer carries the gate's sentence, so the 503 this
+  // environment gives for want of a facilitator is told apart from the gate's.
+  const ungatedAnswer = await windowsGET(new Request("http://127.0.0.1/api/agent/windows?day=2026-09-03&species=mexicanum"));
+  check(!JSON.stringify(await ungatedAnswer.json()).includes(GATE_SENTENCE),
+    "274e · and the route's answer stops carrying the gate's sentence (negative control)");
   if (embargoBefore === undefined) delete process.env.EMBARGOED_ALIASES;
   else process.env.EMBARGOED_ALIASES = embargoBefore;
 

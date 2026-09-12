@@ -15,7 +15,7 @@ import {
   totalOnBaseSepolia,
 } from "../app/app-shell";
 import { signedBy } from "../lib/anchor/confirmation";
-import { BASE_SEPOLIA_HEX, disconnect } from "../lib/agent/browser";
+import { BASE_SEPOLIA_HEX, disconnect, restoreConnection } from "../lib/agent/browser";
 import { CONFIRMATION_259 } from "../lib/anchor/confirmation-259";
 import { FABRICATED_TX } from "../lib/human/store";
 import type { RunStep } from "../lib/agent/run";
@@ -429,7 +429,31 @@ export async function pageChecks(check: Check) {
    * the grant where a wallet implements it. Driven against both kinds of wallet,
    * because the failure to catch is the page claiming the stronger one.
    */
+  /*
+   * A reload is not a first visit.
+   *
+   * `eth_accounts` reads a grant that exists; `eth_requestAccounts` asks for one
+   * and opens the wallet. A page that only knows the second re-prompts on every
+   * reload, which teaches a person the button does nothing they can rely on.
+   * Driven against a provider that records what it was asked.
+   */
   const savedProvider = (globalThis as { ethereum?: unknown }).ethereum;
+  const asked: string[] = [];
+  (globalThis as { ethereum?: unknown }).ethereum = {
+    request: async ({ method }: { method: string }) => {
+      asked.push(method);
+      return method === "eth_accounts" ? ["0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe"] : [];
+    },
+  };
+  const restored = await restoreConnection();
+  check(restored === "0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe", `277 · a wallet that already grants an account is restored (${restored})`);
+  check(asked.includes("eth_accounts"), "277a · by reading the grant");
+  check(!asked.includes("eth_requestAccounts"), `277b · and never by asking for one, which is what opens the wallet (${asked.join(", ")})`);
+  check(/restoreConnection\(\)/.test(ui), "277c · and the page does that read on load");
+
+  (globalThis as { ethereum?: unknown }).ethereum = { request: async () => [] };
+  check((await restoreConnection()) === null, "277d · a wallet that grants nothing restores nothing (negative control)");
+
 
   (globalThis as { ethereum?: unknown }).ethereum = {
     request: async ({ method }: { method: string }) => {
