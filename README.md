@@ -64,22 +64,17 @@ This repository was created on 2026-09-06 and is being built across the event wi
 
 ## What the attestation asserts
 
-<!-- SLOT, and this comment is meant to be consumed. When the schema is registered, the legal
-     lead's first sentence goes here, ahead of the paragraph below, and nothing else changes:
-     A schema definition for clip confirmations is registered on a public testnet for interoperability testing, with no production monitoring system deployed against it.
-     It is held out until then because it states a registration as fact.
-     Delete this comment once the sentence is in place. Do NOT delete the one below it. -->
+<!-- SLOT, and this comment is meant to be consumed. When the schema is registered, the legal lead's first sentence goes here, ahead of the paragraph below, and nothing else changes:
 
-<!-- SWEEP RULE, and this comment is permanent. It is separate from the slot above precisely so
-     that consuming the slot does not take it away, which is when it is needed most: at that point
-     the word moves from an invisible comment into visible prose, so a sweep is more likely to fire
-     and whoever runs it has less around it to explain why.
+A schema definition for clip confirmations is registered on a public testnet for interoperability testing, with no production monitoring system deployed against it.
 
-     The word "production" in this file is a NEGATION inside the legal lead's own disclaimer, in
-     the clause saying no production monitoring system is deployed. It is not a claim that anything
-     is in production, it does not breach the rule against that word, and no session amends her
-     text. A mechanical sweep reports it whether it sits in a comment or in prose. It is closed by
-     reading it, not by deleting it. -->
+It is held out until then because it states a registration as fact. Delete this comment once the sentence is in place. Do NOT delete the one below it.
+
+NOTE 2026-09-12: the condition has been met. The schema is registered on Ethereum Sepolia at 0x8d4a9a6e...8c6d and the subgraph indexes an attestation under it. This slot is left unconsumed deliberately rather than by oversight: the sentence is the legal lead's text and it asserts that no production monitoring system is deployed against the schema, which is a claim about the product that nobody here has re-checked since she wrote it. Consuming it is hers or the founder's call and is one edit. -->
+
+<!-- SWEEP RULE, and this comment is permanent. It is separate from the slot above precisely so that consuming the slot does not take it away, which is when it is needed most: at that point the word moves from an invisible comment into visible prose, so a sweep is more likely to fire and whoever runs it has less around it to explain why.
+
+The word "production" in this file is a NEGATION inside the legal lead's own disclaimer, in the clause saying no production monitoring system is deployed. It is not a claim that anything is in production, it does not breach the rule against that word, and no session amends her text. A mechanical sweep reports it whether it sits in a comment or in prose. It is closed by reading it, not by deleting it. -->
 
 The human operator confirms; the confirmation is attested. The attestation asserts who confirmed and when, and makes that verifiable by third parties. It certifies no identity, no reputation, no payment and no biological fact. The agent proposes; no credential of its own can confirm or attest.
 
