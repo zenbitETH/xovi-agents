@@ -6,7 +6,8 @@ import type { RunStep } from "~~/lib/agent/run";
 
 const REPO = "https://github.com/zenbitETH/xovi-agents";
 
-// The clip confirmation schema on Ethereum Sepolia, README.md:62. Public and
+// The clip confirmation schema on Ethereum Sepolia, README under "Subgraph and
+// paid query" and the schema row beside it. Public and
 // unauthenticated, and the only destination of this kind that resolves today: there is
 // no per clip page to link a proposal to, because /galeria/[slug] in the reviewing
 // application is a BEHAVIOUR page rather than a clip page, and the attestation
@@ -286,7 +287,7 @@ export function AppShell() {
                     </div>
                     <div>
                       <dt>What paying does not buy</dt>
-                      {/* README.md:84, both sentences */}
+                      {/* README, "The human operator confirms; the confirmation is attested", both sentences */}
                       <dd>
                         The attestation certifies no identity, no reputation, no payment and no biological fact. The
                         agent proposes; no credential of its own can confirm or attest.
@@ -294,7 +295,7 @@ export function AppShell() {
                     </div>
                     <div>
                       <dt>One person, one allowance</dt>
-                      {/* README.md:60 and :83 for the allowance, DISCLOSURE.md:36 for why it is per person */}
+                      {/* README, "Proof of human, per person caps", for the allowance; DISCLOSURE, "Proof-of-human caps", for why it is per person */}
                       <dd>
                         The free daily allowance is administered per person rather than per wallet, because a per wallet
                         limit is not defeated by generating wallets.
@@ -314,7 +315,7 @@ export function AppShell() {
                     </div>
                     <div>
                       <dt>Why it exists</dt>
-                      {/* README.md:27 */}
+                      {/* README, "So the thing worth selling is not the observation" */}
                       <dd>
                         Observations are public. What is scarce is derivation and provenance, and that join is the
                         product.

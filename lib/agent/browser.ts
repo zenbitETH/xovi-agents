@@ -159,7 +159,13 @@ export async function signChallenge(
   // the challenge's description changes, this changes with it and nothing here is
   // edited.
   onChallenge?.({
-    description: String((accepted as { description?: unknown }).description ?? ""),
+    // `resource.description`, not `accepted.description`. The x402 version 2
+    // requirements entry has no description field: measured against the live
+    // challenge, `accepts[0]` carries amount, asset, extra, maxTimeoutSeconds,
+    // network, payTo and scheme and nothing else. Reading it there yielded "" on
+    // every run, so the branch that shows it never fired while the price beside it
+    // did, which is why the feature looked half alive rather than absent.
+    description: String(required.resource?.description ?? ""),
     amount: readableAmount(accepted.amount, token),
     payTo: accepted.payTo,
     network: accepted.network,
