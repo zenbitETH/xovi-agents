@@ -777,13 +777,15 @@ body::after {
   margin: 0.75rem 0.25rem 0;
 }
 
+/* Sentence case, unlike the caption labels beside the values in the cards. Those
+   follow `.ag-eyebrow`, which is merged and tracked heavier than any of them; this
+   is a control a reader clicks, and a control that shouts reads as a banner rather
+   than as something to press. */
 .ag-more-summary {
   cursor: pointer;
   font-family: var(--font-sans), system-ui, sans-serif;
-  font-size: 0.75rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  opacity: 0.6;
+  font-size: 0.8125rem;
+  opacity: 0.7;
 }
 
 /* ---------------------------------------------------------------------------

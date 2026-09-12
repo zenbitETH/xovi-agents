@@ -1046,17 +1046,28 @@ export function AppShell() {
                     <div className="ag-verb">
                       <h2 className="ag-verb-name">Own</h2>
                       {/* DISCLOSURE, "A receipts ledger": a settlement is recorded against
-                          the payer who made it, and settles on Base Sepolia. */}
+                          the payer who made it. The second sentence is this branch's own
+                          route rather than merged text, and it is what `/api/receipts`
+                          does and what checks 218b and 219 hold it to. "You keep them"
+                          claimed custody the ledger does not give anybody. */}
                       <p className="ag-verb-line">
-                        Every read your agent pays for leaves a receipt on a public chain. You keep them.
+                        Every read your agent pays for leaves a receipt on a public chain. It is read back for that
+                        payer alone.
                       </p>
                     </div>
                     <div className="ag-verb">
                       <h2 className="ag-verb-name">Manage</h2>
                       {/* DISCLOSURE, "Delegation from a reader's own wallet"; bin/agent.ts,
-                          "Read a window, propose a clip, stop". */}
+                          "Read a window, propose a clip, stop".
+
+                          The proposing is conditional and the tile has to say so. On the
+                          deployment the two ingest variables are not set, so a run there
+                          ends at not-submitted, which is the path `test/agent-run.ts`
+                          asserts and which `DISCLOSURE.md` states as a negative. An
+                          unconditional "proposes once" would put the exact claim the
+                          sweep carries as false onto the judged page. */}
                       <p className="ag-verb-line">
-                        One signature delegates one run. The agent reads what it paid for, proposes once, and stops.
+                        The agent reads what it paid for and stops. Where a credential is configured, it proposes once.
                       </p>
                     </div>
                     <div className="ag-verb">

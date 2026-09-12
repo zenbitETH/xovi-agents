@@ -367,18 +367,36 @@ export async function pageChecks(check: Check) {
    */
   const commandLine = (ui.match(/className="ag-command">\s*([^<]+?)\s*<\/p>/) ?? [])[1] ?? "";
   check(commandLine.length > 0, `256 · the fold carries a command line (${commandLine})`);
-  const echoed = verbLines.filter(l =>
-    l.split(/(?<=\.)\s+/).some(sentence => sentence.length > 12 && commandLine.includes(sentence)),
-  );
-  check(echoed.length === 0, `256a · and it repeats no sentence a tile already carries (${echoed.length})`);
+  const echoes = (lines: string[], command: string) =>
+    lines.filter(l => l.split(/(?<=\.)\s+/).some(sentence => sentence.length > 12 && command.includes(sentence)));
+  check(echoes(verbLines, commandLine).length === 0, `256a · and it repeats no sentence a tile already carries (${echoes(verbLines, commandLine).length})`);
+  // Self contained, over a synthetic pair. The first version compared against the
+  // live tiles, so it went red the day the tile it named was reworded: a control
+  // that depends on the copy it is controlling for stops being a control.
   check(
-    ["One signature. The agent reads what it paid for, proposes once, and stops."].filter(c =>
-      verbLines.some(l => l.split(/(?<=\.)\s+/).some(x => x.length > 12 && c.includes(x))),
-    ).length === 1,
-    "256b · the echo check can see the line it was written for (negative control)",
+    echoes(["A tile sentence long enough to count. And a second."], "Before it. A tile sentence long enough to count.").length === 1,
+    "256b · the echo check can see a repeated sentence (negative control)",
   );
 
-  // The definitions are kept and folded, not deleted. A native disclosure, so they
+  /*
+   * A tile that says the agent proposes says under what condition.
+   *
+   * On the deployment the two ingest variables are not set, so a run there ends at
+   * not-submitted, which is the path `test/agent-run.ts` asserts and which
+   * `DISCLOSURE.md` states as a negative. An unconditional "proposes once" on the
+   * judged page would be the exact claim the sweep carries as false, and no check
+   * saw it because the sentence is true wherever a credential exists.
+   */
+  const proposing = verbLines.filter(l => /\bproposes\b/.test(l));
+  const unconditional = proposing.filter(l => !/credential is configured/.test(l));
+  check(proposing.length > 0, `257 · a tile says the agent proposes (${proposing.length})`);
+  check(unconditional.length === 0, `257a · and none says it without the condition (${unconditional.length})`);
+  check(
+    ["The agent reads what it paid for, proposes once, and stops."].filter(l => !/credential is configured/.test(l)).length === 1,
+    "257b · the condition check can see a sentence without it (negative control)",
+  );
+
+  // The definitions are kept and folded, not deleted.  // The definitions are kept and folded, not deleted. A native disclosure, so they
   // open with no script and are in the document for anything that reads it.
   check(/<details className="ag-more">/.test(ui), "255 · the five facts sit behind a disclosure");
   check(/<summary className="ag-more-summary">The facts<\/summary>/.test(ui), "255a · labelled for what it holds");
