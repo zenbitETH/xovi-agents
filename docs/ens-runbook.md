@@ -58,6 +58,8 @@ AGENT_ENS_NAME=<the name> npm run agent -- --dry-run --limit 1
 
 With `WINDOWS_URL` unset, the windows url it prints came from `x402:windows` and from nothing else. That is the confirmation; a successful run with the url still configured confirms only that the agent works, which it did before.
 
+**This step costs a read.** `--dry-run` gates the proposal, not the fetch, so the agent still calls `payingFetch`: it spends one free allowance if the payer is a verified human with allowance left, and settles USDC on Base Sepolia otherwise. **Run it once, when establishing that the agent consumes the record.** It does not need re-running before each recording, and step 5 is the one to repeat, because step 5 proves the resolution for nothing and the resolution is the part that goes stale.
+
 **8. If the agent starts failing after step 7, this is what it looks like and this is the fix.**
 
 **What you see.** The run fails with `EndpointUnresolvable` and this message: *`<name>` resolved to no `x402:windows` record: either the name is not registered on this chain, or it is registered and carries no such record.* That message is byte identical for a name that never existed and for a registered name carrying no record, which is why it names both and why it cannot tell you which.
@@ -76,7 +78,9 @@ It has happened at least once. ENS's Beta announcement says of the redeployed re
 
 > **Corrected 2026-09-12: this said `Set AGENT_ENS_NAME after the video is recorded and verified, never before`.** That was written when the variable was believed to live in a deployment, where *not wired yet* named a real state worth protecting. Once it became a per invocation variable there is no unwired state, so the justification did not merely become false, **its subject stopped existing**, and the sentence went on parsing and sounding prudent while being advice about nothing.
 
-**Re-run step 7 immediately before recording, and again immediately before submitting.** One command, and it is the only thing separating a working demonstration from a recording of one.
+**Re-run step 5 immediately before recording, and again immediately before submitting.** One command, it costs nothing, and it is the only thing separating a working demonstration from a recording of one.
+
+> **Corrected 2026-09-12: this said re-run step 7.** Step 7 spends a read each time, so that sentence commissioned two purchases to learn what step 5 answers for free. The reasoning for not doing that was already written a commit earlier, against running the agent here, and it did not transfer because the cost had moved from the writer to the reader. **A step that tells somebody to run something has to be priced as though you were about to run it yourself.**
 
 **The residual is a judgement rather than a fix, and this step will not pretend otherwise.** A recording cannot break, so the exposure is no longer a dead demo. It is that a reset after recording leaves a video showing something the repository can no longer do. If the verifier fails at that point there are two moves: re-register the name and re-record, or submit with the video as it stands and the repository unable to reproduce it. Both are defensible and they cost different things, one is time that may not exist and the other is a claim a judge cannot check. **Nothing here decides that, and no step should imply a fix exists where a choice does.**
 
