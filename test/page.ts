@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RECORD, RUNGS, fabricated, lineFor, settled, totalOnBaseSepolia } from "../app/app-shell";
 import { signedBy } from "../lib/anchor/confirmation";
+import { CONFIRMATION_259 } from "../lib/anchor/confirmation-259";
 import { FABRICATED_TX } from "../lib/human/store";
 import type { RunStep } from "../lib/agent/run";
 
@@ -199,7 +200,10 @@ export async function pageChecks(check: Check) {
   const timestampAt = ui.indexOf("getTimestamp");
   const attestationAt = ui.indexOf("getAttestation");
   check(timestampAt > 0 && attestationAt > timestampAt, "232a · getTimestamp is named for the offchain identifier, before getAttestation");
-  check(/getAttestation[^.]*onchain identifier/s.test(ui.slice(attestationAt, attestationAt + 400)),
+  // Over a whitespace collapsed copy, because JSX wraps prose across lines and the
+  // sentence being asserted is prose rather than markup.
+  const flat = ui.replace(/\s+/g, " ");
+  check(/getAttestation[^.]*onchain identifier/.test(flat.slice(flat.indexOf("getAttestation"))),
     "232b · and getAttestation is bound to the onchain one where it is named");
 
   /*
@@ -251,6 +255,50 @@ export async function pageChecks(check: Check) {
   const freeCardWords = freeCardText.replace(/<[^>]*>/g, " ");
   check(!/\d/.test(freeCardWords), `235b · nor any digit in its words (${freeCardWords.trim().slice(0, 40)})`);
   check(/\d/.test("Served under the free daily allowance, 3 left".replace(/<[^>]*>/g, " ")), "235c · the digit check reads the words (negative control)");
+
+  /*
+   * The opaque field does not reach the browser, and the property is structural.
+   *
+   * A JSON import arrives whole, so importing the fixture put the model's number
+   * into the page's chunk even though nothing rendered it. 224a reads this file's
+   * source and would never have seen it. The fix is that the page imports a module
+   * of the nine values it shows, so there is no tenth to leak, and these checks
+   * hold that shape without needing a build: CI runs types and checks and never
+   * builds, so a grep over `.next` would be green because the directory is absent.
+   */
+  const fixture = JSON.parse(readFileSync(join(process.cwd(), "fixtures/confirmation.259.json"), "utf8"));
+  const trimmed = readFileSync(join(process.cwd(), "lib/anchor/confirmation-259.ts"), "utf8");
+  check(!/from "[^"]*fixtures\//.test(ui), "237 · the page imports nothing from the fixtures directory");
+  // The module may name the fixture in prose, and does, because that is where its
+  // values came from. What it may not do is import it or carry the opaque field.
+  check(!/from "[^"]*fixtures\//.test(trimmed), "237a · nor does the module it imports instead");
+  check(!trimmed.includes("confidence"), "237a2 · which carries no opaque field of its own");
+  const nine = Object.keys(CONFIRMATION_259).sort();
+  check(nine.length === 9, `237b · which carries nine values (${nine.length})`);
+  check(!nine.includes("confidence"), "237c · and no tenth");
+  check("confidence" in fixture, "237d · while the fixture does carry it (negative control)");
+
+  // The drift guard. A trimmed copy is a copy, and the fixture is the original.
+  const drifted = [
+    CONFIRMATION_259.clipId !== fixture.id,
+    CONFIRMATION_259.clipHash !== fixture.clipHash,
+    CONFIRMATION_259.status !== fixture.status,
+    CONFIRMATION_259.verifier !== fixture.verifiedBy,
+    CONFIRMATION_259.verifierSignature !== fixture.verifierSignature,
+    CONFIRMATION_259.verifierNonce !== fixture.verifierNonce,
+    CONFIRMATION_259.verifierChainId !== fixture.verifierChainId,
+    CONFIRMATION_259.verifiedAt !== fixture.verifiedAt,
+    CONFIRMATION_259.submitter !== fixture.submitterAddress,
+  ].filter(Boolean);
+  check(drifted.length === 0, `237e · every one of the nine equals the fixture it was trimmed from (${drifted.length} did not)`);
+
+  /*
+   * The record says what it is, in the present tense, and the absence is a
+   * negative rather than a condition.
+   */
+  check(/not anchored/i.test(ui), "238 · the page states that this confirmation is not anchored");
+  check(/fixture/i.test(ui), "238a · and that it is the fixture this repository carries");
+  check(!/when this confirmation is anchored/i.test(ui), "238b · and states no conditional future about anchoring it");
 
   /*
    * The ladder: each rung two present tense sentences, one merged fact and one

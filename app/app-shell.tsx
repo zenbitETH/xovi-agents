@@ -5,7 +5,7 @@ import { NoWallet, WrongChain, connect, ensureBaseSepolia, signChallenge } from 
 import type { RunStep } from "~~/lib/agent/run";
 import { recoverConfirmer } from "~~/lib/anchor/confirmation";
 import { decisionCode } from "~~/lib/anchor/schema";
-import confirmation259 from "~~/fixtures/confirmation.259.json";
+import { CONFIRMATION_259 } from "~~/lib/anchor/confirmation-259";
 
 const REPO = "https://github.com/zenbitETH/xovi-agents";
 
@@ -479,18 +479,18 @@ function NotYet() {
  * on screen is the seven plus the two and cannot grow a field the fixture gains.
  */
 export const RECORD = {
-  clipId: confirmation259.id,
-  clipHash: confirmation259.clipHash,
-  decision: decisionCode(confirmation259.status),
-  verifier: confirmation259.verifiedBy,
-  verifierSignature: confirmation259.verifierSignature,
-  verifierNonce: confirmation259.verifierNonce,
-  verifierChainId: confirmation259.verifierChainId,
+  clipId: CONFIRMATION_259.clipId,
+  clipHash: CONFIRMATION_259.clipHash,
+  decision: decisionCode(CONFIRMATION_259.status),
+  verifier: CONFIRMATION_259.verifier,
+  verifierSignature: CONFIRMATION_259.verifierSignature,
+  verifierNonce: CONFIRMATION_259.verifierNonce,
+  verifierChainId: CONFIRMATION_259.verifierChainId,
 };
 
 const ASSERTED = {
-  verifiedAt: confirmation259.verifiedAt,
-  submitter: confirmation259.submitterAddress,
+  verifiedAt: CONFIRMATION_259.verifiedAt,
+  submitter: CONFIRMATION_259.submitter,
 };
 
 /** The four links, from the moment to the thing anybody can look up. */
@@ -527,7 +527,8 @@ function Records() {
   return (
     <div className="ag-records">
       <p className="xv-desc ag-empty">
-        The confirmation this repository carries for clip {RECORD.clipId}. It asserts existence and time and who
+        <strong>This confirmation is not anchored and has no attestation identifier.</strong> It is the confirmation
+        this repository carries as a fixture for clip {RECORD.clipId}, and it asserts existence and time and who
         confirmed. It is not a claim about whether the clip shows what anyone says it shows.
       </p>
 
@@ -582,11 +583,11 @@ function Records() {
           </div>
         )}
         <p className="ag-sub">
-          When this confirmation is anchored it carries two identifiers that share nothing. The offchain one keys the
-          payload endpoint and its time is read with getTimestamp, which answers with a time and no fields.
-          getAttestation answers with the schema, the attester and the encoded fields, and it belongs only beside the
-          onchain identifier a query returns; asked for an offchain one it returns an empty struct, which is a badge
-          with no check behind it.
+          An anchored confirmation carries two identifiers that share nothing. The offchain one keys the payload
+          endpoint, and its time is read with getTimestamp, which answers with a time and no fields. getAttestation
+          answers with the schema, the attester and the encoded fields, and it belongs only beside the onchain
+          identifier a query returns; asked for an offchain one it returns an empty struct, which is a badge with no
+          check behind it. This one is anchored on no chain, so neither call has anything to answer for it.
         </p>
       </section>
     </div>
