@@ -314,6 +314,14 @@ export async function pageChecks(check: Check) {
   check(flatUi.includes("This deployment reads no public list"), "245a · and says so when it reads no list at all");
 
   /*
+   * The name is claimed only on equality, and a name is issued rather than owned.
+   */
+  check(flatUi.includes("No name is issued for this payer."), "250 · the page carries the negative for an unissued name");
+  check(flatUi.includes("resolves to this payer"), "250a · and the positive only as an equality with the payer");
+  check(/answer !== null && answer\.matches \?/.test(ui), "250b · which is drawn on the match and not on the answer existing");
+  check(flatUi.includes("A name is issued and is not owned"), "250c · and the section says a name is issued rather than owned");
+
+  /*
    * The ladder: each rung two present tense sentences, one merged fact and one
    * negative, and the unlock written as the negative rather than a condition.
    */

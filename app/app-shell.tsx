@@ -195,7 +195,7 @@ type Settlement = {
  * item never leads anywhere empty: the cut removes a section from the page rather
  * than hiding it behind a tab that opens on nothing.
  */
-type Screen = "runs" | "overview" | "receipts" | "records" | "proposals" | "notyet";
+type Screen = "runs" | "overview" | "receipts" | "records" | "proposals" | "names" | "notyet";
 
 const SCREENS: { id: Screen; label: string }[] = [
   { id: "runs", label: "Runs" },
@@ -203,6 +203,7 @@ const SCREENS: { id: Screen; label: string }[] = [
   { id: "receipts", label: "Receipts" },
   { id: "records", label: "Records" },
   { id: "proposals", label: "Proposals" },
+  { id: "names", label: "Names" },
   { id: "notyet", label: "Not yet" },
 ];
 
@@ -382,6 +383,72 @@ function Receipts({ settlements, state }: { settlements: Settlement[]; state: "i
           ))}
         </section>
       )}
+    </div>
+  );
+}
+
+/**
+ * The name, and the negative when there is not one.
+ *
+ * **A name is issued, never owned.** A subname's records live in the parent's
+ * resolver and only the parent's owner writes them, so what this section reports
+ * is a record Zenbit can change and not a possession of the agent's.
+ *
+ * The positive is stated only on equality. Under a wildcard parent every subname
+ * resolves, so a name that answers is not a name that was issued: an unissued name
+ * and a typo look identical from here, and the only thing that distinguishes an
+ * issued one is that the address it carries is this payer. Anything short of that
+ * is reported as the negative.
+ */
+function Names({ payer }: { payer: string | null }) {
+  const [answer, setAnswer] = useState<{ name: string | null; address: string | null; matches: boolean } | null>(null);
+  const [state, setState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+
+  useEffect(() => {
+    if (payer === null) {
+      setState("idle");
+      return;
+    }
+    let live = true;
+    setState("loading");
+    fetch(`/api/name?payer=${payer}`)
+      .then(async r => (r.ok ? ((await r.json()) as { name: string | null; address: string | null; matches: boolean }) : Promise.reject(new Error(String(r.status)))))
+      .then(a => {
+        if (!live) return;
+        setAnswer(a);
+        setState("ready");
+      })
+      .catch(() => {
+        if (live) setState("failed");
+      });
+    return () => {
+      live = false;
+    };
+  }, [payer]);
+
+  if (state === "idle") return <p className="xv-desc ag-empty">Connect a wallet to read whether a name is issued to it.</p>;
+  if (state === "loading") return <p className="xv-desc ag-empty">Reading the resolver.</p>;
+  if (state === "failed")
+    return <p className="xv-desc ag-empty">The resolver did not answer, so this says nothing about whether a name is issued.</p>;
+
+  return (
+    <div className="ag-records">
+      {answer !== null && answer.matches ? (
+        <div className="ag-panel">
+          <h3 className="ag-panel-title">{answer.name}</h3>
+          <p className="ag-sub">resolves to this payer</p>
+          <p className="ag-ticket-hash">{answer.address}</p>
+        </div>
+      ) : (
+        <div className="ag-panel">
+          <h3 className="ag-panel-title">No name is issued for this payer.</h3>
+        </div>
+      )}
+      <p className="xv-desc ag-empty">
+        A name is issued and is not owned. A subname&rsquo;s records live in the parent&rsquo;s resolver, and only the
+        parent&rsquo;s owner writes them, so Zenbit can change or withdraw what this reports. Read from the resolver at
+        the moment this section was opened, on Sepolia, after asking the endpoint which chain it is.
+      </p>
     </div>
   );
 }
@@ -964,6 +1031,8 @@ export function AppShell() {
                 <Records />
               ) : screen === "proposals" ? (
                 <Proposals submitter={address} />
+              ) : screen === "names" ? (
+                <Names payer={address} />
               ) : screen === "notyet" ? (
                 <NotYet />
               ) : lines.length === 0 ? (
