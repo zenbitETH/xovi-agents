@@ -452,6 +452,74 @@ export async function pageChecks(check: Check) {
   check(BASE_SEPOLIA_HEX === "0x14a34", `259c · and Base Sepolia is the chain it compares against (${BASE_SEPOLIA_HEX})`);
 
   /*
+   * Four destinations, and the chain badge's three states.
+   *
+   * Seven flat items were the account's four views sitting beside the product, a
+   * record and a ladder as though the six were the same kind of thing. Grouping
+   * them is the finding; the checks hold the grouping and hold every item to
+   * opening on something.
+   */
+  const destinations = [...ui.matchAll(/\{ id: "(run|account|record|notyet)", label: "([^"]+)" \}/g)].map(m => m[1]);
+  check(destinations.length === 4, `260 · four destinations (${destinations.join(", ")})`);
+  const tabs = [...ui.matchAll(/\{ id: "(overview|receipts|proposals|names)", label: "([^"]+)" \}/g)].map(m => m[1]);
+  check(tabs.length === 4, `260a · and the account holds four tabs (${tabs.join(", ")})`);
+  for (const d of destinations) {
+    check(new RegExp(`screen === "${d}"`).test(ui) || d === "run", `260b · ${d} opens on something`);
+  }
+  check(/translateX\(\$\{SCREENS\.findIndex/.test(ui), "261 · the rail indicator is moved with transform");
+  check(/translateX\(\$\{ACCOUNT_TABS\.findIndex/.test(ui), "261a · and so is the account's");
+
+  // Finding 15. `currentChain` answers null when the provider throws or is not
+  // there, and reading that as Base Sepolia draws the reassuring badge exactly
+  // where the page knows least.
+  check(/chain === null \?/.test(ui), "262 · a chain that did not answer is its own state");
+  check(/No chain answered, switch/.test(ui), "262a · and says so rather than claiming a chain");
+  check(!/chain === null \|\| chain === BASE_SEPOLIA_HEX/.test(ui), "262b · and is not folded into the Base Sepolia badge");
+
+  /*
+   * The motion rule, over the stylesheet rather than over a description of it.
+   *
+   * Only `transform` and `opacity` move; a state fill may transition a hue; every
+   * transition names its properties, none of them is `all`, and nothing runs
+   * longer than 300ms. Read off the declarations, so a rule added later is held to
+   * it without anybody remembering.
+   */
+  // Comments stripped first, for the reason the rule parser strips them: a rule
+  // described in prose is not a rule, and a prose example of a bad one is not a bug.
+  const cssLive = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const MOVABLE = new Set(["transform", "opacity", "background-color", "border-color", "color"]);
+  const transitions = [...cssLive.matchAll(/transition:\s*([^;}]+)[;}]/g)].map(m => m[1].replace(/\s+/g, " ").trim());
+  const usesAll = transitions.filter(t => /\ball\b/.test(t));
+  check(usesAll.length === 0, `263 · no transition animates everything (${usesAll.length})`);
+  const animated = transitions
+    .flatMap(t => t.split(",").map(part => part.trim().split(" ")[0]))
+    // `none` switches a transition off, which is what reduced motion does with the
+    // indicator, and switching one off is not animating a property.
+    .filter(prop => prop !== "none");
+  const unmovable = [...new Set(animated)].filter(prop => !MOVABLE.has(prop));
+  check(unmovable.length === 0, `263a · and only transform, opacity and a hue are animated (${unmovable.join(", ") || "none"})`);
+
+  const transitionMs = transitions.flatMap(t => [...t.matchAll(/(\d+)ms/g)].map(m => Number(m[1])));
+  const slow = transitionMs.filter(d => d > 300);
+  check(transitionMs.length > 0 && slow.length === 0, `263b · and no transition runs past 300ms (${slow.join(", ") || "none"} of ${transitionMs.length})`);
+
+  /*
+   * Animations are held by name rather than by duration.
+   *
+   * Two run long and both are inherited: the app card's 320ms entrance and the
+   * ambient layers Xovi drifts behind everything. Naming them keeps the bound
+   * live, because a new animation past 300ms carries a new name and fails.
+   */
+  const INHERITED_LONG = ["xvFadeUp", "xvAurora", "xvRays", "xvPulse"];
+  const longAnimations = [...cssLive.matchAll(/animation:\s*([a-zA-Z][\w-]*)\s+([\d.]+)(m?s)/g)]
+    .map(m => ({ name: m[1], ms: m[3] === "s" ? Number(m[2]) * 1000 : Number(m[2]) }))
+    .filter(a => a.ms > 300);
+  const unnamed = longAnimations.filter(a => !INHERITED_LONG.includes(a.name));
+  check(unnamed.length === 0, `263d · every animation past 300ms is one of the inherited ones (${unnamed.map(a => a.name).join(", ") || "none"})`);
+  check(longAnimations.length > 0, `263e · and those inherited ones are still there (${longAnimations.length}, negative control)`);
+  check(["all 200ms ease"].filter(t => /\ball\b/.test(t)).length === 1, "263c · the all check can see one (negative control)");
+
+  /*
    * The ladder: each rung two present tense sentences, one merged fact and one
    * negative, and the unlock written as the negative rather than a condition.
    */

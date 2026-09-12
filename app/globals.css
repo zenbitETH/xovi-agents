@@ -899,17 +899,25 @@ body::after {
   opacity: 0.7;
 }
 
-/* Reduced motion keeps the fade and the colour and drops what moves. Gentler
-   rather than none, which is what the setting asks for. */
+/* Reduced motion keeps the fade and the hue and drops what moves. Gentler rather
+   than none, which is what the setting asks for.
+
+   The weight is not decoration. Xovi's inherited clamp sets `animation-duration:
+   0.01ms !important` on `*`, and an important declaration beats a class however
+   the cascade is ordered, so the first version of this rule lost silently and the
+   menu snapped while the comment claimed a fade. A class beats the universal
+   selector once both are important, so the rule below is the one that applies.
+   The clamp stays, because it is Xovi's and it is what stops the aurora and the
+   rays freezing mid drift. */
+@keyframes xvMenuInReduced {
+  from {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ag-menu-panel {
-    animation-duration: 120ms;
-  }
-
-  @keyframes xvMenuIn {
-    from {
-      opacity: 0;
-    }
+    animation: xvMenuInReduced 120ms var(--xv-ease-out) both !important;
   }
 
   .ag-account-face:active,
@@ -958,7 +966,7 @@ body::after {
   opacity: 0.8;
 }
 
-/* The one line under the tiles. Gold is the action colour in Xovi and stays on
+/* The one line under the tiles. Gold is the action hue in Xovi and stays on
    the button, so this is weight and not hue. */
 .ag-command {
   margin: 0.875rem 0.25rem 0.25rem;
@@ -996,31 +1004,97 @@ body::after {
    An item is a control that changes what is shown and never a decision about a
    clip. There is no confirm on this page and no screen that could carry one.
 --------------------------------------------------------------------------- */
+/* Equal columns, because that is what lets the indicator move by a percentage
+   rather than by a measurement taken after layout. Four destinations, and the
+   account's own four live inside one of them. */
+.ag-rail,
+.ag-tabs {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding: 0.1875rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  border-radius: 999px;
+}
+
 .ag-rail {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
   margin: 0.5rem 0 0.25rem;
 }
 
-.ag-rail-item {
-  padding: 0.3125rem 0.6875rem;
-  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+.ag-tabs {
+  margin: 0 0.25rem 0.75rem;
+}
+
+/* One element that travels. The state moves between items instead of switching
+   off one and on to another, which is the difference between a rail that reads as
+   a place and a rail that reads as a set of toggles. */
+.ag-rail-indicator,
+.ag-tabs-indicator {
+  position: absolute;
+  z-index: 0;
+  top: 0.1875rem;
+  bottom: 0.1875rem;
+  left: 0.1875rem;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--color-base-content) 9%, transparent);
+  transition: transform 200ms var(--xv-ease-out);
+}
+
+.ag-rail-indicator {
+  width: calc((100% - 0.375rem) / 4);
+}
+
+.ag-tabs-indicator {
+  width: calc((100% - 0.375rem) / 4);
+}
+
+.ag-rail-item,
+.ag-tab {
+  position: relative;
+  z-index: 1;
+  padding: 0.3125rem 0.5rem;
+  border: 0;
   border-radius: 999px;
   background-color: transparent;
   color: inherit;
   font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 0.75rem;
+  white-space: nowrap;
   cursor: pointer;
+  transition: transform 120ms var(--xv-ease-out), opacity 150ms var(--xv-ease-out);
+  opacity: 0.65;
 }
 
-/* The current section is marked by weight and ground, not by the agent hue or
-   the teal: both of those mean an actor in this interface and a section is
-   neither a person nor a machine. */
-.ag-rail-on {
-  border-color: color-mix(in srgb, var(--color-base-content) 34%, transparent);
-  background-color: color-mix(in srgb, var(--color-base-content) 8%, transparent);
+.ag-rail-item:active,
+.ag-tab:active {
+  transform: scale(0.97);
+}
+
+/* The current destination is weight and the travelling ground, never an actor
+   hue: teal means a person and the clay hue means the machine, and a section is
+   neither. */
+.ag-rail-on,
+.ag-tab-on {
   font-weight: 600;
+  opacity: 1;
+}
+
+.ag-account-body {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ag-rail-indicator,
+  .ag-tabs-indicator {
+    transition: none;
+  }
+
+  .ag-rail-item:active,
+  .ag-tab:active {
+    transform: none;
+  }
 }
 
 /* ---------------------------------------------------------------------------

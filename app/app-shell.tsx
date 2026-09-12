@@ -30,6 +30,22 @@ const REPO = "https://github.com/zenbitETH/xovi-agents";
 // string arrives would send a reader to a page about a different chain, and a
 // confident wrong link is worse than none. Base Sepolia is the only one that
 // settles here, so it is the only one listed.
+const EXPLORER_ORIGIN: Record<string, string> = { "0x14a34": "https://sepolia.basescan.org" };
+
+/**
+ * The explorer for a chain, by either name the page holds one under.
+ *
+ * A receipt names its chain as CAIP-2 and a wallet names it as hex, and both have
+ * to reach the same table or one of them gets a link built for a chain it is not
+ * on. Unknown chains get nothing, which is the ticket's rule: a confident wrong
+ * link is worse than none.
+ */
+function explorerOrigin(chain: string | null): string | null {
+  if (chain === null) return null;
+  const hex = chain.startsWith("eip155:") ? `0x${Number(chain.slice(7)).toString(16)}` : chain.toLowerCase();
+  return EXPLORER_ORIGIN[hex] ?? null;
+}
+
 const EXPLORER: Record<string, string> = { "eip155:84532": "https://sepolia.basescan.org/tx/" };
 
 const SCHEMA = "https://sepolia.easscan.org/schema/view/0x8d4a9a6e41e07cb67128eaca5a79f4d39e5199eb8c1c7d7a0096e0a5d11c8c6d";
@@ -201,20 +217,31 @@ type Settlement = {
 };
 
 /**
- * The screens that exist. A screen is added here the day it is built, so a rail
- * item never leads anywhere empty: the cut removes a section from the page rather
- * than hiding it behind a tab that opens on nothing.
+ * Four destinations, and the account's four are inside one of them.
+ *
+ * Seven flat items were seven things of unequal kind: the product, four views of
+ * an account, a record anyone can check, and a ladder. Grouping them is not
+ * tidying. A person arriving at this page is asking one of four questions, and a
+ * strip that answers all seven at once answers none of them first.
+ *
+ * A destination is added the day it is built, so no item opens on nothing.
  */
-type Screen = "runs" | "overview" | "receipts" | "records" | "proposals" | "names" | "notyet";
+type Screen = "run" | "account" | "record" | "notyet";
 
 const SCREENS: { id: Screen; label: string }[] = [
-  { id: "runs", label: "Runs" },
+  { id: "run", label: "Run" },
+  { id: "account", label: "Account" },
+  { id: "record", label: "Record" },
+  { id: "notyet", label: "Not yet" },
+];
+
+type AccountTab = "overview" | "receipts" | "proposals" | "names";
+
+const ACCOUNT_TABS: { id: AccountTab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "receipts", label: "Receipts" },
-  { id: "records", label: "Records" },
   { id: "proposals", label: "Proposals" },
   { id: "names", label: "Names" },
-  { id: "notyet", label: "Not yet" },
 ];
 
 /**
@@ -836,7 +863,27 @@ function Drawing({ object }: { object: Drawn }) {
  */
 function Identicon({ address }: { address: string }) {
   const body = address.slice(2).toLowerCase();
-  const hue = (parseInt(body.slice(-2), 16) / 255) * 360;
+  // The two actor hues are excluded by construction. Teal means a person and the
+  // clay hue means the machine everywhere on this page, and a mark that lands on
+  // either by chance would be borrowing a meaning it does not have. The address
+  // picks from what is left rather than being nudged off a collision.
+  const AVAILABLE = [
+    [20, 160],
+    [200, 340],
+  ];
+  const raw = parseInt(body.slice(-2), 16) / 255;
+  const spans = AVAILABLE.map(([from, to]) => to - from);
+  const total = spans.reduce((a, b) => a + b, 0);
+  let offset = raw * total;
+  let hue = AVAILABLE[0][0];
+  for (let i = 0; i < AVAILABLE.length; i++) {
+    if (offset <= spans[i]) {
+      hue = AVAILABLE[i][0] + offset;
+      break;
+    }
+    offset -= spans[i];
+    hue = AVAILABLE[i][1];
+  }
   const cells: { x: number; y: number }[] = [];
   for (let column = 0; column < 3; column++) {
     for (let row = 0; row < 5; row++) {
@@ -900,6 +947,7 @@ function AccountChip({
   name,
   onSwitch,
   onDisconnect,
+  onOpen,
   note,
 }: {
   address: `0x${string}`;
@@ -907,12 +955,20 @@ function AccountChip({
   name: string | null;
   onSwitch: () => void;
   onDisconnect: () => void;
+  onOpen: () => void;
   note: string | null;
 }) {
-  const onBaseSepolia = chain === null || chain === BASE_SEPOLIA_HEX;
+  // Three states, not two. `currentChain` answers null when the provider throws or
+  // is not there, and reading a non-answer as Base Sepolia draws the reassuring
+  // badge in exactly the case where the page knows least.
+  const explorer = explorerOrigin(chain);
   return (
     <div className="ag-account">
-      {onBaseSepolia ? (
+      {chain === null ? (
+        <button type="button" className="ag-chip ag-chip-idle ag-chip-action" onClick={onSwitch}>
+          No chain answered, switch
+        </button>
+      ) : chain === BASE_SEPOLIA_HEX ? (
         <span className="ag-chip ag-chip-idle">Base Sepolia</span>
       ) : (
         <button type="button" className="ag-chip ag-chip-stopped ag-chip-action" onClick={onSwitch}>
@@ -928,12 +984,17 @@ function AccountChip({
           {name !== null && <span className="ag-chip ag-chip-name">{name}</span>}
         </summary>
         <div className="ag-menu-panel">
+          <button type="button" className="ag-menu-item" onClick={onOpen}>
+            Open the account
+          </button>
           <button type="button" className="ag-menu-item" onClick={() => void navigator.clipboard?.writeText(address)}>
             Copy address
           </button>
-          <a className="ag-menu-item" href={`https://sepolia.basescan.org/address/${address}`}>
-            View on the explorer
-          </a>
+          {explorer !== null && (
+            <a className="ag-menu-item" href={`${explorer}/address/${address}`}>
+              View on the explorer
+            </a>
+          )}
           <button type="button" className="ag-menu-item" onClick={onDisconnect}>
             Disconnect
           </button>
@@ -974,7 +1035,8 @@ export function AppShell() {
   const [address, setAddress] = useState<`0x${string}` | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [screen, setScreen] = useState<Screen>("runs");
+  const [screen, setScreen] = useState<Screen>("run");
+  const [accountTab, setAccountTab] = useState<AccountTab>("overview");
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [ledger, setLedger] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [chain, setChain] = useState<string | null>(null);
@@ -1204,6 +1266,7 @@ export function AppShell() {
                   address={address}
                   chain={chain}
                   name={issuedName}
+                  onOpen={() => setScreen("account")}
                   onSwitch={() => void onSwitch()}
                   onDisconnect={() => void onDisconnect()}
                   note={walletNote}
@@ -1219,8 +1282,21 @@ export function AppShell() {
           <div className="ag-app-top">
             <p className="ag-eyebrow">Delegated run · Base Sepolia</p>
             <h1 className="ag-app-title">An agent may propose. No credential in existence may confirm.</h1>
-            <p className="ag-sub">Connect a wallet, pay for one read, and the agent does the rest.</p>
+            <p className="ag-sub">
+              {address === null
+                ? "Connect a wallet, pay for one read, and the agent does the rest."
+                : "Pay for one read, and the agent does the rest."}
+            </p>
             <nav className="ag-rail" aria-label="Sections">
+              {/* The indicator is one element moved with `transform`, so the state
+                  travels between items rather than being switched off one and on
+                  another. Equal columns are what make the arithmetic a percentage
+                  and not a measurement. */}
+              <span
+                className="ag-rail-indicator"
+                aria-hidden="true"
+                style={{ transform: `translateX(${SCREENS.findIndex(s => s.id === screen) * 100}%)` }}
+              />
               {SCREENS.map(s => (
                 <button
                   key={s.id}
@@ -1247,16 +1323,38 @@ export function AppShell() {
 
           <div className="ag-app-body">
             <div className="ag-app-scroll">
-              {screen === "overview" ? (
-                <Overview settlements={settlements} state={ledger} />
-              ) : screen === "receipts" ? (
-                <Receipts settlements={settlements} state={ledger} />
-              ) : screen === "records" ? (
+              {screen === "account" ? (
+                <div className="ag-account-body">
+                  <nav className="ag-tabs" aria-label="Account">
+                    <span
+                      className="ag-tabs-indicator"
+                      aria-hidden="true"
+                      style={{ transform: `translateX(${ACCOUNT_TABS.findIndex(t => t.id === accountTab) * 100}%)` }}
+                    />
+                    {ACCOUNT_TABS.map(t => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        className={t.id === accountTab ? "ag-tab ag-tab-on" : "ag-tab"}
+                        aria-current={t.id === accountTab ? "true" : undefined}
+                        onClick={() => setAccountTab(t.id)}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </nav>
+                  {accountTab === "overview" ? (
+                    <Overview settlements={settlements} state={ledger} />
+                  ) : accountTab === "receipts" ? (
+                    <Receipts settlements={settlements} state={ledger} />
+                  ) : accountTab === "proposals" ? (
+                    <Proposals submitter={address} />
+                  ) : (
+                    <Names payer={address} />
+                  )}
+                </div>
+              ) : screen === "record" ? (
                 <Records />
-              ) : screen === "proposals" ? (
-                <Proposals submitter={address} />
-              ) : screen === "names" ? (
-                <Names payer={address} />
               ) : screen === "notyet" ? (
                 <NotYet />
               ) : lines.length === 0 ? (
