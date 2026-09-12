@@ -39,8 +39,10 @@ const ZERO = "0x0000000000000000000000000000000000000000";
  *
  * What the pair does NOT buy is wrong-chain detection, and the way that was learned
  * is the reason the chain id is now read separately. On `ethereum-rpc.publicnode.com`,
- * chain id 1, all three names resolve, `xoviagents.eth` included, because mainnet's
- * resolver walks up to the `eth` node for names that do not exist. An earlier probe
+ * chain id 1, every name resolves, an invented one included, because mainnet's
+ * resolver walks up to the `eth` node for names that do not exist. The example is an
+ * invented name on purpose: this comment first used a real unregistered one, and it
+ * was registered a day later, which is how an example of `does not exist` rots. An earlier probe
  * against `cloudflare-eth.com` saw all three throw and read that as the guard already
  * working. That endpoint answers `Internal error` to `eth_call` and `eth_getCode`
  * alike, for a contract another provider returns bytecode for, so it was broken for
