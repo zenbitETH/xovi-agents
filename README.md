@@ -54,7 +54,7 @@ This repository was created on 2026-09-06 and is being built across the event wi
 
 | Leg | State |
 |---|---|
-| Agent identity over ENS | built and fail closed: the four resolution branches are proven against an injected resolver, and the real viem lookup has since been observed refusing a registered name that carries no record. No name belonging to Zenbit is registered, so the successful path is unexercised and the agent is given its endpoint directly |
+| Agent identity over ENS | running: `xovi.eth` is registered on Ethereum Sepolia and its `x402:windows` record resolves to the windows endpoint, read 2026-09-12 through the function the agent calls, with no injected lookup. The four refusal branches are proven against an injected resolver and the protocol guard is still owed against the real record |
 | Paid read over x402 | built, and settled repeatedly on Base Sepolia through the public testnet facilitator, most recently `0x4d609e7b…aa39`. The suite exercises the refusal against a fake; the settlements are real |
 | Agent proposes a clip | built, and exercised twice over: against a fake of the ingest route in the suite, and live against the real route, which is where clip 259 came from |
 | Proof of human, per person caps | built: registry lookup, a keyed digest of the identifier kept for 30 days, and a per person daily allowance |

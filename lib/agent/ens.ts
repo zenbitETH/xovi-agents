@@ -17,9 +17,15 @@ import type { EnvLike } from "./pay";
  * because the failure that matters is a typo in the name resolving to nothing
  * while the agent carries on reading from somewhere else entirely.
  *
- * Nothing is registered yet. The name that was assumed available turned out not
- * to be, so this path is unexercised: with AGENT_ENS_NAME unset the seam returns
- * the configured url and the resolution branch is never entered.
+ * As of 2026-09-12 this path runs: `xovi.eth` is registered on Sepolia and its
+ * `x402:windows` record resolves to the windows endpoint. With AGENT_ENS_NAME unset
+ * the seam still returns the configured url and the branch is not entered, so which
+ * of the two happens is a property of the environment rather than of this file.
+ *
+ * This paragraph is dated because it asserts the state of something outside the
+ * repository, which changes without anything here changing. It said `Nothing is
+ * registered yet` until the name was registered, and nothing in a build would have
+ * caught that.
  */
 export const WINDOWS_RECORD_KEY = "x402:windows";
 

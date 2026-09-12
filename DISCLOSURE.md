@@ -31,7 +31,7 @@ Everything in **this repository**, which was created on 2026-09-06 and had no co
 Each of these is exercised by the checks in this repository. `npm run local` drives the **paid read** and the **delegated run** from a clean checkout, against a fake facilitator and a fake ingest; it does not run the agent client, and it hands the child an empty `DATABASE_URL` so Next's own env loader cannot give it the production one, so it exercises neither ENS resolution nor the caps and has no ledger to write to.
 
 - An **x402-gated read endpoint** serving computer-vision candidate windows, priced per call and settled on Base Sepolia against a facilitator used for development and testnet workflows.
-- An **agent client** that pays for a window and proposes a clip. It resolves an ENS name to a role and a payment endpoint where one is configured, and **no name belonging to Zenbit is registered**, so that path is fail closed and unexercised and the endpoint is supplied directly.
+- An **agent client** that pays for a window and proposes a clip, and takes the endpoint it pays from an ENS record. **`xovi.eth` is registered on Ethereum Sepolia and its `x402:windows` record resolves to `https://xovi-agents.vercel.app/api/agent/windows`**, read 2026-09-12 through `resolveWindowsEndpoint` with no injected lookup, which is the same function `bin/agent.ts` calls. This sentence stops being true if that record is removed or the name lapses, which is a thing the reader can check in one command: `AGENT_ENS_NAME=xovi.eth npm run ens:verify`.
 - **Delegation from a reader's own wallet**: the reader connects a browser wallet, signs one payment, and the agent's run is streamed back step by step as it happens. The reader supplies a signature and nothing else; the proposal is formed on the server from a window the server already holds.
 - **Proof-of-human caps**, so a per-wallet limit is not defeated by generating wallets.
 - An **offchain attestation**: the human operator confirms, and the operator asserts that confirmation in an EAS attestation whose schema identifier, signed object and signer recovery are all exercised.
@@ -44,7 +44,6 @@ Each of these is exercised by the checks in this repository. `npm run local` dri
 Named here rather than implied by the list above, because the difference is what a Continuity submission turns on.
 
 - The **fee sink** is not started.
-- **No ENS name belonging to Zenbit is registered**, so the agent is given its endpoint directly. The resolution path is built and fail closed, and has been driven through the real adapter against two registered names that carry no record. What has never run is a **successful** resolution, which needs a record to exist.
 - The **subscription tier** that would lift the per-person cap, **agent rewards** for proposing particular behaviours, and the **reconciliation** between what agents pay for the read and what subscribers pay for the product are designed and are not built.
 
 ### The surface this opens, stated rather than left to be found
