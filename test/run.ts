@@ -11,7 +11,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs
 import { tmpdir } from "os";
 import { join } from "path";
 import { GET } from "../app/api/agent/windows/route";
-import { EndpointUnresolvable, resolveWindowsEndpoint } from "../lib/agent/ens";
+import { EndpointUnresolvable, IdentityMismatch, assertIssuedIdentity, resolveWindowsEndpoint } from "../lib/agent/ens";
 import type { Ledger } from "../lib/agent/ledger";
 import { loadLedger, unrefused } from "../lib/agent/ledger";
 import { ATTEMPTS, buildPayer, payingFetch } from "../lib/agent/pay";
@@ -340,7 +340,18 @@ async function main() {
 
   console.log("\n  the endpoint, and the way in\n");
 
-  check(await resolveWindowsEndpoint({ WINDOWS_URL: "https://h/w" }) === "https://h/w",
+  /* Wrapped because `resolveWindowsEndpoint` is designed to raise, so a regression on a
+   * success path aborts the harness rather than printing a red line, and an aborted run
+   * sends the next reader to debug the harness instead of the finding. The criterion is
+   * the callee, not the check: calls to the in-memory fakes below return rather than
+   * throw, so a bare one there fails as a comparison. Two in this file matched, both to
+   * this function, and the identity checks are wrapped the same way for the same reason. */
+  const endpointResult = async (...args: Parameters<typeof resolveWindowsEndpoint>) => {
+    try { return await resolveWindowsEndpoint(...args); }
+    catch (e) { return `RAISED ${e instanceof Error ? e.constructor.name : "unknown"}`; }
+  };
+
+  check(await endpointResult({ WINDOWS_URL: "https://h/w" }) === "https://h/w",
     "69 · with no name configured the endpoint is the configured url");
   let noneSet = false;
   try { await resolveWindowsEndpoint({}); } catch (e) { noneSet = e instanceof EndpointUnresolvable; }
@@ -431,8 +442,43 @@ async function main() {
     "81b · and the message names BOTH causes, since a text lookup answers null for each identically (seen to fail)");
   check(await raises(() => resolveWindowsEndpoint(named, async () => "http://plain/windows")),
     "82 · a record naming http is refused, because a bearer credential travels against it");
-  check(await resolveWindowsEndpoint(named, async () => "https://named/windows") === "https://named/windows",
+  check(await endpointResult(named, async () => "https://named/windows") === "https://named/windows",
     "83 · and a record that does resolve is used (negative control for 80 to 82)");
+
+  // The name Zenbit issues, and the check that it names the key this agent pays from.
+  // The instrument is
+  // `addr` rather than the resolver, because wildcard resolution under the parent
+  // makes every subname answer the same resolver whether or not anybody issued it.
+  const PAYER = "0xC0686ae97FDf62A37F081922c2a92537862E0B95";
+  const ISSUED = "agent1.xovi.eth";
+  const idRaises = async (env: Record<string, string>, addr: string | null) => {
+    try { await assertIssuedIdentity(PAYER, env as never, async () => addr); return false; }
+    catch (e) { return e instanceof IdentityMismatch; }
+  };
+  // Every call wrapped, including the ones expected to succeed. A bare call here makes
+  // a regression abort the harness rather than print a red line, and an aborted run
+  // sends the next person to debug the harness instead of reading the finding.
+  const idResult = async (payer: string, env: Record<string, string>, resolve: () => Promise<string | null>) => {
+    try { return await assertIssuedIdentity(payer, env as never, resolve as never); }
+    catch (e) { return `RAISED ${e instanceof Error ? e.constructor.name : "unknown"}`; }
+  };
+
+  // Counted rather than asserted. "Does not reach the chain" is a claim about calls,
+  // and until something counts them the label is true of nothing.
+  let idLookups = 0;
+  const countingResolver = async () => { idLookups++; return PAYER; };
+  check(await idResult(PAYER, {}, countingResolver) === null && idLookups === 0,
+    "83b · no configured name claims nothing, and never reaches the chain to say so");
+  check(await idResult(PAYER, { AGENT_IDENTITY_NAME: ISSUED }, countingResolver) === ISSUED && idLookups === 1,
+    "83c · a name issued to the payer is returned, and that one did reach the resolver (positive control for 83b)");
+  check(await idRaises({ AGENT_IDENTITY_NAME: ISSUED }, null),
+    "83d · a name with no address record raises, because an unissued subname resolves like an issued one");
+  check(await idRaises({ AGENT_IDENTITY_NAME: ISSUED }, "0x0000000000000000000000000000000000000000"),
+    "83e · and a zero address raises too, which is what the parent answers for a name nobody issued");
+  check(await idRaises({ AGENT_IDENTITY_NAME: ISSUED }, "0x51F1D0074793E7Fa336f538299ad7D3e439e2b09"),
+    "83f · a name issued to a DIFFERENT address raises, rather than proposing under a name issued to somebody else");
+  check(await idResult(PAYER.toLowerCase(), { AGENT_IDENTITY_NAME: ISSUED }, async () => PAYER.toUpperCase().replace("0X", "0x")) === ISSUED,
+    "83g · and checksum casing is not a mismatch, so a correct name is never refused for its spelling");
 
   console.log("\n  what the route would refuse, refused here first\n");
 
