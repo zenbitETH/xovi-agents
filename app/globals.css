@@ -1001,6 +1001,80 @@ body::after {
   opacity: 0.8;
 }
 
+/* The marks. `currentColor` in the svg and the hue on a class, so the agent hue
+   stays declared once as a token and never appears as a literal. */
+.ag-verb-mark {
+  display: block;
+  margin-bottom: 0.125rem;
+}
+
+.ag-mark-agent {
+  color: var(--color-xv-agent);
+}
+
+.ag-mark-human {
+  color: var(--color-primary);
+}
+
+.ag-mark-system {
+  color: inherit;
+  opacity: 0.5;
+}
+
+/* ---------------------------------------------------------------------------
+   The plan, before anything moves.
+
+   Five nodes in the hue of whoever acts, idle at rest and lit as the run reports.
+   A node's fill is a state change and transitions its hue; nothing here travels,
+   because a stepper that slid would be motion reporting an event that already
+   happened.
+--------------------------------------------------------------------------- */
+.ag-plan {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 0.875rem;
+  padding: 0.75rem 0.25rem 0;
+  list-style: none;
+}
+
+.ag-plan-node {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.ag-plan-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--color-base-content) 22%, transparent);
+  transition: background-color 160ms var(--xv-ease-out);
+}
+
+.ag-plan-lit.ag-actor-human .ag-plan-dot {
+  background-color: var(--color-primary);
+}
+
+.ag-plan-lit.ag-actor-agent .ag-plan-dot {
+  background-color: var(--color-xv-agent);
+}
+
+.ag-plan-lit.ag-actor-system .ag-plan-dot {
+  background-color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
+}
+
+.ag-plan-label {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  opacity: 0.55;
+  transition: opacity 160ms var(--xv-ease-out);
+}
+
+.ag-plan-lit .ag-plan-label {
+  opacity: 1;
+}
+
 /* The one line under the tiles. Gold is the action hue in Xovi and stays on
    the button, so this is weight and not hue. */
 .ag-command {

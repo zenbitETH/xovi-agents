@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ACCOUNT_TABS,
+  PLAN,
+  planFrom,
   RECORD,
   RUNGS,
   SCREENS,
@@ -361,7 +363,9 @@ export async function pageChecks(check: Check) {
    * are what a person can do here; the definitions are kept, because they are
    * merged text a judge may want, and folded away.
    */
-  const verbs = [...ui.matchAll(/<h2 className="ag-verb-name">(\w+)<\/h2>/g)].map(m => m[1]);
+  // Over a whitespace collapsed copy, because the heading now holds a mark above
+  // the word and JSX puts the two on separate lines.
+  const verbs = [...ui.replace(/\s+/g, " ").matchAll(/<h2 className="ag-verb-name"> <Mark\w+ \/> (\w+) <\/h2>/g)].map(m => m[1]);
   check(verbs.join(",") === "Own,Manage,Check", `254 · the fold carries three verbs (${verbs.join(",") || "none"})`);
   const verbLines = [...ui.matchAll(/className="ag-verb-line">\s*([^<]+?)\s*<\/p>/g)].map(m => m[1].replace(/\s+/g, " "));
   check(verbLines.length === 3, `254a · one line under each (${verbLines.length})`);
@@ -581,6 +585,43 @@ export async function pageChecks(check: Check) {
   check(/var\(--xv-strip-n, 4\)/.test(css) && /"--xv-strip-n": SCREENS\.length/.test(ui),
     "266d · the indicator's columns come from the array rather than from a constant in the stylesheet");
   check(!/\/ 4\)/.test(css), "266e · and no strip arithmetic hard-codes four");
+
+  /*
+   * The plan is five nodes, and a node lights from its own event.
+   *
+   * The propose node is the reason the rule is written that way. A run on a
+   * deployment with no ingest credential ends at not-submitted, and a stepper
+   * that lit propose because pay and read had happened would draw a proposal that
+   * never left the machine, on the deployment where that is exactly what happens.
+   */
+  check(PLAN.length === 5, `267 · the plan is five nodes (${PLAN.length})`);
+  const atRest = planFrom(false, false, []);
+  check(atRest.every(x => !x), "267a · and none of them is lit at rest");
+
+  const notSubmitted: RunStep[] = [
+    { step: "presenting" },
+    { step: "paid", free: false, transaction: "0x1", network: "eip155:84532" },
+    { step: "read", served: 2, ids: ["a1", "b2"] },
+    { step: "selected", windowId: "a1", durationSeconds: 16 },
+    { step: "not-submitted", detail: "no ingest credential is configured on this deployment" },
+    { step: "done" },
+  ];
+  const litOnDeployment = planFrom(true, true, notSubmitted);
+  check(litOnDeployment[2], "267b · a run that paid and read lights that node");
+  check(!litOnDeployment[3], "267c · and a run that stopped before submitting never lights propose");
+  const proposed: RunStep[] = [...notSubmitted.slice(0, 4), { step: "proposing", windowId: "a1" }, { step: "done" }];
+  check(planFrom(true, true, proposed)[3], "267d · while a run that did submit lights it (negative control)");
+
+  // The marks carry no word. A mark that spells its meaning is a label, and the
+  // tile already has one.
+  const markBodies = [...ui.matchAll(/function Mark(\w+)\(\) \{([\s\S]*?)\n\}/g)].map(m => ({ name: m[1], body: m[2] }));
+  check(markBodies.length === 3, `268 · three marks (${markBodies.map(m => m.name).join(", ")})`);
+  const withText = markBodies.filter(m => /<text|<tspan/.test(m.body));
+  check(withText.length === 0, `268a · and none of them spells a word (${withText.length})`);
+  const unsizedMarks = markBodies.filter(m => !/width="\d+"/.test(m.body) || !/height="\d+"/.test(m.body));
+  check(unsizedMarks.length === 0, `268b · each carries width and height (${unsizedMarks.length})`);
+  const literalHue = markBodies.filter(m => /#[0-9a-f]{3,6}/i.test(m.body));
+  check(literalHue.length === 0, `268c · and none writes a hue as a literal (${literalHue.length})`);
 
   /*
    * The ladder: each rung two present tense sentences, one merged fact and one

@@ -230,6 +230,81 @@ export function supplySentence(supply: Supply): string {
     : `This snapshot serves ${supply.served} window${supply.served === 1 ? "" : "s"} and the one this run chose is already a clip. No new window has been served into it.`;
 }
 
+/**
+ * The plan, before anything moves.
+ *
+ * *Action plan* in the skill's terms: the sequence the run will follow, readable
+ * whole before a person signs anything. Five nodes, each in the hue of whoever
+ * acts, idle at rest and lit as the run reports.
+ *
+ * **A node lights from an event, never from the one before it.** The propose node
+ * is the reason: a run on a deployment with no ingest credential ends at
+ * not-submitted, and a stepper that lit propose because pay and read had happened
+ * would draw a proposal that never left the machine.
+ */
+export type PlanNode = { label: string; actor: Actor };
+
+export const PLAN: PlanNode[] = [
+  { label: "read the challenge", actor: "system" },
+  { label: "you sign", actor: "human" },
+  { label: "pay and read", actor: "agent" },
+  { label: "propose", actor: "agent" },
+  { label: "stop", actor: "system" },
+];
+
+export function planFrom(challengeRead: boolean, signed: boolean, steps: RunStep[]): boolean[] {
+  return [
+    challengeRead,
+    signed,
+    steps.some(s => s.step === "paid" || s.step === "read"),
+    // Only the two steps that mean a proposal actually reached the ingest.
+    // `not-submitted` is the run stopping one short and must not light this.
+    steps.some(s => s.step === "proposing" || s.step === "proposed"),
+    steps.some(s => s.step === "done"),
+  ];
+}
+
+/** The marks on the tiles. `currentColor` throughout, so the hue is a class and
+ *  never a literal: the agent hue is declared once as a token and check 212b
+ *  holds it there. Width and height on the element, as check 216 requires. */
+function MarkReceipt() {
+  return (
+    <svg className="ag-verb-mark ag-mark-agent" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M4.5 2.5h11v15l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-1 .7z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <path d="M7.5 7h5M7.5 10.5h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MarkSignature() {
+  return (
+    <svg className="ag-verb-mark ag-mark-human" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M2.5 13.5c3 0 3.5-8 5.5-8s1.5 8 3.5 8 2-4 3-4 1.2 1.6 3 1.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path d="M2.5 17h15" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.45" />
+    </svg>
+  );
+}
+
+function MarkEquality() {
+  return (
+    <svg className="ag-verb-mark ag-mark-system" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 8h12M4 12h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 type Phase = "idle" | "connecting" | "ready" | "signing" | "running" | "finished";
 
 const PHASE_LABEL: Record<Phase, string> = {
@@ -1078,6 +1153,8 @@ export function AppShell() {
   const [address, setAddress] = useState<`0x${string}` | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [steps, setSteps] = useState<RunStep[]>([]);
+  const [challengeRead, setChallengeRead] = useState(false);
+  const [signed, setSigned] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>("run");
   const [accountTab, setAccountTab] = useState<AccountTab>("overview");
@@ -1233,6 +1310,8 @@ export function AppShell() {
     setError(null);
     setLines([]);
     setSteps([]);
+    setChallengeRead(false);
+    setSigned(false);
     setPhase("signing");
     try {
       const windowsUrl = new URL("/api/agent/windows", window.location.origin).toString();
@@ -1241,6 +1320,7 @@ export function AppShell() {
       // after it closes. Both come from the challenge the server sent: the page is not
       // describing the purchase, the counterparty is.
       const signed = await signChallenge(windowsUrl, address, undefined, challenge => {
+        setChallengeRead(true);
         say({
           // The counterparty's own sentence where it sent one. Where it sent none,
           // a statement of what happened rather than a description this page
@@ -1254,6 +1334,7 @@ export function AppShell() {
           object: { kind: "challenge", amount: challenge.amount, asset: challenge.asset, network: challenge.network },
         });
       });
+      setSigned(true);
       say({ text: "Authorization signed in your wallet", detail: "nothing has moved yet", tone: "good", actor: "human" });
 
       setPhase("running");
@@ -1295,6 +1376,7 @@ export function AppShell() {
   // Read off the steps rather than off the sentences, so the state is the run's
   // and not a phrase match over its narration.
   const supply = running ? null : supplyFrom(steps);
+  const lit = planFrom(challengeRead, signed, steps);
 
   return (
     <>
@@ -1408,7 +1490,24 @@ export function AppShell() {
                 <Records />
               ) : screen === "notyet" ? (
                 <NotYet />
-              ) : lines.length === 0 ? (
+              ) : (
+                <>
+                  {/* Above both states, because the plan is what the run is about
+                      to do and then what it is doing. Idle at rest; each node
+                      lights from the event that means it happened and never from
+                      the node before it. */}
+                  <ol className="ag-plan">
+                    {PLAN.map((node, i) => (
+                      <li
+                        key={node.label}
+                        className={lit[i] ? `ag-plan-node ag-actor-${node.actor} ag-plan-lit` : `ag-plan-node ag-actor-${node.actor}`}
+                      >
+                        <span className="ag-plan-dot" aria-hidden="true" />
+                        <span className="ag-plan-label">{node.label}</span>
+                      </li>
+                    ))}
+                  </ol>
+                  {lines.length === 0 ? (
                 <div className="ag-intro">
                   {/* The fold. Three verbs, one sentence each, and each sentence restates
                       something already merged in this repository. What the page opens with
@@ -1417,7 +1516,10 @@ export function AppShell() {
                       and the command line say in two. */}
                   <div className="ag-verbs">
                     <div className="ag-verb">
-                      <h2 className="ag-verb-name">Own</h2>
+                      <h2 className="ag-verb-name">
+                        <MarkReceipt />
+                        Own
+                      </h2>
                       {/* DISCLOSURE, "A receipts ledger": a settlement is recorded against
                           the payer who made it. The second sentence is this branch's own
                           route rather than merged text, and it is what `/api/receipts`
@@ -1429,7 +1531,10 @@ export function AppShell() {
                       </p>
                     </div>
                     <div className="ag-verb">
-                      <h2 className="ag-verb-name">Manage</h2>
+                      <h2 className="ag-verb-name">
+                        <MarkSignature />
+                        Manage
+                      </h2>
                       {/* DISCLOSURE, "Delegation from a reader's own wallet"; bin/agent.ts,
                           "Read a window, propose a clip, stop".
 
@@ -1444,7 +1549,10 @@ export function AppShell() {
                       </p>
                     </div>
                     <div className="ag-verb">
-                      <h2 className="ag-verb-name">Check</h2>
+                      <h2 className="ag-verb-name">
+                        <MarkEquality />
+                        Check
+                      </h2>
                       {/* docs/spec/05-anchor-and-query.md:66, "in a way anybody can check
                           with one call", for the call; the operator being out of the path is
                           the same document's trust boundary. */}
@@ -1547,7 +1655,9 @@ export function AppShell() {
                       </span>
                     </li>
                   )}
-                </ol>
+                    </ol>
+                  )}
+                </>
               )}
             </div>
           </div>
