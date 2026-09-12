@@ -93,4 +93,4 @@ MIT. See `LICENSE`. Copyright (c) 2026 ZENBIT S.A.S. de C.V.
 
 No patent rights are granted, expressly or by implication. The components covered by Zenbit's filed patent application are not included in this repository: the computer-vision stack, the water-quality validation logic, the specimen registry and the application database are not here and not in the attestation schema.
 
-External contributions are accepted under the Developer Certificate of Origin 1.1 (see `CONTRIBUTING.md`); sign off each commit with `git commit -s`. Commits from the repository owner's account carry no sign-off.
+External contributions are accepted under the Developer Certificate of Origin 1.1 (see `CONTRIBUTING.md`); sign off each commit with `git commit -s`. Most commits from the repository owner's account carry no sign-off; three from 2026-09-08 do, `ff4ff23`, `87cac0e` and `b446f35`, which is visible in the log rather than asserted here. This sentence said *carry no sign-off* until 2026-09-12, which was true when written and was falsified by the author's own later commits.
