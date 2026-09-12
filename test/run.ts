@@ -719,7 +719,7 @@ async function main() {
   await agentRunChecks(check);
   await receiptsChecks(check);
 
-  pageChecks(check);
+  await pageChecks(check);
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;

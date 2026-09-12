@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NoWallet, WrongChain, connect, ensureBaseSepolia, signChallenge } from "~~/lib/agent/browser";
 import type { RunStep } from "~~/lib/agent/run";
+import { recoverConfirmer } from "~~/lib/anchor/confirmation";
+import { decisionCode } from "~~/lib/anchor/schema";
+import confirmation259 from "~~/fixtures/confirmation.259.json";
 
 const REPO = "https://github.com/zenbitETH/xovi-agents";
 
@@ -192,12 +195,13 @@ type Settlement = {
  * item never leads anywhere empty: the cut removes a section from the page rather
  * than hiding it behind a tab that opens on nothing.
  */
-type Screen = "runs" | "overview" | "receipts";
+type Screen = "runs" | "overview" | "receipts" | "records";
 
 const SCREENS: { id: Screen; label: string }[] = [
   { id: "runs", label: "Runs" },
   { id: "overview", label: "Overview" },
   { id: "receipts", label: "Receipts" },
+  { id: "records", label: "Records" },
 ];
 
 /**
@@ -371,6 +375,139 @@ function Receipts({ settlements, state }: { settlements: Settlement[]; state: "i
           ))}
         </section>
       )}
+    </div>
+  );
+}
+
+/**
+ * The record, and the check a stranger can run beside it.
+ *
+ * **Seven fields any reader can check without trusting Zenbit**, in spec 05's own
+ * words: `clipId`, `clipHash`, `decision`, `verifier`, `verifierSignature`,
+ * `verifierNonce` and `verifierChainId`. They are exactly the material needed to
+ * rebuild the message the reviewer signed and recover the address that signed it.
+ * Each is carried and never derived, `verifierChainId` above all: the reviewer
+ * signs the chain they signed on, and the chain this milestone anchors to is a
+ * separate choice that happens to match today.
+ *
+ * Three more are the operator's own assertion and no reviewer countersigned them.
+ * Two of those are shown and named as assertions. The third is the model's number,
+ * which is opaque by spec 05 and is on no surface.
+ *
+ * Built field by field off the fixture rather than spread from it, so the record
+ * on screen is the seven plus the two and cannot grow a field the fixture gains.
+ */
+export const RECORD = {
+  clipId: confirmation259.id,
+  clipHash: confirmation259.clipHash,
+  decision: decisionCode(confirmation259.status),
+  verifier: confirmation259.verifiedBy,
+  verifierSignature: confirmation259.verifierSignature,
+  verifierNonce: confirmation259.verifierNonce,
+  verifierChainId: confirmation259.verifierChainId,
+};
+
+const ASSERTED = {
+  verifiedAt: confirmation259.verifiedAt,
+  submitter: confirmation259.submitterAddress,
+};
+
+/** The four links, from the moment to the thing anybody can look up. */
+const CHAIN = [
+  { name: "the clip", says: "a span of public footage, proposed by an agent and given an identifier" },
+  { name: "the confirmation", says: "a person decided, and signed the decision with their own key" },
+  { name: "the offchain attestation", says: "the decision and the seven fields, under one identifier, emitting no event" },
+  { name: "the onchain anchor", says: "a time fixed for that identifier, and an attestation of the same schema an indexer can find" },
+];
+
+function Records() {
+  const [recovered, setRecovered] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const runCheck = useCallback(async () => {
+    setChecking(true);
+    setFailed(false);
+    try {
+      // Nothing is fetched. The recovery is arithmetic over bytes already on this
+      // page, so it answers with the operator's site down, which is the property
+      // that makes it a check rather than a request for reassurance.
+      const who = await recoverConfirmer(RECORD, RECORD.verifierSignature);
+      setRecovered(who);
+    } catch {
+      setFailed(true);
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+
+  const matches = recovered !== null && recovered.toLowerCase() === RECORD.verifier.toLowerCase();
+
+  return (
+    <div className="ag-records">
+      <p className="xv-desc ag-empty">
+        The confirmation this repository carries for clip {RECORD.clipId}. It asserts existence and time and who
+        confirmed. It is not a claim about whether the clip shows what anyone says it shows.
+      </p>
+
+      <ol className="ag-chain">
+        {CHAIN.map(link => (
+          <li key={link.name} className="ag-chain-link">
+            <span className="ag-card-value">{link.name}</span>
+            <span className="ag-sub">{link.says}</span>
+          </li>
+        ))}
+      </ol>
+
+      <section className="ag-month">
+        <h3 className="ag-panel-title">Seven fields, checkable without the operator</h3>
+        <dl className="ag-facts">
+          {Object.entries(RECORD).map(([key, value]) => (
+            <div key={key}>
+              <dt>{key}</dt>
+              <dd className="ag-ticket-hash">{String(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      <section className="ag-month">
+        <h3 className="ag-panel-title">Two fields Zenbit asserts, which no reviewer signed</h3>
+        <dl className="ag-facts">
+          {Object.entries(ASSERTED).map(([key, value]) => (
+            <div key={key}>
+              <dt>{key}</dt>
+              <dd className="ag-ticket-hash">{String(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      <section className="ag-month">
+        <h3 className="ag-panel-title">The check</h3>
+        <p className="xv-desc ag-empty">
+          Rebuild the nine line message from the seven fields, recover the address that signed it, and compare it for
+          equality with the verifier the record names. Recovery on its own establishes nothing: a wrong message
+          recovers a different, perfectly well formed address rather than failing, so the comparison is the check.
+        </p>
+        <button className="btn xv-action" onClick={runCheck} disabled={checking}>
+          {checking ? "Recovering" : "Recover the signer"}
+        </button>
+        {failed && <p className="xv-desc ag-error">The signature would not parse, so no address was recovered.</p>}
+        {recovered !== null && (
+          <div className="ag-ticket ag-ticket-row">
+            <span className="ag-ticket-hash">{recovered}</span>
+            <span className="ag-sub">{matches ? "equal to the verifier the record names" : "not the verifier the record names"}</span>
+          </div>
+        )}
+        <p className="ag-sub">
+          When this confirmation is anchored it carries two identifiers that share nothing. The offchain one keys the
+          payload endpoint and its time is read with getTimestamp, which answers with a time and no fields.
+          getAttestation answers with the schema, the attester and the encoded fields, and it belongs only beside the
+          onchain identifier a query returns; asked for an offchain one it returns an empty struct, which is a badge
+          with no check behind it.
+        </p>
+      </section>
     </div>
   );
 }
@@ -660,6 +797,8 @@ export function AppShell() {
                 <Overview settlements={settlements} state={ledger} />
               ) : screen === "receipts" ? (
                 <Receipts settlements={settlements} state={ledger} />
+              ) : screen === "records" ? (
+                <Records />
               ) : lines.length === 0 ? (
                 <div className="ag-intro">
                   <p className="xv-desc ag-empty">

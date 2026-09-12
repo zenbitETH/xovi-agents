@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fabricated, lineFor, settled } from "../app/app-shell";
+import { RECORD, fabricated, lineFor, settled } from "../app/app-shell";
+import { signedBy } from "../lib/anchor/confirmation";
 import { FABRICATED_TX } from "../lib/human/store";
 import type { RunStep } from "../lib/agent/run";
 
@@ -20,7 +21,7 @@ type Check = (ok: boolean, label: string) => void;
  *
  * The numbers of the survivors are unchanged, so the gaps are deliberate.
  */
-export function pageChecks(check: Check) {
+export async function pageChecks(check: Check) {
   const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
   const ui = readFileSync(join(process.cwd(), "app/app-shell.tsx"), "utf8");
 
@@ -155,6 +156,61 @@ export function pageChecks(check: Check) {
     chosenLine.object?.kind === "windows" && chosenLine.object.chosen === "6fe45c795eb3049c",
     "226b · and the one the agent took is marked as taken",
   );
+
+  /*
+   * The record shows what a stranger can check, and names the rest as assertion.
+   *
+   * Spec 05 draws the trust boundary and the page has to draw the same one. The
+   * seven are the material needed to rebuild the signed message and recover the
+   * signer; `verifiedAt` and `submitter` are the operator's word; the model's
+   * number is opaque and belongs to neither list and to no surface.
+   */
+  const SEVEN = ["clipId", "clipHash", "decision", "verifier", "verifierSignature", "verifierNonce", "verifierChainId"];
+  const recordBlock = ui.slice(ui.indexOf("const RECORD = {"), ui.indexOf("const ASSERTED = {"));
+  const shown = [...recordBlock.matchAll(/^\s{2}(\w+):/gm)].map(m => m[1]);
+  check(shown.sort().join(",") === [...SEVEN].sort().join(","), `231 · the record shows spec 05's seven checkable fields and no others (${shown.length})`);
+
+  const assertedBlock = ui.slice(ui.indexOf("const ASSERTED = {"), ui.indexOf("/** The four links"));
+  const asserted = [...assertedBlock.matchAll(/^\s{2}(\w+):/gm)].map(m => m[1]);
+  check(asserted.sort().join(",") === "submitter,verifiedAt", `231a · and names the two the operator asserts (${asserted.join(",")})`);
+  check(!recordBlock.includes("confidence") && !assertedBlock.includes("confidence"), "231b · the model's number is on neither list");
+
+  /*
+   * The recovery is compared, not caught.
+   *
+   * Recovering over the wrong message does not raise. It answers with a different,
+   * perfectly well formed address, so a caller reading the absence of an exception
+   * as success accepts a message with one space missing. The page compares.
+   */
+  check(/recovered\.toLowerCase\(\) === RECORD\.verifier\.toLowerCase\(\)/.test(ui),
+    "232 · the recovered address is compared with the verifier for equality");
+
+  // Driven, not read. The record the page builds, through its own `decisionCode`
+  // call, recovers to the verifier it names, so the button answers equal on the
+  // screen somebody records rather than only in a file that describes it.
+  check(await signedBy(RECORD, RECORD.verifierSignature, RECORD.verifier),
+    "232c · and the record the page builds does recover to the verifier it names");
+  check(!(await signedBy({ ...RECORD, clipId: RECORD.clipId + 1 }, RECORD.verifierSignature, RECORD.verifier)),
+    "232d · while one field changed recovers somebody else, without raising (negative control)");
+
+  // The call beside an identifier is the call for that identifier. getAttestation
+  // asked for an offchain one answers with an empty struct, which is a badge with
+  // nothing behind it, so the page names it only for the onchain identifier.
+  const timestampAt = ui.indexOf("getTimestamp");
+  const attestationAt = ui.indexOf("getAttestation");
+  check(timestampAt > 0 && attestationAt > timestampAt, "232a · getTimestamp is named for the offchain identifier, before getAttestation");
+  check(/getAttestation[^.]*onchain identifier/s.test(ui.slice(attestationAt, attestationAt + 400)),
+    "232b · and getAttestation is bound to the onchain one where it is named");
+
+  /*
+   * The check runs with the operator's site down.
+   *
+   * That is the whole reason it is a check rather than a request for reassurance,
+   * so the component that runs it may not reach the network at all.
+   */
+  const records = ui.slice(ui.indexOf("function Records()"), ui.indexOf("/**\n * A drawn state"));
+  check(records.length > 0 && !records.includes("fetch("), "233 · the record check fetches nothing, so it answers with the operator gone");
+  check(ui.includes("fetch("), "233a · while the page does fetch elsewhere (negative control)");
 
   /*
    * The fabricated settlement, which is in the production ledger and will be
