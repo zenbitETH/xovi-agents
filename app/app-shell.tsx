@@ -30,6 +30,8 @@ const REPO = "https://github.com/zenbitETH/xovi-agents";
 // string arrives would send a reader to a page about a different chain, and a
 // confident wrong link is worse than none. Base Sepolia is the only one that
 // settles here, so it is the only one listed.
+/** One table for one chain. Two of them, keyed differently, was two places for an
+ *  origin to be right in and one place for it to be wrong. */
 const EXPLORER_ORIGIN: Record<string, string> = { "0x14a34": "https://sepolia.basescan.org" };
 
 /**
@@ -46,7 +48,7 @@ function explorerOrigin(chain: string | null): string | null {
   return EXPLORER_ORIGIN[hex] ?? null;
 }
 
-const EXPLORER: Record<string, string> = { "eip155:84532": "https://sepolia.basescan.org/tx/" };
+
 
 const SCHEMA = "https://sepolia.easscan.org/schema/view/0x8d4a9a6e41e07cb67128eaca5a79f4d39e5199eb8c1c7d7a0096e0a5d11c8c6d";
 
@@ -101,7 +103,7 @@ export type Drawn =
 export type Line = {
   text: string;
   detail?: string;
-  tone: "working" | "good" | "stopped";
+  tone: "working" | "good" | "stopped" | "supply";
   actor: Actor;
   object?: Drawn;
 };
@@ -157,10 +159,12 @@ export function lineFor(step: RunStep): Line {
         object: { kind: "windows", ids: [step.windowId], chosen: step.windowId },
       };
     case "nothing-proposable":
+      // Supply, not failure. Every window the snapshot served has already been
+      // used, which is the system working, and the stopped tone said otherwise.
       return {
         text: "Nothing served could become a proposal",
         detail: `${step.considered} window${step.considered === 1 ? "" : "s"} considered`,
-        tone: "stopped",
+        tone: "supply",
         actor: "agent",
       };
     case "proposing":
@@ -177,17 +181,53 @@ export function lineFor(step: RunStep): Line {
       return {
         text: `The proposal was declined: ${step.kind}`,
         detail: step.status === undefined ? step.detail : `${step.detail} (HTTP ${step.status})`,
-        tone: "stopped",
         // A rejection is the one refusal that is a person's judgement rather than
         // a machine's answer: someone looked at this window and said no. It is
         // marked as their activity, which is the whole point of the two hues.
         actor: step.kind === "rejected" ? "human" : "agent",
+        // A duplicate is the ingest holding a clip it already has, which is the
+        // rule working. The other four kinds are refusals and keep the tone.
+        tone: step.kind === "duplicate" ? "supply" : "stopped",
       };
     case "not-submitted":
       return { text: "Stopped before submitting", detail: step.detail, tone: "stopped", actor: "agent" };
     case "done":
       return { text: "Run finished", tone: "good", actor: "system" };
   }
+}
+
+/**
+ * A run that ends because the snapshot has nothing new in it.
+ *
+ * The ingest refusing a window it already holds is the system working. Drawn in
+ * the stopped tone it reads as a failure of the agent, and after two runs against
+ * a two window snapshot every run reads that way, which is what a person watching
+ * concluded.
+ *
+ * **The sentence is what the page can substantiate and no more.** A single
+ * duplicate establishes that the chosen window is already a clip, and says nothing
+ * about the rest, because the run stops at the first refusal rather than walking
+ * them. What is true either way is that a snapshot is a file and has not gained a
+ * window, so that is the negative. Where the run reports nothing proposable at
+ * all, the stronger first sentence is true and is used.
+ */
+export type Supply = { kind: "duplicate" | "exhausted"; served: number; ids: string[] };
+
+export function supplyFrom(steps: RunStep[]): Supply | null {
+  const read = steps.find(s => s.step === "read");
+  if (read === undefined) return null;
+  const ids = read.step === "read" ? read.ids : [];
+  const served = read.step === "read" ? read.served : 0;
+  const exhausted = steps.some(s => s.step === "nothing-proposable");
+  if (exhausted) return { kind: "exhausted", served, ids };
+  const duplicate = steps.some(s => s.step === "declined" && s.kind === "duplicate");
+  return duplicate ? { kind: "duplicate", served, ids } : null;
+}
+
+export function supplySentence(supply: Supply): string {
+  return supply.kind === "exhausted"
+    ? "Every window this snapshot serves has already been proposed. No new window has been served into it."
+    : `This snapshot serves ${supply.served} window${supply.served === 1 ? "" : "s"} and the one this run chose is already a clip. No new window has been served into it.`;
 }
 
 type Phase = "idle" | "connecting" | "ready" | "signing" | "running" | "finished";
@@ -228,7 +268,7 @@ type Settlement = {
  */
 type Screen = "run" | "account" | "record" | "notyet";
 
-const SCREENS: { id: Screen; label: string }[] = [
+export const SCREENS: { id: Screen; label: string }[] = [
   { id: "run", label: "Run" },
   { id: "account", label: "Account" },
   { id: "record", label: "Record" },
@@ -237,7 +277,7 @@ const SCREENS: { id: Screen; label: string }[] = [
 
 type AccountTab = "overview" | "receipts" | "proposals" | "names";
 
-const ACCOUNT_TABS: { id: AccountTab; label: string }[] = [
+export const ACCOUNT_TABS: { id: AccountTab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "receipts", label: "Receipts" },
   { id: "proposals", label: "Proposals" },
@@ -393,8 +433,8 @@ function Receipts({ settlements, state }: { settlements: Settlement[]; state: "i
                 <span className="ag-sub">
                   {s.amount} atomic, {s.network}, {s.settledAt}
                 </span>
-                {EXPLORER[s.network] !== undefined && (
-                  <a className="ag-link ag-ticket-link" href={EXPLORER[s.network] + s.txHash}>
+                {explorerOrigin(s.network) !== null && (
+                  <a className="ag-link ag-ticket-link" href={`${explorerOrigin(s.network)}/tx/${s.txHash}`}>
                     Read it on the explorer
                   </a>
                 )}
@@ -803,7 +843,7 @@ function Drawing({ object }: { object: Drawn }) {
         </span>
       );
     case "receipt": {
-      const explorer = EXPLORER[object.network];
+      const explorer = explorerOrigin(object.network);
       return (
         <span className="ag-ticket">
           <span className="ag-ticket-hash">{object.transaction}</span>
@@ -867,8 +907,11 @@ function Identicon({ address }: { address: string }) {
   // clay hue means the machine everywhere on this page, and a mark that lands on
   // either by chance would be borrowing a meaning it does not have. The address
   // picks from what is left rather than being nudged off a collision.
+  // Measured against the tokens rather than guessed: teal is 180, the agent clay
+  // 26.9, the accent 26.2 and the action gold 36.9. A band starting at 20 excluded
+  // only teal and left the other three inside it.
   const AVAILABLE = [
-    [20, 160],
+    [50, 160],
     [200, 340],
   ];
   const raw = parseInt(body.slice(-2), 16) / 255;
@@ -1034,6 +1077,7 @@ export function AppShell() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [address, setAddress] = useState<`0x${string}` | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
+  const [steps, setSteps] = useState<RunStep[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>("run");
   const [accountTab, setAccountTab] = useState<AccountTab>("overview");
@@ -1142,6 +1186,7 @@ export function AppShell() {
     setAddress(null);
     setPhase("idle");
     setLines([]);
+    setSteps([]);
     setWalletNote(
       how === "revoked"
         ? "the wallet withdrew this site's permission"
@@ -1187,6 +1232,7 @@ export function AppShell() {
     busy.current = true;
     setError(null);
     setLines([]);
+    setSteps([]);
     setPhase("signing");
     try {
       const windowsUrl = new URL("/api/agent/windows", window.location.origin).toString();
@@ -1228,7 +1274,9 @@ export function AppShell() {
         buffer = parts.pop() ?? "";
         for (const part of parts) {
           if (part.trim().length === 0) continue;
-          say(lineFor(JSON.parse(part) as RunStep));
+          const step = JSON.parse(part) as RunStep;
+          setSteps(prev => [...prev, step]);
+          say(lineFor(step));
         }
       }
       setPhase("finished");
@@ -1244,6 +1292,9 @@ export function AppShell() {
   // The reason a run stopped, taken from the run's own last stopped line rather
   // than from a second source that could disagree with the feed beside it.
   const stoppedWhy = running ? null : (lines.filter(l => l.tone === "stopped").at(-1)?.text ?? null);
+  // Read off the steps rather than off the sentences, so the state is the run's
+  // and not a phrase match over its narration.
+  const supply = running ? null : supplyFrom(steps);
 
   return (
     <>
@@ -1287,7 +1338,7 @@ export function AppShell() {
                 ? "Connect a wallet, pay for one read, and the agent does the rest."
                 : "Pay for one read, and the agent does the rest."}
             </p>
-            <nav className="ag-rail" aria-label="Sections">
+            <nav className="ag-rail" aria-label="Sections" style={{ "--xv-strip-n": SCREENS.length } as React.CSSProperties}>
               {/* The indicator is one element moved with `transform`, so the state
                   travels between items rather than being switched off one and on
                   another. Equal columns are what make the arithmetic a percentage
@@ -1325,7 +1376,7 @@ export function AppShell() {
             <div className="ag-app-scroll">
               {screen === "account" ? (
                 <div className="ag-account-body">
-                  <nav className="ag-tabs" aria-label="Account">
+                  <nav className="ag-tabs" aria-label="Account" style={{ "--xv-strip-n": ACCOUNT_TABS.length } as React.CSSProperties}>
                     <span
                       className="ag-tabs-indicator"
                       aria-hidden="true"
@@ -1484,6 +1535,18 @@ export function AppShell() {
                     <span className="ag-feed-dot ag-feed-pulse" aria-hidden="true" />
                     <span className="ag-feed-text ag-feed-waiting">working</span>
                   </li>
+                  {supply !== null && (
+                    <li className="ag-supply">
+                      <p className="ag-supply-line">{supplySentence(supply)}</p>
+                      <span className="ag-tiles">
+                        {supply.ids.map(id => (
+                          <span key={id} className="ag-tile">
+                            {id}
+                          </span>
+                        ))}
+                      </span>
+                    </li>
+                  )}
                 </ol>
               )}
             </div>

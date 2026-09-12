@@ -73,6 +73,9 @@
   /* Xovi keeps this in three places that must be edited together. Here it is
      declared once and the header reads it, so there is nothing to desync. */
   --xv-header-h: 4rem;
+  /* How many items a strip holds. Set on the element from the array that renders
+     them, so a fifth destination moves the indicator with it. */
+  --xv-strip-n: 4;
 
   --xv-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
@@ -787,7 +790,7 @@ body::after {
    Chips: a state as an object, not a phrase.
 
    The tones are the feed's, so a stopped run reads the same in the header as it
-   does in the log. Colour changes transition, movement does not: a chip that
+   does in the log. Hue changes transition, movement does not: a chip that
    slid on every phase would be motion reporting nothing.
 --------------------------------------------------------------------------- */
 .ag-chip {
@@ -926,6 +929,38 @@ body::after {
   }
 }
 
+/* Supply, which is neither working, good nor stopped.
+
+   A snapshot with nothing new in it is the ingest holding a clip it already has,
+   which is the rule working. Drawn in the stopped hue it read as the agent
+   failing, and against a two window snapshot every run after the second read that
+   way. Neutral, and no error hue. */
+.ag-tone-supply .ag-feed-text {
+  opacity: 0.85;
+}
+
+.ag-tone-supply .ag-feed-dot {
+  opacity: 0.5;
+}
+
+.ag-supply {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 0.875rem 1rem;
+  border: 1px dashed color-mix(in srgb, var(--color-base-content) 20%, transparent);
+  border-radius: 0.75rem;
+  list-style: none;
+}
+
+.ag-supply-line {
+  margin: 0;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
 /* ---------------------------------------------------------------------------
    The fold: three verbs, one sentence each.
 
@@ -1041,12 +1076,12 @@ body::after {
   transition: transform 200ms var(--xv-ease-out);
 }
 
-.ag-rail-indicator {
-  width: calc((100% - 0.375rem) / 4);
-}
-
+/* The count comes from the array that renders the items, so a fifth destination
+   moves the indicator's arithmetic with it instead of leaving a four column
+   assumption behind in a stylesheet nobody edits at the same time. */
+.ag-rail-indicator,
 .ag-tabs-indicator {
-  width: calc((100% - 0.375rem) / 4);
+  width: calc((100% - 0.375rem) / var(--xv-strip-n, 4));
 }
 
 .ag-rail-item,

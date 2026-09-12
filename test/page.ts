@@ -1,6 +1,17 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { RECORD, RUNGS, fabricated, lineFor, settled, totalOnBaseSepolia } from "../app/app-shell";
+import {
+  ACCOUNT_TABS,
+  RECORD,
+  RUNGS,
+  SCREENS,
+  fabricated,
+  lineFor,
+  settled,
+  supplyFrom,
+  supplySentence,
+  totalOnBaseSepolia,
+} from "../app/app-shell";
 import { signedBy } from "../lib/anchor/confirmation";
 import { BASE_SEPOLIA_HEX, disconnect } from "../lib/agent/browser";
 import { CONFIRMATION_259 } from "../lib/anchor/confirmation-259";
@@ -520,6 +531,58 @@ export async function pageChecks(check: Check) {
   check(["all 200ms ease"].filter(t => /\ball\b/.test(t)).length === 1, "263c · the all check can see one (negative control)");
 
   /*
+   * A snapshot with nothing new in it is supply, not a failure of the run.
+   *
+   * The ingest refusing a clip it already holds is the rule working. Drawn in the
+   * stopped hue it read as the agent failing, and against a two window snapshot
+   * every run after the second read that way, which is what a person watching
+   * concluded. Driven off the steps rather than off the sentences.
+   */
+  check(lineFor({ step: "declined", kind: "duplicate", detail: "x" }).tone === "supply",
+    "264 · a duplicate is drawn as supply");
+  check(lineFor({ step: "nothing-proposable", considered: 2 }).tone === "supply",
+    "264a · and so is a snapshot with nothing proposable in it");
+  check(lineFor({ step: "declined", kind: "refused", detail: "x", status: 403 }).tone === "stopped",
+    "264b · while a route refusing the credential keeps the stopped tone (negative control)");
+  check(lineFor({ step: "declined", kind: "rejected", detail: "x" }).tone === "stopped",
+    "264c · as does a person's rejection");
+
+  const duplicateRun: RunStep[] = [
+    { step: "paid", free: false, transaction: "0x1", network: "eip155:84532" },
+    { step: "read", served: 2, ids: ["a1", "b2"] },
+    { step: "selected", windowId: "a1", durationSeconds: 16 },
+    { step: "declined", kind: "duplicate", detail: "x" },
+    { step: "done" },
+  ];
+  const drawnSupply = supplyFrom(duplicateRun);
+  check(drawnSupply?.kind === "duplicate" && drawnSupply.ids.length === 2, "265 · the supply state carries the windows the run considered");
+  check(supplyFrom([{ step: "read", served: 2, ids: ["a1"] }, { step: "proposed", id: 1, clipHash: "0x", status: "pending" }]) === null,
+    "265a · a run that proposed draws no supply state (negative control)");
+  const sentence = drawnSupply === null ? "" : supplySentence(drawnSupply);
+  check(/already a clip/.test(sentence) && !/Every window/.test(sentence),
+    `265b · and its sentence claims only the window the run chose (${sentence.slice(0, 48)})`);
+  const exhausted = supplyFrom([{ step: "read", served: 2, ids: ["a1", "b2"] }, { step: "nothing-proposable", considered: 2 }]);
+  check(exhausted !== null && /Every window this snapshot serves/.test(supplySentence(exhausted)),
+    "265c · while a run that could propose none of them claims all of them");
+
+  /*
+   * The strips are driven by their arrays, in both directions.
+   *
+   * Matching the four ids by name passed a fifth destination with no screen, and
+   * the indicator's column count was written into the stylesheet where nobody
+   * edits it at the same time as the array.
+   */
+  check(SCREENS.length === 4, `266 · four destinations in the array (${SCREENS.length})`);
+  check(ACCOUNT_TABS.length === 4, `266a · and four account tabs (${ACCOUNT_TABS.length})`);
+  const withoutBranch = SCREENS.filter(d => d.id !== "run" && !new RegExp(`screen === "${d.id}"`).test(ui));
+  check(withoutBranch.length === 0, `266b · every destination but the default has a branch (${withoutBranch.map(d => d.id).join(", ") || "none"})`);
+  const withoutTab = ACCOUNT_TABS.filter(t => t.id !== "names" && !new RegExp(`accountTab === "${t.id}"`).test(ui));
+  check(withoutTab.length === 0, `266c · and every tab but the default has one (${withoutTab.map(t => t.id).join(", ") || "none"})`);
+  check(/var\(--xv-strip-n, 4\)/.test(css) && /"--xv-strip-n": SCREENS\.length/.test(ui),
+    "266d · the indicator's columns come from the array rather than from a constant in the stylesheet");
+  check(!/\/ 4\)/.test(css), "266e · and no strip arithmetic hard-codes four");
+
+  /*
    * The ladder: each rung two present tense sentences, one merged fact and one
    * negative, and the unlock written as the negative rather than a condition.
    */
@@ -584,8 +647,12 @@ export async function pageChecks(check: Check) {
   // A settlement is linked by the chain the receipt names rather than by a chain
   // the page assumes, so a receipt from anywhere else is drawn without a link
   // instead of with a confident wrong one.
-  check(/EXPLORER\[object\.network\]/.test(ui), "228 · the explorer is chosen by the chain the receipt names");
-  check(/"eip155:84532": "https:\/\/sepolia\.basescan\.org\/tx\/"/.test(ui), "228a · and Base Sepolia is the one that settles here");
+  check(/explorerOrigin\(object\.network\)/.test(ui), "228 · the explorer is chosen by the chain the receipt names");
+  check(/"0x14a34": "https:\/\/sepolia\.basescan\.org"/.test(ui), "228a · and Base Sepolia is the one that settles here");
+  // One table for one chain. Two of them, keyed by hex and by CAIP-2, was two
+  // places for an origin to be right in and one for it to be wrong.
+  const origins = [...ui.matchAll(/https:\/\/[a-z.]*basescan\.org/g)].map(m => m[0]);
+  check(new Set(origins).size === 1 && origins.length === 1, `228b · named once and in one table (${origins.length})`);
 
   /*
    * Teal means a person, in this feed and nowhere else in it.
@@ -646,7 +713,7 @@ export async function pageChecks(check: Check) {
   // A trailing hyphen is the left half of `ag-tone-${...}`. Each such family has
   // to be expanded by hand below, so an unknown one is unasserted, not absent.
   const FAMILIES: Record<string, string[]> = {
-    "ag-tone-": ["good", "working", "stopped"],
+    "ag-tone-": ["good", "working", "stopped", "supply"],
     "ag-actor-": ["human", "agent", "system"],
     // The status chip's four, from `StatusChip`. `ag-chip-name` and
     // `ag-chip-action` are written whole where they are used and arrive as tokens.
