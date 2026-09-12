@@ -2,7 +2,7 @@
 
 The agent reads the endpoint it pays for out of a text record on a name, so that an operator can move the endpoint without shipping the agent again, and so that a reader can see what the agent is pointed at without being handed its configuration.
 
-Nothing is registered yet. `xoviagents.eth` has no resolver, and no owner in either the v1 or the v2 registry on Ethereum Sepolia, checked 2026-09-11 against a live endpoint with a positive control on each version, so the name is available rather than merely unresolved.
+The name is **`xovi.eth`**. It is registered on Ethereum Sepolia and carries a resolver, `0xAe2084CB…`, measured 2026-09-11 through `bin/ens-verify.ts` with both controls resolving and with an invented name as a negative control, which answers a zero resolver on the same run and so shows the reading is the name's own rather than a wildcard. `x402:windows` is null, so **steps 1 and 2 are done and the next action is step 3**.
 
 This is an ordinary Sepolia name with one text record, but there **is** a second version to evaluate and registering here lands on it. ENSv2 beta is live on Sepolia, and ENS documents the v1 contracts as still existing there but no longer in use, with the Universal Resolver and the Sepolia apps linked against v2. An earlier version of this document said there was no second version, and that sentence is what put a hardcoded v1 registry address in the verifier. Nothing in the agent changes: ENS states that an application which only reads ENS data needs no changes with a supported library, and the installed viem is 2.56.3 against a documented floor of 2.35.0.
 
@@ -16,7 +16,7 @@ So every step below is verified before the one after it, and the variable is the
 
 ## Steps
 
-**1. Register the name on Ethereum Sepolia.** Any registrar interface. The name is the operator's; nothing in this repository holds a key that can register or change it.
+**1. Register the name on Ethereum Sepolia, through `app.ens.dev`.** The app is named rather than left to the operator, because the obvious search lands on `sepolia.app.ens.domains`, which is the **v1** app: ENS's deployments page says the v1 Sepolia contracts *are no longer in use: the Universal Resolver and the ENS apps for Sepolia are linked against the ENSv2 deployment*, and names the ENS App at `app.ens.dev` as the way to interact with it. Registering through the other door puts the name on the registry this repository's verifier was rewritten to stop reading. The name is the operator's; nothing here holds a key that can register or change it.
 
 **2. Set a resolver.** A name with an owner and no resolver answers `null` to every record lookup, which is indistinguishable from a name with no record.
 
@@ -52,7 +52,7 @@ Expect the resolved url and a zero exit. The script runs the same function `bin/
 
 **This works only while `WINDOWS_URL` is still set**, which is what step 6 is for. With both empty the failure changes to `neither AGENT_ENS_NAME nor WINDOWS_URL is set`, a different message than the one that sent you here, and the recovery becomes two variables rather than one.
 
-It is written down because the agent is fail closed by design: a configured name that resolves to nothing raises rather than reading from somewhere else, so a name that disappears takes the agent with it rather than degrading it. The most likely cause is not an error in this repository. The ENS app displayed a notice on 2026-09-11 that registered names and state on Sepolia may be reset periodically due to routine contract deployments, naming 2026-07-30 as the most recent. That is attributed to the app and dated because it is a banner rather than a page anyone can be pointed at.
+It is written down because the agent is fail closed by design: a configured name that resolves to nothing raises rather than reading from somewhere else, so a name that disappears takes the agent with it rather than degrading it. The most likely cause is not an error in this repository. `app.ens.dev` carries this banner, read 2026-09-11: *"ENS v2 is in active development. Registered names on Sepolia and state data may be reset periodically due to routine contract deployments."* It is quoted with its source and the date it was read because it is a banner in an application rather than a documented page, which is evidence an operator can act on and is **not** evidence a guard can be justified by. The justification for the fail-closed behaviour above is the exposure itself, not this notice.
 
 **Sequencing, which is the cheap half of this.** Set `AGENT_ENS_NAME` after the video is recorded and verified, never before. The recording is the artefact that cannot be redone in an hour, while the deployed endpoint is repaired with one variable. A reset before recording then costs nothing, because the name is not wired yet, and a reset after costs a redeploy.
 
