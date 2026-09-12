@@ -162,6 +162,33 @@ export async function agentRunChecks(check: Check) {
   check(!names(noKey).includes("proposed"), "192 · and never says proposed (negative control for 191)");
 
   /*
+   * A cell is spent only when every window in it has been offered and refused.
+   *
+   * The run used to stop at its first duplicate, which told it nothing about the
+   * rest, so no run could ever say a cell was spoken for and the page said it
+   * anyway on a step that means something else. The walk offers each in turn,
+   * records each refusal against its own window so the next run starts further
+   * on, and proposes at most once.
+   */
+  arrange("fixtures/windows.synthetic.jsonl");
+  ingest.outcome = "duplicate";
+  const headerWalk = await signAt(WINDOWS);
+  const walked = await collect(runOnce({ windowsUrl: WINDOWS, paymentHeader: headerWalk, windowsFetch, ingestUrl: ingest.url, ingestKey: "k-test" }));
+  const offered = walked.filter(s => s.step === "proposing").length;
+  const refused = walked.filter(s => s.step === "declined" && s.kind === "duplicate").length;
+  check(offered === 3 && refused === 3, `275 · every window in the cell is offered before the cell is called spent (${offered} offered, ${refused} refused)`);
+  check(names(walked).includes("cell-spent"), "275a · and the run says the cell is spent");
+  check(ingest.hits === 3, `275b · which the ingest saw as three requests (${ingest.hits})`);
+
+  arrange("fixtures/windows.synthetic.jsonl");
+  ingest.outcome = "created";
+  const headerOne = await signAt(WINDOWS);
+  const proposedOnce = await collect(runOnce({ windowsUrl: WINDOWS, paymentHeader: headerOne, windowsFetch, ingestUrl: ingest.url, ingestKey: "k-test" }));
+  check(proposedOnce.filter(s => s.step === "proposed").length === 1, "276 · a run proposes at most once");
+  check(ingest.hits === 1, `276a · and stops asking after it does (${ingest.hits}, negative control for the walk)`);
+  check(!names(proposedOnce).includes("cell-spent"), "276b · a cell with something new in it is never called spent");
+
+  /*
    * No station reaches the stream, including through the one lane that is not a
    * fixed sentence.
    *

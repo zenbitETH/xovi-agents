@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GET as boardGET } from "../app/api/agent/board/route";
 import { GET as windowsGET } from "../app/api/agent/windows/route";
-import { BOARD_SPECIES, boardFrom, cellOf, loadSnapshot } from "../lib/windows/snapshot";
+import { BOARD_SPECIES, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
 
 type Check = (ok: boolean, label: string) => void;
@@ -105,6 +105,35 @@ export async function boardChecks(check: Check) {
   const gated = applyEmbargo(cell);
   check(gated.kept.length === cell.length && gated.dropped === 0,
     `273a · and the runtime gate removes none of it (${gated.dropped} dropped)`);
+
+  /*
+   * The gate runs in front of the payment, and a cell that loses anything to it
+   * refuses rather than shrinking.
+   *
+   * 273a was true in CI by construction, because no embargo list is set there. A
+   * list naming a candidate the file carries is the probe: without this, a
+   * deployment that sets one would serve an empty set after the 402 while the
+   * board still said the cell was on offer, which is the person paying for
+   * nothing and the withheld set by subtraction in the same answer.
+   */
+  const embargoBefore = process.env.EMBARGOED_ALIASES;
+  process.env.EMBARGOED_ALIASES = "Alfa";
+
+  const gatedState = cellState(all, "2026-09-03", "mexicanum");
+  check(gatedState.kind === "unscreened", `274 · a cell the list touches is unscreened, not smaller (${gatedState.kind})`);
+  const gatedBoard = boardFrom(all);
+  check(!gatedBoard.cells.some(c => c.day === "2026-09-03" && c.species === "mexicanum" && c.onOffer),
+    "274a · and the board does not offer it");
+  const refused = await windowsGET(new Request("http://127.0.0.1/api/agent/windows?day=2026-09-03&species=mexicanum"));
+  check(refused.status === 503, `274b · the cell answers 503 before any 402 (${refused.status})`);
+  const refusedBody = JSON.stringify(await refused.json());
+  check(!/\d+/.test(refusedBody.replace(/2026-\d\d-\d\d/g, "")), "274c · and says nothing of how many it would have dropped");
+
+  process.env.EMBARGOED_ALIASES = "";
+  const ungated = cellState(all, "2026-09-03", "mexicanum");
+  check(ungated.kind === "offer", `274d · with no list in force the same cell is on offer (negative control, ${ungated.kind})`);
+  if (embargoBefore === undefined) delete process.env.EMBARGOED_ALIASES;
+  else process.env.EMBARGOED_ALIASES = embargoBefore;
 
   if (before === undefined) delete process.env.WINDOWS_SNAPSHOT;
   else process.env.WINDOWS_SNAPSHOT = before;

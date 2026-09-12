@@ -159,11 +159,20 @@ export function lineFor(step: RunStep): Line {
         object: { kind: "windows", ids: [step.windowId], chosen: step.windowId },
       };
     case "nothing-proposable":
-      // Supply, not failure. Every window the snapshot served has already been
-      // used, which is the system working, and the stopped tone said otherwise.
+      // None of them passed validation, which is not the same as all of them
+      // being already proposed. The run reaches this before offering anything, so
+      // it knows nothing about what the ingest already holds.
       return {
-        text: "Nothing served could become a proposal",
-        detail: `${step.considered} window${step.considered === 1 ? "" : "s"} considered`,
+        text: `None of the ${step.considered} window${step.considered === 1 ? "" : "s"} this snapshot serves could become a proposal`,
+        tone: "supply",
+        actor: "agent",
+      };
+    case "cell-spent":
+      // Reachable only by walking every window and being refused each time, which
+      // is what makes "already proposed" a thing the run can say.
+      return {
+        text: `Every one of the ${step.considered} window${step.considered === 1 ? "" : "s"} in this cell has already been proposed`,
+        detail: "the ingest holds a clip for each of them",
         tone: "supply",
         actor: "agent",
       };
@@ -211,23 +220,32 @@ export function lineFor(step: RunStep): Line {
  * window, so that is the negative. Where the run reports nothing proposable at
  * all, the stronger first sentence is true and is used.
  */
-export type Supply = { kind: "duplicate" | "exhausted"; served: number; ids: string[] };
+export type Supply = { kind: "duplicate" | "exhausted" | "unusable"; served: number; ids: string[] };
 
 export function supplyFrom(steps: RunStep[]): Supply | null {
   const read = steps.find(s => s.step === "read");
   if (read === undefined) return null;
   const ids = read.step === "read" ? read.ids : [];
   const served = read.step === "read" ? read.served : 0;
-  const exhausted = steps.some(s => s.step === "nothing-proposable");
-  if (exhausted) return { kind: "exhausted", served, ids };
+  // Only the walk earns the stronger sentence. `nothing-proposable` is a
+  // validation outcome and says nothing about what the ingest holds.
+  const spent = steps.some(s => s.step === "cell-spent");
+  if (spent) return { kind: "exhausted", served, ids };
+  if (steps.some(s => s.step === "nothing-proposable")) return { kind: "unusable", served, ids };
   const duplicate = steps.some(s => s.step === "declined" && s.kind === "duplicate");
   return duplicate ? { kind: "duplicate", served, ids } : null;
 }
 
 export function supplySentence(supply: Supply): string {
-  return supply.kind === "exhausted"
-    ? "Every window this snapshot serves has already been proposed. No new window has been served into it."
-    : `This snapshot serves ${supply.served} window${supply.served === 1 ? "" : "s"} and the one this run chose is already a clip. No new window has been served into it.`;
+  if (supply.kind === "exhausted") {
+    // Earned by the walk: every window was offered and every one came back a
+    // duplicate, so the cell really is spoken for.
+    return "Every window in this cell has already been proposed. No new window has been served into it.";
+  }
+  if (supply.kind === "unusable") {
+    return `None of the ${supply.served} window${supply.served === 1 ? "" : "s"} this snapshot serves could become a proposal. No new window has been served into it.`;
+  }
+  return `This snapshot serves ${supply.served} window${supply.served === 1 ? "" : "s"} and the one this run chose is already a clip. No new window has been served into it.`;
 }
 
 /**

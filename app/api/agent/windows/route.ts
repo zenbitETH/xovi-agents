@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { applyEmbargo } from "~~/lib/windows/embargo";
-import { BOARD_SPECIES, SnapshotUnavailable, cellOf, loadSnapshot } from "~~/lib/windows/snapshot";
+import { applyEmbargo as applyEmbargoAtServe } from "~~/lib/windows/embargo";
+import { BOARD_SPECIES, SnapshotUnavailable, type BoardWindow, cellState, loadSnapshot } from "~~/lib/windows/snapshot";
 import { authorizationFrom, recordSettlement, takeFreeRead } from "~~/lib/human/cap";
 import { PaymentMisconfigured, WINDOWS_ROUTE, adapterFor, buildServer, paymentHeaderFrom } from "~~/lib/x402";
 
@@ -40,21 +40,35 @@ export async function GET(request: Request) {
    * choosing a cell adds no field to anything and no station or alias is named
    * here.
    */
+  let cell: BoardWindow[] | null = null;
   const query = new URL(request.url).searchParams;
   const day = (query.get("day") ?? "").trim();
   const species = (query.get("species") ?? "").trim();
   if (day !== "" || species !== "") {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return refuse(400, "name a day as YYYY-MM-DD");
     if (!(BOARD_SPECIES as readonly string[]).includes(species)) return refuse(400, "name a species the board draws");
-    let available;
+    let state;
     try {
-      available = cellOf(loadSnapshot(), day, species);
+      // Read once. The gate runs here, in front of the payment, so the cell's
+      // answer is settled before anybody is asked for a cent.
+      state = cellState(loadSnapshot(), day, species);
     } catch (err) {
       return refuse(503, err instanceof SnapshotUnavailable ? err.message : "the snapshot is unavailable");
     }
-    if (available.length === 0) {
+    if (state.kind === "empty") {
       return refuse(404, "no windows are on offer for that day and species", { day, species });
     }
+    if (state.kind === "unscreened") {
+      /*
+       * The committed file loses something to the gate, so it was never screened
+       * against the list now in force. Serving what is left would sell a subset
+       * while the board said the cell was on offer, and the difference between
+       * the file and the answer is the withheld set. The cell refuses instead,
+       * and the fix is to re-screen and re-commit the file.
+       */
+      return refuse(503, "this cell is not screened against the embargo list in force", { day, species });
+    }
+    cell = state.windows;
   }
 
   const { header, sentV1Only } = paymentHeaderFrom(request);
@@ -100,22 +114,16 @@ export async function GET(request: Request) {
   // in it cannot be paid for. Nothing below this line settles unless it returns.
   let payload;
   try {
-    const all = loadSnapshot();
-    // The cell, when one was named. Selecting is not dropping: everything in the
-    // committed file for this cell is served.
-    const chosen = day !== "" && species !== "" ? cellOf(all, day, species) : all;
+    // Already read and already gated where a cell was named, which is also the
+    // answer to reading the snapshot twice on one request.
+    const chosen = cell ?? loadSnapshot();
     /*
-     * **The embargo drop happens at screening, before a file is committed, and
-     * this call must remove nothing.**
-     *
-     * A board that says none for a cell whose public file holds windows says that
-     * every one of them was dropped, which is the withheld set by subtraction. So
-     * a committed file is already screened, the gate here is the belt against a
-     * file that was not, and a check asserts the served set equals the file's set
-     * for every cell. A changed embargo list means re-screen and re-commit rather
-     * than a quieter answer from the same file.
+     * Where a cell was named the gate has already run, in front of the payment,
+     * and a cell that lost anything to it refused there rather than arriving here
+     * smaller. What reaches this point is the whole of the cell or the whole of
+     * the snapshot, so there is nothing left to drop and `dropped` is zero.
      */
-    const { kept, dropped } = applyEmbargo(chosen);
+    const { kept, dropped } = cell !== null ? { kept: cell, dropped: 0 } : applyEmbargoAtServe(chosen);
     payload = {
       schema: "xovi/candidate-window/v1",
       windows: kept,

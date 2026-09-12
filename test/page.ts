@@ -565,9 +565,21 @@ export async function pageChecks(check: Check) {
   const sentence = drawnSupply === null ? "" : supplySentence(drawnSupply);
   check(/already a clip/.test(sentence) && !/Every window/.test(sentence),
     `265b · and its sentence claims only the window the run chose (${sentence.slice(0, 48)})`);
-  const exhausted = supplyFrom([{ step: "read", served: 2, ids: ["a1", "b2"] }, { step: "nothing-proposable", considered: 2 }]);
-  check(exhausted !== null && /Every window this snapshot serves/.test(supplySentence(exhausted)),
-    "265c · while a run that could propose none of them claims all of them");
+  /*
+   * "Already proposed" is earned by the walk and by nothing else.
+   *
+   * `nothing-proposable` is a validation outcome: the run reaches it before
+   * offering anything, so it knows nothing about what the ingest holds, and it
+   * drew the stronger sentence with the wrong meaning. `cell-spent` is reachable
+   * only by offering every window and being refused each time.
+   */
+  const unusable = supplyFrom([{ step: "read", served: 2, ids: ["a1", "b2"] }, { step: "nothing-proposable", considered: 2 }]);
+  check(unusable?.kind === "unusable", `265c · a run that could validate none of them says so (${unusable?.kind})`);
+  check(unusable !== null && /could become a proposal/.test(supplySentence(unusable)) && !/already been proposed/.test(supplySentence(unusable)),
+    "265d · and never claims they were already proposed");
+  const spent = supplyFrom([{ step: "read", served: 2, ids: ["a1", "b2"] }, { step: "cell-spent", considered: 2 }]);
+  check(spent?.kind === "exhausted" && /already been proposed/.test(supplySentence(spent)),
+    "265e · while the walk that offered every one of them does claim it");
 
   /*
    * The strips are driven by their arrays, in both directions.

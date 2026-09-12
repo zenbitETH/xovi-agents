@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, statSync } from "fs";
 import { isAbsolute, join, resolve } from "path";
+import { applyEmbargo } from "./embargo";
 import { type CandidateWindow, windowProblems } from "./types";
 
 /** Only string lookups are needed, so the tests can pass a plain object
@@ -150,19 +151,47 @@ export const BOARD_SPECIES = ["mexicanum", "dumerilii", "andersoni"] as const;
  */
 export type BoardCell = { day: string; species: string; onOffer: boolean };
 
-export function boardFrom(windows: BoardWindow[]): { days: string[]; cells: BoardCell[] } {
+/** The windows of one cell, before the gate. */
+export function cellOf(windows: BoardWindow[], day: string, species: string): BoardWindow[] {
+  return windows.filter(w => w.day === day && w.speciesCode === species);
+}
+
+/**
+ * A cell, as the gate leaves it.
+ *
+ * Three outcomes and they are not two. **A committed file that loses anything to
+ * the gate is unserviceable, not smaller.** Screening happens before a file is
+ * committed, so a drop here means the committed file was never screened against
+ * the list now in force, and serving what is left would sell a subset while the
+ * board said the cell was on offer: the person pays and receives fewer windows,
+ * or none, and the difference is the withheld set by subtraction. So the cell
+ * refuses, the board does not offer it, and the answer is to re-screen and
+ * re-commit the file.
+ */
+export type CellState = { kind: "offer"; windows: BoardWindow[] } | { kind: "empty" } | { kind: "unscreened"; dropped: number };
+
+export function cellState(windows: BoardWindow[], day: string, species: string, env?: EnvLike): CellState {
+  const all = cellOf(windows, day, species);
+  if (all.length === 0) return { kind: "empty" };
+  const { kept, dropped } = applyEmbargo(all, env);
+  if (dropped > 0) return { kind: "unscreened", dropped };
+  return { kind: "offer", windows: kept };
+}
+
+/**
+ * The board, derived from what the gate would leave rather than from the file.
+ *
+ * A cell is on offer only where every one of its windows survives the gate. A
+ * board built from the raw file would say on offer for a cell that then answers
+ * nothing, which is the shape this whole design exists to refuse.
+ */
+export function boardFrom(windows: BoardWindow[], env?: EnvLike): { days: string[]; cells: BoardCell[] } {
   const days = [...new Set(windows.map(w => w.day).filter(d => d.length > 0))].sort();
   const cells: BoardCell[] = [];
   for (const day of days) {
     for (const species of BOARD_SPECIES) {
-      cells.push({ day, species, onOffer: windows.some(w => w.day === day && w.speciesCode === species) });
+      cells.push({ day, species, onOffer: cellState(windows, day, species, env).kind === "offer" });
     }
   }
   return { days, cells };
-}
-
-/** The windows of one cell. The station and the alias are untouched here: this
- *  selects, and the embargo drop downstream is what removes. */
-export function cellOf(windows: BoardWindow[], day: string, species: string): BoardWindow[] {
-  return windows.filter(w => w.day === day && w.speciesCode === species);
 }
