@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RECORD, RUNGS, fabricated, lineFor, settled, totalOnBaseSepolia } from "../app/app-shell";
 import { signedBy } from "../lib/anchor/confirmation";
+import { BASE_SEPOLIA_HEX, disconnect } from "../lib/agent/browser";
 import { CONFIRMATION_259 } from "../lib/anchor/confirmation-259";
 import { FABRICATED_TX } from "../lib/human/store";
 import type { RunStep } from "../lib/agent/run";
@@ -405,6 +406,52 @@ export async function pageChecks(check: Check) {
     "255c · while the paragraph that explained the page before showing it is gone");
 
   /*
+   * Disconnect says which of two things it did.
+   *
+   * There is no disconnect in EIP-1193. A page can forget the account, and the
+   * wallet goes on considering the site connected, which is why the control on
+   * most dapps is a lie the size of a button. `wallet_revokePermissions` withdraws
+   * the grant where a wallet implements it. Driven against both kinds of wallet,
+   * because the failure to catch is the page claiming the stronger one.
+   */
+  const savedProvider = (globalThis as { ethereum?: unknown }).ethereum;
+
+  (globalThis as { ethereum?: unknown }).ethereum = {
+    request: async ({ method }: { method: string }) => {
+      if (method === "wallet_revokePermissions") throw new Error("this wallet does not implement it");
+      return [];
+    },
+  };
+  check((await disconnect()) === "forgotten", "258 · a wallet without revoke is reported as forgotten, not revoked");
+
+  (globalThis as { ethereum?: unknown }).ethereum = { request: async () => null };
+  check((await disconnect()) === "revoked", "258a · and a wallet that revokes is reported as revoked (negative control)");
+
+  delete (globalThis as { ethereum?: unknown }).ethereum;
+  check((await disconnect()) === "forgotten", "258b · with no wallet at all, nothing is claimed");
+  (globalThis as { ethereum?: unknown }).ethereum = savedProvider;
+
+  // The two sentences the page shows for those two outcomes are different, and
+  // only one of them says the wallet did anything.
+  check(/this page forgot the account; the wallet still considers the site connected/.test(ui),
+    "258c · the page says so when only it forgot");
+  check(/the wallet withdrew this site's permission/.test(ui), "258d · and says so when the wallet withdrew");
+
+  /*
+   * The chain badge is a comparison, and the name is an equality.
+   *
+   * The badge reads the wallet's own chainId rather than the client's
+   * configuration, which is the mistake #38 was written about, and the chip shows
+   * a name only where the name route reported a match, because under a wildcard
+   * parent every subname resolves for every wallet.
+   */
+  check(new RegExp(`chain === ${"BASE_SEPOLIA_HEX"}`).test(ui), "259 · the badge compares the wallet's chain against Base Sepolia");
+  check(/Wrong chain, switch/.test(ui), "259a · and offers the switch on any other chain");
+  check(/answer !== null && answer\.matches \? answer\.name : null/.test(ui),
+    "259b · the chip takes a name only on the name route's match");
+  check(BASE_SEPOLIA_HEX === "0x14a34", `259c · and Base Sepolia is the chain it compares against (${BASE_SEPOLIA_HEX})`);
+
+  /*
    * The ladder: each rung two present tense sentences, one merged fact and one
    * negative, and the unlock written as the negative rather than a condition.
    */
@@ -530,7 +577,13 @@ export async function pageChecks(check: Check) {
   const tokens = ui.match(/\bag-[a-z0-9-]+/g) ?? [];
   // A trailing hyphen is the left half of `ag-tone-${...}`. Each such family has
   // to be expanded by hand below, so an unknown one is unasserted, not absent.
-  const FAMILIES: Record<string, string[]> = { "ag-tone-": ["good", "working", "stopped"], "ag-actor-": ["human", "agent", "system"] };
+  const FAMILIES: Record<string, string[]> = {
+    "ag-tone-": ["good", "working", "stopped"],
+    "ag-actor-": ["human", "agent", "system"],
+    // The status chip's four, from `StatusChip`. `ag-chip-name` and
+    // `ag-chip-action` are written whole where they are used and arrive as tokens.
+    "ag-chip-": ["idle", "working", "good", "stopped"],
+  };
   const renderedClasses = new Set(tokens.filter(t => !t.endsWith("-")));
   for (const [prefix, values] of Object.entries(FAMILIES)) for (const v of values) renderedClasses.add(`${prefix}${v}`);
   const unstyled = [...renderedClasses].filter(c => !styled(c));

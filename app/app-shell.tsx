@@ -1,7 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { NoWallet, WrongChain, connect, ensureBaseSepolia, signChallenge } from "~~/lib/agent/browser";
+import {
+  BASE_SEPOLIA_HEX,
+  NoWallet,
+  WrongChain,
+  connect,
+  currentChain,
+  disconnect,
+  ensureBaseSepolia,
+  onWalletChange,
+  signChallenge,
+} from "~~/lib/agent/browser";
 import type { RunStep } from "~~/lib/agent/run";
 import { recoverConfirmer } from "~~/lib/anchor/confirmation";
 import { decisionCode } from "~~/lib/anchor/schema";
@@ -813,6 +823,127 @@ function Drawing({ object }: { object: Drawn }) {
   }
 }
 
+/**
+ * A mark for an address, drawn from the address.
+ *
+ * Five columns mirrored about the centre, filled from the address's own nibbles,
+ * with a hue taken from its last byte. No dependency and no request: the address
+ * is already twenty random bytes, so nothing needs hashing to spread it out.
+ *
+ * It exists so a person can tell at a glance that the wallet on screen is the one
+ * they think it is. That is a recognition task and not a reading task, which is
+ * why it is a shape and not the address in a larger font.
+ */
+function Identicon({ address }: { address: string }) {
+  const body = address.slice(2).toLowerCase();
+  const hue = (parseInt(body.slice(-2), 16) / 255) * 360;
+  const cells: { x: number; y: number }[] = [];
+  for (let column = 0; column < 3; column++) {
+    for (let row = 0; row < 5; row++) {
+      if (parseInt(body[(column * 5 + row) % body.length], 16) > 7) {
+        cells.push({ x: column, y: row });
+        if (column < 2) cells.push({ x: 4 - column, y: row });
+      }
+    }
+  }
+  return (
+    // width and height on the element as well as in CSS, for the reason the
+    // wordmark's mark carries them: an svg with only a viewBox scales to whatever
+    // contains it if a rule is ever lost.
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 5 5"
+      className="ag-identicon"
+      aria-hidden="true"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect width="5" height="5" fill={`hsl(${hue.toFixed(0)} 30% 22%)`} />
+      {cells.map(cell => (
+        <rect key={`${cell.x}-${cell.y}`} x={cell.x} y={cell.y} width="1" height="1" fill={`hsl(${hue.toFixed(0)} 48% 62%)`} />
+      ))}
+    </svg>
+  );
+}
+
+/**
+ * How the run is going, as a chip rather than a phrase.
+ *
+ * A stopped run says why in the same chip, because a state a person has to look
+ * elsewhere to understand is not a status.
+ */
+function StatusChip({ phase, why }: { phase: Phase; why: string | null }) {
+  const tone = phase === "running" || phase === "signing" ? "working" : phase === "finished" ? "good" : why !== null ? "stopped" : "idle";
+  return (
+    <span className={`ag-chip ag-chip-${tone}`}>
+      {why !== null ? `stopped: ${why}` : PHASE_LABEL[phase]}
+    </span>
+  );
+}
+
+/**
+ * The account, as a thing with an identity rather than an address in a sentence.
+ *
+ * The chain badge is a warning on anything but Base Sepolia, with the switch beside
+ * it, because a wallet on the wrong chain is the failure this page meets most and
+ * the old surface reported it only after a signature was refused.
+ *
+ * Disconnect says which of two things it did. There is no disconnect in EIP-1193:
+ * a page can forget the account, and the wallet goes on considering the site
+ * connected. `wallet_revokePermissions` withdraws the grant where a wallet has it.
+ * Both are real and they are different, so the chip reports the one that happened
+ * rather than the stronger one.
+ */
+function AccountChip({
+  address,
+  chain,
+  name,
+  onSwitch,
+  onDisconnect,
+  note,
+}: {
+  address: `0x${string}`;
+  chain: string | null;
+  name: string | null;
+  onSwitch: () => void;
+  onDisconnect: () => void;
+  note: string | null;
+}) {
+  const onBaseSepolia = chain === null || chain === BASE_SEPOLIA_HEX;
+  return (
+    <div className="ag-account">
+      {onBaseSepolia ? (
+        <span className="ag-chip ag-chip-idle">Base Sepolia</span>
+      ) : (
+        <button type="button" className="ag-chip ag-chip-stopped ag-chip-action" onClick={onSwitch}>
+          Wrong chain, switch
+        </button>
+      )}
+      <details className="ag-menu">
+        <summary className="ag-account-face">
+          <Identicon address={address} />
+          <span className="ag-account-address">
+            {address.slice(0, 6)}…{address.slice(-4)}
+          </span>
+          {name !== null && <span className="ag-chip ag-chip-name">{name}</span>}
+        </summary>
+        <div className="ag-menu-panel">
+          <button type="button" className="ag-menu-item" onClick={() => void navigator.clipboard?.writeText(address)}>
+            Copy address
+          </button>
+          <a className="ag-menu-item" href={`https://sepolia.basescan.org/address/${address}`}>
+            View on the explorer
+          </a>
+          <button type="button" className="ag-menu-item" onClick={onDisconnect}>
+            Disconnect
+          </button>
+          {note !== null && <p className="ag-menu-note">{note}</p>}
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function Mark() {
   return (
     // width and height on the element as well as in CSS. An inline SVG with only a
@@ -846,6 +977,9 @@ export function AppShell() {
   const [screen, setScreen] = useState<Screen>("runs");
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [ledger, setLedger] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [chain, setChain] = useState<string | null>(null);
+  const [issuedName, setIssuedName] = useState<string | null>(null);
+  const [walletNote, setWalletNote] = useState<string | null>(null);
   const busy = useRef(false);
   const feedEnd = useRef<HTMLLIElement | null>(null);
 
@@ -889,6 +1023,79 @@ export function AppShell() {
     // each of them was about six requests for one settlement.
   }, [address, phase === "finished"]);
 
+  /**
+   * What the wallet does on its own.
+   *
+   * A page that reads the account once shows the previous one after a person
+   * switches, which on a surface about paying from your own wallet is the worst
+   * thing it could be wrong about. Both events are standard and most pages ignore
+   * both.
+   */
+  useEffect(
+    () =>
+      onWalletChange({
+        accounts: accounts => {
+          const next = accounts[0];
+          if (next === undefined) {
+            setAddress(null);
+            setPhase("idle");
+            setWalletNote("the wallet disconnected this site");
+            return;
+          }
+          setAddress(next as `0x${string}`);
+          setWalletNote(null);
+        },
+        chain: next => setChain(next.toLowerCase()),
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    if (address === null) {
+      setChain(null);
+      setIssuedName(null);
+      return;
+    }
+    let live = true;
+    void currentChain().then(c => {
+      if (live) setChain(c);
+    });
+    fetch(`/api/name?payer=${address}`)
+      .then(async r => (r.ok ? ((await r.json()) as { name: string | null; matches: boolean }) : null))
+      // Only on a match. A name that resolves to somebody else is not this
+      // account's name, and under a wildcard parent every name resolves.
+      .then(answer => {
+        if (live) setIssuedName(answer !== null && answer.matches ? answer.name : null);
+      })
+      .catch(() => {
+        if (live) setIssuedName(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [address]);
+
+  const onDisconnect = useCallback(async () => {
+    const how = await disconnect();
+    setAddress(null);
+    setPhase("idle");
+    setLines([]);
+    setWalletNote(
+      how === "revoked"
+        ? "the wallet withdrew this site's permission"
+        : "this page forgot the account; the wallet still considers the site connected",
+    );
+  }, []);
+
+  const onSwitch = useCallback(async () => {
+    try {
+      await ensureBaseSepolia();
+      setChain(await currentChain());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
   const onConnect = useCallback(async () => {
     setError(null);
     setPhase("connecting");
@@ -896,6 +1103,8 @@ export function AppShell() {
       const a = await connect();
       await ensureBaseSepolia();
       setAddress(a);
+      setChain(await currentChain());
+      setWalletNote(null);
       setPhase("ready");
     } catch (e) {
       setPhase("idle");
@@ -970,6 +1179,9 @@ export function AppShell() {
   }, [address, say]);
 
   const running = phase === "signing" || phase === "running";
+  // The reason a run stopped, taken from the run's own last stopped line rather
+  // than from a second source that could disagree with the feed beside it.
+  const stoppedWhy = running ? null : (lines.filter(l => l.tone === "stopped").at(-1)?.text ?? null);
 
   return (
     <>
@@ -980,9 +1192,25 @@ export function AppShell() {
             <span className="ag-wordmark">xovi</span>
             <span className="ag-wordmark-sub">agents</span>
           </a>
-          <a className="ag-link ag-sub" href={REPO}>
-            Repository
-          </a>
+          <div className="ag-header-right">
+            {address === null ? (
+              <button className="btn xv-action ag-primary" onClick={onConnect} disabled={phase === "connecting"}>
+                {phase === "connecting" ? "Connecting" : "Connect wallet"}
+              </button>
+            ) : (
+              <>
+                <StatusChip phase={phase} why={stoppedWhy} />
+                <AccountChip
+                  address={address}
+                  chain={chain}
+                  name={issuedName}
+                  onSwitch={() => void onSwitch()}
+                  onDisconnect={() => void onDisconnect()}
+                  note={walletNote}
+                />
+              </>
+            )}
+          </div>
         </div>
       </header>
 
@@ -991,11 +1219,7 @@ export function AppShell() {
           <div className="ag-app-top">
             <p className="ag-eyebrow">Delegated run · Base Sepolia</p>
             <h1 className="ag-app-title">An agent may propose. No credential in existence may confirm.</h1>
-            <p className="ag-sub">
-              {address === null
-                ? "Connect a wallet, pay for one read, and the agent does the rest."
-                : `${address.slice(0, 6)}…${address.slice(-4)} · ${PHASE_LABEL[phase]}`}
-            </p>
+            <p className="ag-sub">Connect a wallet, pay for one read, and the agent does the rest.</p>
             <nav className="ag-rail" aria-label="Sections">
               {SCREENS.map(s => (
                 <button
@@ -1174,12 +1398,8 @@ export function AppShell() {
               </p>
             )}
             <div className="ag-actions">
-              {address === null ? (
-                <button className="btn xv-action" onClick={onConnect} disabled={phase === "connecting"}>
-                  {phase === "connecting" ? "Connecting" : "Connect wallet"}
-                </button>
-              ) : (
-                <button className="btn xv-action" onClick={onRun} disabled={running}>
+              {address !== null && (
+                <button className="btn xv-action ag-primary" onClick={onRun} disabled={running}>
                   {running ? "Running" : "Pay and run"}
                 </button>
               )}
@@ -1190,6 +1410,9 @@ export function AppShell() {
                 Payments settle on Base Sepolia. Nothing here writes to a mainnet; one read is on one.{" "}
                 <a className="ag-link" href="https://zenbit.mx/en/privacy">
                   Privacy
+                </a>{" "}
+                <a className="ag-link" href={REPO}>
+                  Repository
                 </a>
               </span>
             </div>

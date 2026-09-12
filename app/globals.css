@@ -722,6 +722,203 @@ body::after {
 }
 
 /* ---------------------------------------------------------------------------
+   The account, in the header.
+
+   Identity, chain and the way out, in the place every wallet interface puts them.
+   The chip is the page's answer to a question the old surface left to a phrase
+   under the title: which wallet is this, on which chain, and how do I leave.
+
+   Motion here is press feedback and nothing else. Only `transform` and `opacity`
+   move, every transition names its properties, and nothing exceeds 300ms.
+--------------------------------------------------------------------------- */
+.ag-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* One primary action at a time, so Connect wallet and Pay and run are never both
+   the loudest thing on the screen. */
+.ag-primary {
+  font-weight: 600;
+}
+
+.ag-account {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.ag-identicon {
+  display: block;
+  border-radius: 0.25rem;
+  flex-shrink: 0;
+}
+
+.ag-account-face {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
+  list-style: none;
+  transition: transform 120ms var(--xv-ease-out), border-color 150ms var(--xv-ease-out);
+}
+
+.ag-account-face::-webkit-details-marker {
+  display: none;
+}
+
+.ag-account-face:active {
+  transform: scale(0.97);
+}
+
+.ag-account-address {
+  font-family: var(--xv-mono);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Chips: a state as an object, not a phrase.
+
+   The tones are the feed's, so a stopped run reads the same in the header as it
+   does in the log. Colour changes transition, movement does not: a chip that
+   slid on every phase would be motion reporting nothing.
+--------------------------------------------------------------------------- */
+.ag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1875rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  border-radius: 999px;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  white-space: nowrap;
+  transition: background-color 160ms var(--xv-ease-out), border-color 160ms var(--xv-ease-out);
+}
+
+.ag-chip-idle {
+  opacity: 0.7;
+}
+
+.ag-chip-working {
+  border-color: color-mix(in srgb, var(--color-xv-agent) 55%, transparent);
+}
+
+.ag-chip-good {
+  border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+}
+
+.ag-chip-stopped {
+  border-color: color-mix(in srgb, var(--color-error) 55%, transparent);
+  color: var(--color-error);
+}
+
+/* The issued name, which is only ever shown on an equality with this payer. */
+.ag-chip-name {
+  font-family: var(--xv-mono);
+  border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+}
+
+.ag-chip-action {
+  cursor: pointer;
+  background-color: transparent;
+  transition: transform 120ms var(--xv-ease-out), border-color 160ms var(--xv-ease-out);
+}
+
+.ag-chip-action:active {
+  transform: scale(0.97);
+}
+
+/* ---------------------------------------------------------------------------
+   The account menu, as a native disclosure.
+
+   No outside click handling, no focus trap and no portal, because the element
+   already does all three. It opens downward from its right edge, which is where
+   it sits, so the panel grows from the control rather than appearing beside it.
+--------------------------------------------------------------------------- */
+.ag-menu {
+  position: relative;
+}
+
+.ag-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.375rem);
+  z-index: 40;
+  display: flex;
+  min-width: 12rem;
+  flex-direction: column;
+  padding: 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent);
+  border-radius: 0.625rem;
+  background-color: var(--color-base-100);
+  transform-origin: top right;
+  animation: xvMenuIn 160ms var(--xv-ease-out) both;
+}
+
+@keyframes xvMenuIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+}
+
+.ag-menu-item {
+  padding: 0.4375rem 0.5rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background-color: transparent;
+  color: inherit;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.8125rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 150ms var(--xv-ease-out);
+}
+
+/* Gated, so a touch device does not keep a hover after the finger leaves. */
+@media (hover: hover) and (pointer: fine) {
+  .ag-menu-item:hover {
+    background-color: color-mix(in srgb, var(--color-base-content) 8%, transparent);
+  }
+}
+
+.ag-menu-note {
+  margin: 0.375rem 0.5rem 0.25rem;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  opacity: 0.7;
+}
+
+/* Reduced motion keeps the fade and the colour and drops what moves. Gentler
+   rather than none, which is what the setting asks for. */
+@media (prefers-reduced-motion: reduce) {
+  .ag-menu-panel {
+    animation-duration: 120ms;
+  }
+
+  @keyframes xvMenuIn {
+    from {
+      opacity: 0;
+    }
+  }
+
+  .ag-account-face:active,
+  .ag-chip-action:active {
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
    The fold: three verbs, one sentence each.
 
    What a person can do here, before any explanation of it. The tiles carry no

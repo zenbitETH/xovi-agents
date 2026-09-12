@@ -28,6 +28,79 @@ function injected(): EIP1193Provider {
   return p;
 }
 
+/** Base Sepolia's identifier as the wallet reports it, for a caller that wants to
+ *  compare rather than switch. */
+export const BASE_SEPOLIA_HEX = CHAIN_HEX;
+
+/** The chain the wallet is on, or null when there is no wallet to ask. */
+export async function currentChain(): Promise<string | null> {
+  try {
+    const current = (await injected().request({ method: "eth_chainId" })) as string;
+    return current?.toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What a wallet does when it changes underneath the page.
+ *
+ * A page that reads the account once and never listens shows the previous account
+ * after the person switches, which on a surface about paying from your own wallet
+ * is the worst thing it could be wrong about. Both events are standard EIP-1193
+ * and both are ignored by most pages.
+ *
+ * Returns its own unsubscribe, so a component can listen for as long as it exists
+ * and no longer.
+ */
+export function onWalletChange(handlers: {
+  accounts?: (accounts: string[]) => void;
+  chain?: (chainId: string) => void;
+}): () => void {
+  let provider: EIP1193Provider;
+  try {
+    provider = injected();
+  } catch {
+    return () => undefined;
+  }
+  const listenable = provider as unknown as {
+    on?: (event: string, cb: (...args: never[]) => void) => void;
+    removeListener?: (event: string, cb: (...args: never[]) => void) => void;
+  };
+  if (typeof listenable.on !== "function") return () => undefined;
+
+  const onAccounts = (...args: never[]) => handlers.accounts?.((args[0] as unknown as string[]) ?? []);
+  const onChain = (...args: never[]) => handlers.chain?.(String(args[0] ?? ""));
+  listenable.on("accountsChanged", onAccounts);
+  listenable.on("chainChanged", onChain);
+  return () => {
+    listenable.removeListener?.("accountsChanged", onAccounts);
+    listenable.removeListener?.("chainChanged", onChain);
+  };
+}
+
+/**
+ * Let go of the wallet, and say which of the two things happened.
+ *
+ * There is no disconnect in EIP-1193. A page can forget the account, and the
+ * wallet goes on considering the site connected, which is why "Disconnect" on most
+ * dapps is a lie the size of a button: the next visit reconnects with no prompt.
+ * `wallet_revokePermissions` actually withdraws the grant and some wallets
+ * implement it. Both outcomes are real and they are different, so the caller is
+ * told which one it got rather than being left to assume the stronger one.
+ */
+export async function disconnect(): Promise<"revoked" | "forgotten"> {
+  try {
+    await injected().request({
+      method: "wallet_revokePermissions",
+      params: [{ eth_accounts: {} }] as never,
+    });
+    return "revoked";
+  } catch {
+    return "forgotten";
+  }
+}
+
 export async function connect(): Promise<`0x${string}`> {
   const provider = injected();
   const accounts = (await provider.request({ method: "eth_requestAccounts" })) as `0x${string}`[];
