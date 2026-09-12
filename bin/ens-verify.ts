@@ -39,10 +39,15 @@ const ZERO = "0x0000000000000000000000000000000000000000";
  *
  * What the pair does NOT buy is wrong-chain detection, and the way that was learned
  * is the reason the chain id is now read separately. On `ethereum-rpc.publicnode.com`,
- * chain id 1, every name resolves, an invented one included, because mainnet's
- * resolver walks up to the `eth` node for names that do not exist. The example is an
- * invented name on purpose: this comment first used a real unregistered one, and it
- * was registered a day later, which is how an example of `does not exist` rots. An earlier probe
+ * chain id 1, measured 2026-09-12: every name resolves, an invented one included,
+ * because mainnet's resolver walks up to the `eth` node for names that do not exist.
+ * Both the invented name and a real unregistered one answer `0x30200E0c`, while the v1
+ * registry answers zero for both and names an owner for `vitalik.eth`, so the two
+ * instruments agree once you say which one you asked.
+ *
+ * The example is an invented name on purpose. This comment first used a real
+ * unregistered one and it was registered a day later, which is how an illustration of
+ * `does not exist` rots: it is a bet that nobody buys the string. An earlier probe
  * against `cloudflare-eth.com` saw all three throw and read that as the guard already
  * working. That endpoint answers `Internal error` to `eth_call` and `eth_getCode`
  * alike, for a contract another provider returns bytecode for, so it was broken for
@@ -82,9 +87,11 @@ async function main() {
    * to delete, so it is read from the endpoint instead.
    *
    * The controls cannot stand in for it. They prove the endpoint answers about names,
-   * not that it is the right endpoint to ask, and on one mainnet rpc all three names
-   * resolve because mainnet's resolver walks up to the `eth` node for names that do
-   * not exist. The run then enters the module and tells the operator to register a
+   * not that it is the right endpoint to ask, and on one mainnet rpc, measured
+   * 2026-09-12, every name asked resolved, an invented one included, because mainnet's
+   * resolver walks up to the `eth` node for names that do not exist. Stated without
+   * naming which names, because the previous version named one that has since been
+   * registered. The run then enters the module and tells the operator to register a
    * name that is already registered, or set a record, on Sepolia.
    */
   const answered = await client.getChainId().catch(() => null);
