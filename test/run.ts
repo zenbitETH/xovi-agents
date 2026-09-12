@@ -32,6 +32,7 @@ import { anchorChecks } from "./anchor";
 import { mcpChecks } from "./mcp";
 import { pageChecks } from "./page";
 import { agentRunChecks } from "./agent-run";
+import { receiptsChecks } from "./receipts";
 
 let n = 0;
 let bad = 0;
@@ -716,6 +717,7 @@ async function main() {
   await anchorChecks(check);
   await mcpChecks(check);
   await agentRunChecks(check);
+  await receiptsChecks(check);
 
   pageChecks(check);
 

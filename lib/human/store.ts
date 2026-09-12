@@ -21,6 +21,32 @@ export type Receipt = {
 };
 
 /**
+ * A settlement as a reader is allowed to see it.
+ *
+ * The written shape and the served shape are two types on purpose. `Receipt` is
+ * what the pay path hands the ledger; this is the projection a route may return,
+ * and the difference between them is the only thing standing between the receipts
+ * table and whatever a column added later happens to hold. A route that spread a
+ * row would serve the new column the day it appears; a route that builds this
+ * object field by field cannot.
+ *
+ * `settledAt` is an ISO instant rather than the driver's own value, so the wire
+ * shape does not change with the driver. Nothing from `human_usage` belongs here:
+ * that table holds a keyed derivation of a World ID nullifier, and the ruling that
+ * treats it as personal data is the reason it is in another table at all.
+ */
+export type Settlement = {
+  source: string;
+  payer: string;
+  payTo: string;
+  amount: string;
+  network: string;
+  nonce: string;
+  txHash: string;
+  settledAt: string;
+};
+
+/**
  * The transaction hash the fake facilitator settles with.
  *
  * It lives here rather than in `test/facilitator.ts` because the party that must
