@@ -39,9 +39,17 @@ const ZERO = "0x0000000000000000000000000000000000000000";
  *
  * What the pair does NOT buy is wrong-chain detection, and the way that was learned
  * is the reason the chain id is now read separately. On `ethereum-rpc.publicnode.com`,
- * chain id 1, all three names resolve, `xoviagents.eth` included, because mainnet's
- * resolver walks up to the `eth` node for names that do not exist. An earlier probe
- * against `cloudflare-eth.com` saw all three throw and read that as the guard already
+ * chain id 1, measured 2026-09-12: every name asked resolved through the universal
+ * resolver that `getEnsResolver` asks, an invented one included, because mainnet's
+ * resolver walks up to the `eth` node for names that do not exist.
+ * Both the invented name and a real unregistered one answer `0x30200E0c`, while the v1
+ * registry answers zero for both and names an owner for `vitalik.eth`, so the two
+ * instruments agree once you say which one you asked.
+ *
+ * The example is an invented name on purpose. This comment first used a real
+ * unregistered one and it was registered a day later, which is how an illustration of
+ * `does not exist` rots: it is a bet that nobody buys the string. An earlier probe
+ * against `cloudflare-eth.com` saw every name asked throw and read that as the guard already
  * working. That endpoint answers `Internal error` to `eth_call` and `eth_getCode`
  * alike, for a contract another provider returns bytecode for, so it was broken for
  * the call rather than reporting anything about the network. A broken provider
@@ -56,8 +64,21 @@ const ZERO = "0x0000000000000000000000000000000000000000";
  * and a live addr record: `wonderer.eth`, `keloidal.eth`, `carrioles.eth`.
  */
 const CONTROLS = [
-  { name: "ens.eth", leaf: "v1 records, via the ENSV1Resolver bridge" },
-  { name: "chijesus99.eth", leaf: "a native v2 resolver" },
+  { name: "ens.eth", expect: "resolves", leaf: "v1 records, via the ENSV1Resolver bridge" },
+  { name: "chijesus99.eth", expect: "resolves", leaf: "a native v2 resolver" },
+  /*
+   * The negative control, and the reason it is here rather than in whoever happens to
+   * be running this. Two positives prove the endpoint answers; they cannot tell a real
+   * resolver from one that answers for everything, and the value this tool reads is a
+   * resolver address. On a mainnet rpc an invented name resolves through the `eth`
+   * node walk-up, so this is also a second wrong-chain signal, at the leaf and by a
+   * different route than the chain id read at the top.
+   *
+   * If it ever resolves, the name has been registered: pick another invented one. That
+   * is not a hypothetical, it is what happened to the name this file used as its
+   * example of absence.
+   */
+  { name: "zzq7-not-a-real-name-4417.eth", expect: "does not resolve", leaf: "nothing, because nobody has registered it" },
 ] as const;
 
 function arg(name: string): string | undefined {
@@ -80,9 +101,11 @@ async function main() {
    * to delete, so it is read from the endpoint instead.
    *
    * The controls cannot stand in for it. They prove the endpoint answers about names,
-   * not that it is the right endpoint to ask, and on one mainnet rpc all three names
-   * resolve because mainnet's resolver walks up to the `eth` node for names that do
-   * not exist. The run then enters the module and tells the operator to register a
+   * not that it is the right endpoint to ask. On `ethereum-rpc.publicnode.com`, chain
+   * id 1, measured 2026-09-12, every name asked resolved through the universal resolver
+   * that `getEnsResolver` asks, an invented one included, because mainnet's resolver
+   * walks up to the `eth` node for names that do not exist. Stated without naming which
+   * names, because the previous version named one that has since been registered. The run then enters the module and tells the operator to register a
    * name that is already registered, or set a record, on Sepolia.
    */
   const answered = await client.getChainId().catch(() => null);
@@ -105,16 +128,23 @@ async function main() {
     return;
   }
 
-  // The instrument, before the measurement, and both halves of it.
+  // The instrument, before the measurement, and every part of it.
   for (const control of CONTROLS) {
     const resolved = await client.getEnsResolver({ name: control.name }).catch(() => null);
-    if (!resolved || resolved === ZERO) {
-      console.error(`  the control ${control.name} did not resolve, so this endpoint is not answering`);
-      console.error(`  through ${control.leaf}. Every answer below would be meaningless. Check the rpc.`);
+    const answered = !!resolved && resolved !== ZERO;
+    if (answered !== (control.expect === "resolves")) {
+      if (control.expect === "resolves") {
+        console.error(`  the control ${control.name} did not resolve, so this endpoint is not answering`);
+        console.error(`  through ${control.leaf}. Every answer below would be meaningless. Check the rpc.`);
+      } else {
+        console.error(`  the negative control ${control.name} RESOLVED, to ${resolved}. Nothing should.`);
+        console.error(`  Either this endpoint answers for every name, in which case a resolver below`);
+        console.error(`  proves nothing, or somebody registered it and this file needs another.`);
+      }
       process.exitCode = 1;
       return;
     }
-    console.log(`  control  ${control.name} (${control.leaf}) resolves to ${resolved}`);
+    console.log(`  control  ${control.name} (${control.leaf}) ${answered ? `resolves to ${resolved}` : "does not resolve, as it must not"}`);
   }
   console.log();
 
