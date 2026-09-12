@@ -1,8 +1,10 @@
-# Registering the agent's name
+# Registering the name
 
 The agent reads the endpoint it pays for out of a text record on a name, so that an operator can move the endpoint without shipping the agent again, and so that a reader can see what the agent is pointed at without being handed its configuration.
 
-The name is **`xovi.eth`**. It is registered on Ethereum Sepolia and carries a resolver, `0xAe2084CB…`, measured through `bin/ens-verify.ts`, which reads three controls before it reads anything: two names that must resolve and an invented one that must not. The last is what shows a resolver belongs to the name asked rather than to an endpoint answering for everything. `x402:windows` is null, so **steps 1 and 2 are done and the next action is step 3**.
+The name is **`xovi.eth`**. It is registered on Ethereum Sepolia and carries a resolver, `0xAe2084CB…`, measured through `bin/ens-verify.ts`, which reads three controls before it reads anything: two names that must resolve and an invented one that must not. The last is what shows a resolver belongs to the name asked rather than to an endpoint answering for everything. `x402:windows` resolves to `https://xovi-agents.vercel.app/api/agent/windows`, measured 2026-09-12 at exit 0.
+
+**Steps 1, 2, 4 and 5 are done. Step 3 was not performed**, and that is worth saying plainly rather than leaving a reader to infer it from an unbroken sequence: the record went straight to the `https` endpoint, so the protocol guard has still never been exercised against a real record through the real adapter. It is proven against an injected value in the suite and owed here. Step 3 has also become more expensive than it was, because setting an `http` record on a name the agent now reads would take the agent down for as long as it stood.
 
 This is an ordinary Sepolia name with one text record, but there **is** a second version to evaluate and registering here lands on it. ENSv2 beta is live on Sepolia, and ENS documents the v1 contracts as still existing there but no longer in use, with the Universal Resolver and the Sepolia apps linked against v2. An earlier version of this document said there was no second version, and that sentence is what put a hardcoded v1 registry address in the verifier. Nothing in the agent changes: ENS states that an application which only reads ENS data needs no changes with a supported library, and the installed viem is 2.56.3 against a documented floor of 2.35.0.
 
