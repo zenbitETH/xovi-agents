@@ -1,4 +1,4 @@
-import { resolveWindowsEndpoint } from "../lib/agent/ens";
+import { assertIssuedIdentity, resolveWindowsEndpoint } from "../lib/agent/ens";
 import { DEFAULT_LEDGER_PATH, loadLedger, unrefused } from "../lib/agent/ledger";
 import { assertRecipient, buildPayer, payingFetch } from "../lib/agent/pay";
 import { UnproposableWindow, propose } from "../lib/agent/propose";
@@ -29,7 +29,14 @@ async function main() {
   const windowsUrl = await resolveWindowsEndpoint();
 
   const payer = buildPayer();
+  // Before the address is used for anything. A name that names somebody else is a
+  // misconfiguration and this refuses to start rather than proposing under it.
+  const identity = await assertIssuedIdentity(payer.address);
   console.log(`  payer      ${payer.address}`);
+  // Alongside the address and never instead of it: the address is what pays and what
+  // the ingest route attributes, and the name is Zenbit's attestation about which key
+  // it recognises. Printing the name alone would hide the thing that acts.
+  if (identity) console.log(`  identity   ${identity}, issued by Zenbit to that address`);
   console.log(`  windows    ${windowsUrl}`);
   console.log(`  ledger     ${ledgerPath} (${ledger.size()} refused)`);
 
