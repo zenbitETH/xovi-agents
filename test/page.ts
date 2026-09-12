@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { RECORD, fabricated, lineFor, settled } from "../app/app-shell";
+import { RECORD, RUNGS, fabricated, lineFor, settled, totalOnBaseSepolia } from "../app/app-shell";
 import { signedBy } from "../lib/anchor/confirmation";
 import { FABRICATED_TX } from "../lib/human/store";
 import type { RunStep } from "../lib/agent/run";
@@ -211,6 +211,66 @@ export async function pageChecks(check: Check) {
   const records = ui.slice(ui.indexOf("function Records()"), ui.indexOf("/**\n * A drawn state"));
   check(records.length > 0 && !records.includes("fetch("), "233 · the record check fetches nothing, so it answers with the operator gone");
   check(ui.includes("fetch("), "233a · while the page does fetch elsewhere (negative control)");
+
+  /*
+   * The total is over one chain, and a row from anywhere else is counted and not
+   * added.
+   *
+   * The ledger records a network and an atomic amount and no asset, so the unit
+   * comes from a merged document, the README and the live challenge, which name
+   * USDC on Base Sepolia. That makes the network filter load bearing: without it
+   * the page would add quantities of unrelated tokens into one number. Driven on
+   * a mixed fixture, because dropping the filter left the suite green while
+   * nothing exercised the function.
+   */
+  const mixed = [
+    { source: "route", payer: "0xp", payTo: "0xr", amount: "10000", network: "eip155:84532", nonce: "n1", txHash: "0xa", settledAt: "2026-09-11T05:00:00.000Z" },
+    { source: "route", payer: "0xp", payTo: "0xr", amount: "10000", network: "eip155:84532", nonce: "n2", txHash: "0xb", settledAt: "2026-09-11T06:00:00.000Z" },
+    { source: "route", payer: "0xp", payTo: "0xr", amount: "99999999", network: "eip155:11155111", nonce: "n3", txHash: "0xc", settledAt: "2026-09-11T07:00:00.000Z" },
+    { source: "route", payer: "0xp", payTo: "0xr", amount: "10000", network: "eip155:84532", nonce: "n4", txHash: FABRICATED_TX, settledAt: "2026-09-11T08:00:00.000Z" },
+  ];
+  const totals = totalOnBaseSepolia(mixed);
+  check(totals.total === "0.02", `234 · the total is over Base Sepolia rows alone (${totals.total})`);
+  check(totals.counted === 2, `234a · counting two of them (${totals.counted})`);
+  check(totals.elsewhere === 1, `234b · and the row on another chain is counted and not added (${totals.elsewhere})`);
+
+  /*
+   * The allowance card states the allowance and no count.
+   *
+   * The route serves no remaining count, so a number there would be one the page
+   * made up. 225 catches shapes that look like money and would not catch a bare
+   * integer, so the card is read directly: the panel that carries the allowance
+   * sentence must carry no big number and no digit.
+   */
+  const freeCard = ui.slice(ui.indexOf("<h3 className=\"ag-panel-title\">Free reads</h3>"));
+  const freeCardEnd = freeCard.indexOf("</div>");
+  const freeCardText = freeCard.slice(0, freeCardEnd);
+  check(freeCardText.length > 0, "235 · the free reads card is on the page");
+  check(!freeCardText.includes("ag-panel-big"), "235a · and renders no figure where the other cards render one");
+  // Over the text nodes, not the markup: `<h3>` is a digit and is not a count.
+  const freeCardWords = freeCardText.replace(/<[^>]*>/g, " ");
+  check(!/\d/.test(freeCardWords), `235b · nor any digit in its words (${freeCardWords.trim().slice(0, 40)})`);
+  check(/\d/.test("Served under the free daily allowance, 3 left".replace(/<[^>]*>/g, " ")), "235c · the digit check reads the words (negative control)");
+
+  /*
+   * The ladder: each rung two present tense sentences, one merged fact and one
+   * negative, and the unlock written as the negative rather than a condition.
+   */
+  check(RUNGS.length === 6, `236 · six rungs (${RUNGS.length})`);
+  const sentencesOf = (t: string) => t.split(/(?<=\.)\s+/).filter(x => x.length > 0);
+  const wrongCount = RUNGS.filter(r => sentencesOf(r.sentences).length !== 2);
+  check(wrongCount.length === 0, `236a · each is exactly two sentences (${wrongCount.length} were not)`);
+  const notNegative = RUNGS.filter(r => !/^(No|Nothing)\b/.test(sentencesOf(r.sentences)[1] ?? ""));
+  check(notNegative.length === 0, `236b · and the second of each is a negative (${notNegative.length} were not)`);
+  const figured = RUNGS.filter(r => /\b\d+\b/.test(r.sentences));
+  check(figured.length === 0, `236c · no rung carries a figure (${figured.length} did)`);
+  const promised = RUNGS.filter(r => /\b(will|soon|coming|unlocks?|when)\b/i.test(r.sentences));
+  check(promised.length === 0, `236d · and none states a conditional future (${promised.length} did)`);
+  check(/\b\d+\b/.test("a look costs 3"), "236e · the figure check can see one (negative control)");
+  check(/\b(will|soon|coming|unlocks?|when)\b/i.test("Unlocks when the founder accepts"), "236f · and the promise check can see one (negative control)");
+  // A digit inside a name is not a figure, which is why the test is on a word
+  // boundary: the first rung names `agent1.xovi.eth` and must pass.
+  check(!/\b\d+\b/.test("`agent1.xovi.eth` resolves to the agent's payer."), "236g · while a digit inside a name is not a figure (negative control)");
 
   /*
    * The fabricated settlement, which is in the production ledger and will be
