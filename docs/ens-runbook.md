@@ -38,17 +38,31 @@ AGENT_ENS_NAME=<the name> npm run ens:verify
 
 Expect the resolved url and a zero exit. The script runs the same function `bin/agent.ts` runs, with no injected lookup, so what passes here is what the agent will execute.
 
-**6. Set `AGENT_ENS_NAME` in the deployment environment and redeploy.** Only now, and read the sequencing note in step 8 before you do. **Leave `WINDOWS_URL` set.** It will not be read: once a name is configured the module resolves through the name or raises, and it never falls back to the url. **That is deliberate and it is not a safety net.** If the name stops resolving the agent stops, and leaving `WINDOWS_URL` in place prevents none of that. What it does is make the recovery in step 8 a one variable change rather than two.
+**6. Set `AGENT_ENS_NAME` in the environment where the agent is run.** Only now, and read the sequencing note in step 8 before you do.
 
-**7. Confirm the deployed agent reads through the name**, not merely that the deployment succeeded.
+> **Corrected 2026-09-12: this step said to set the variable in the deployment environment and redeploy.** Nothing under `app/` calls `resolveWindowsEndpoint`. It has three callers, `bin/agent.ts`, `bin/ens-verify.ts` and the checks, and the deployed route builds its windows url with `windowsUrlFor(request.url)`, from the incoming request and on its own origin. So the variable in the hosting environment is **read by nobody**, and setting it there would have produced a green deploy, an app still working for the reason it already worked, and a ticked criterion claiming a resolution that never happens. It belongs where `bin/agent.ts` runs.
 
-**8. If the deployed agent starts failing after step 7, this is what it looks like and this is the fix.**
+**Run step 7 with `WINDOWS_URL` absent, then set it.** Those two want opposite things and the order is the whole point. With the url absent, a windows endpoint appearing in the output can only have come from the record, which is what makes step 7 evidence rather than a green light. Once it has passed, **set `WINDOWS_URL` in that same environment**, which is what makes step 8 a one variable fix instead of two and a different message.
+
+> This is an instruction rather than *leave it set*, which is how it read until 2026-09-12 and which assumed somebody already had. Checked on the machine the agent runs on: `.env.local` carries `AGENT_PRIVATE_KEY`, `DATABASE_URL`, `HUMAN_ID_KEY`, `XOVI_INGEST_KEY` and `XOVI_INGEST_URL`, and **`WINDOWS_URL` zero times**. Nothing broke while these steps pointed at a hosting environment, because the precondition was true there and nobody was following them here. Re-pointing step 6 at the real process is what made step 8's recovery depend on a variable that does not exist, without a word of step 8 changing.
+
+Setting it weakens nothing in between: once a name is configured the module resolves through the name or raises, and it never falls back to the url. **That is deliberate and it is not a safety net.** If the name stops resolving the agent stops, and `WINDOWS_URL` sitting there prevents none of that.
+
+**7. Confirm the agent reads through the name**, not merely that it ran.
+
+```
+AGENT_ENS_NAME=<the name> npm run agent -- --dry-run --limit 1
+```
+
+With `WINDOWS_URL` unset, the windows url it prints came from `x402:windows` and from nothing else. That is the confirmation; a successful run with the url still configured confirms only that the agent works, which it did before.
+
+**8. If the agent starts failing after step 7, this is what it looks like and this is the fix.**
 
 **What you see.** The run fails with `EndpointUnresolvable` and this message: *`<name>` resolved to no `x402:windows` record: either the name is not registered on this chain, or it is registered and carries no such record.* That message is byte identical for a name that never existed and for a registered name carrying no record, which is why it names both and why it cannot tell you which.
 
 **What to run.** `AGENT_ENS_NAME=<name> npx tsx bin/ens-verify.ts`. **`NO RESOLVER` on a name that resolved yesterday is the reset.** It is distinguishable from a name that never existed only by the fact that it used to work, so the evidence is your memory of step 7 passing rather than anything the tool can print.
 
-**The fix.** Unset `AGENT_ENS_NAME` and redeploy. Blanking it works as well as deleting it, since the module trims the value and an empty one takes the url branch. The agent reads `WINDOWS_URL` again and the run recovers. One variable.
+**The fix.** Unset `AGENT_ENS_NAME` for the run. Blanking it works as well as deleting it, since the module trims the value and an empty one takes the url branch. The agent reads `WINDOWS_URL` again and recovers. One variable, and no deployment is involved: nothing that is deployed reads either of them.
 
 **This works only while `WINDOWS_URL` is still set**, which is what step 6 is for. With both empty the failure changes to `neither AGENT_ENS_NAME nor WINDOWS_URL is set`, a different message than the one that sent you here, and the recovery becomes two variables rather than one.
 
@@ -56,7 +70,7 @@ It is written down because the agent is fail closed by design: a configured name
 
 It has happened at least once. ENS's Beta announcement says of the redeployed registry: *"This creates a clean testing environment for the updated architecture, which means names registered during earlier Alpha phases won't appear in the Beta registry"*, and that *"If you participated in previous App or Explorer testing, you should expect to start fresh in Beta"* (`ens.domains/blog/post/ensv2-beta-public-testing`, read 2026-09-12). So the banner describes something with a precedent rather than a possibility.
 
-**Sequencing, which is the cheap half of this.** Set `AGENT_ENS_NAME` after the video is recorded and verified, never before. The recording is the artefact that cannot be redone in an hour, while the deployed endpoint is repaired with one variable. A reset before recording then costs nothing, because the name is not wired yet, and a reset after costs a redeploy.
+**Sequencing, which is the cheap half of this.** Set `AGENT_ENS_NAME` after the video is recorded and verified, never before. The recording is the artefact that cannot be redone in an hour, while the agent's run is repaired with one variable. A reset before recording then costs nothing, because the name is not wired yet, and a reset after costs one variable on the next run.
 
 It does not remove the exposure and nothing here claims it does. Judging continues after submission, so the window extends past anything an operator controls. What the sequencing buys is that the failure is one variable deep and that the variable is named here, which is the difference between a recoverable outage and a dead demo nobody can explain.
 
