@@ -15,7 +15,7 @@
  */
 import { createPublicClient, http } from "viem";
 import { sepolia } from "viem/chains";
-import { WINDOWS_RECORD_KEY, resolveWindowsEndpoint } from "../lib/agent/ens";
+import { WINDOWS_RECORD_KEY, assertIssuedIdentity, resolveWindowsEndpoint } from "../lib/agent/ens";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
@@ -197,6 +197,67 @@ async function main() {
     console.error(`\n  REFUSED: ${err instanceof Error ? err.message : err}\n`);
     process.exitCode = 1;
   }
+
+  await verifyIdentity(client);
+}
+
+/*
+ * The issued name, and a SECOND negative control that is not the one above.
+ *
+ * The control in `CONTROLS` is a top level invented name and it discriminates on the
+ * **resolver**: nothing answers for it, which proves the endpoint is not answering for
+ * everything, and on a mainnet rpc it resolves through the `eth` node walk-up, which
+ * makes it an independent wrong-chain signal at the leaf. Both jobs are still needed
+ * and it stays.
+ *
+ * It cannot do this job. Wildcard resolution is live under the parent, so an invented
+ * subname returns the parent's resolver exactly like an issued one; measured
+ * 2026-09-12, `zzq7-invented-4417.xovi.eth` and `agent1.xovi.eth` both answer
+ * `0xAe2084CB`. A resolver read here would be green and would measure nothing. The
+ * instrument is `addr`, and the control has to be an invented subname **under the same
+ * parent**, because one under a different parent tests a resolver that is not the one
+ * answering.
+ *
+ * So the file ends with two negative controls doing different jobs. Deleting either as
+ * redundant removes a signal that has no other source.
+ */
+const INVENTED_LABEL = "zzq7-invented-4417";
+
+async function verifyIdentity(client: ReturnType<typeof createPublicClient>) {
+  const name = (arg("--identity") ?? process.env.AGENT_IDENTITY_NAME ?? "").trim();
+  if (!name) {
+    console.log(`  identity   AGENT_IDENTITY_NAME is not set, so no name is claimed and none is checked\n`);
+    return;
+  }
+  const parent = name.split(".").slice(1).join(".");
+  if (!parent) {
+    console.error(`  ${name} has no parent label, so it cannot be an issued subname.\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const control = `${INVENTED_LABEL}.${parent}`;
+  const controlAddr = await client.getEnsAddress({ name: control }).catch(() => null);
+  if (controlAddr && controlAddr !== ZERO) {
+    console.error(`\n  the invented subname ${control} has an address record, ${controlAddr}.`);
+    console.error(`  Either this parent answers an address for everything, in which case the reading`);
+    console.error(`  below proves nothing, or somebody issued it and this file needs another label.`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`  control    ${control} has no address, as an unissued subname must not`);
+
+  const addr = await client.getEnsAddress({ name }).catch(() => null);
+  if (!addr || addr === ZERO) {
+    console.error(`\n  ${name} has NO ADDRESS record, so Zenbit has not issued it. Under a wildcard`);
+    console.error(`  parent an unissued name and a mistyped one look identical, which is why the`);
+    console.error(`  control above is read first.\n`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`  identity   ${name} is issued to ${addr}`);
+  console.log(`  Zenbit issues this name and can rewrite or remove it; the agent does not own it.`);
+  console.log(`  The agent refuses to start unless its payer is that address.\n`);
 }
 
 main().catch(err => {
