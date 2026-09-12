@@ -135,7 +135,7 @@ export async function signChallenge(
   windowsUrl: string,
   address: `0x${string}`,
   maxPerPayment = "$0.05",
-  onChallenge?: (challenge: { description: string; amount: string; payTo: string; network: string }) => void,
+  onChallenge?: (challenge: { description: string; amount: string; asset: string; payTo: string; network: string }) => void,
 ): Promise<SignedPayment> {
   const core = new x402Client();
   registerExactEvmScheme(core, { signer: walletSigner(address) });
@@ -167,6 +167,9 @@ export async function signChallenge(
     // did, which is why the feature looked half alive rather than absent.
     description: String(required.resource?.description ?? ""),
     amount: readableAmount(accepted.amount, token),
+    // The token by itself as well as inside the amount, so the card can draw the
+    // asset as its own value rather than making a reader parse a sentence for it.
+    asset: token,
     payTo: accepted.payTo,
     network: accepted.network,
   });

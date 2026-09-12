@@ -162,6 +162,36 @@ export async function agentRunChecks(check: Check) {
   check(!names(noKey).includes("proposed"), "192 · and never says proposed (negative control for 191)");
 
   /*
+   * No station reaches the stream, including through the one lane that is not a
+   * fixed sentence.
+   *
+   * The step types carry no station, species or alias by construction. Two steps
+   * are different: `payment-refused` and `unavailable` carry the route body's
+   * `error` verbatim, because an operator debugging a refusal needs the route's
+   * own words. Today those strings name no station, so this guard is green, and a
+   * guard that is green because of what somebody wrote in another file is a guard
+   * that has to be able to see the day it changes.
+   *
+   * So the control plants one in a route body and drives it through the same path
+   * rather than testing the pattern against a literal. The real 403 on the ingest
+   * side reads "La clave no cubre la estación AM 1", which is the shape this is
+   * waiting for.
+   */
+  const STATION = /\b(AM|AD)\s?\d?\b/;
+  check(!STATION.test(JSON.stringify(full)), "229 · no station reaches the run stream");
+
+  const plantedFetch: typeof fetch = async () =>
+    new Response(JSON.stringify({ error: "no hay snapshot para la estacion AM 3" }), {
+      status: 503,
+      headers: { "content-type": "application/json" },
+    });
+  const planted = await collect(runOnce({ windowsUrl: WINDOWS, paymentHeader: header2, windowsFetch: plantedFetch }));
+  check(
+    STATION.test(JSON.stringify(planted)),
+    "229a · a station in a route body does reach the detail lane, so 229 guards those strings rather than restating the types (negative control)",
+  );
+
+  /*
    * What the two halves agreeing on a URL is, and what it is not.
    *
    * The first version of this asserted that a payment signed for one origin would

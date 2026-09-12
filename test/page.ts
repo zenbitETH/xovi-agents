@@ -70,8 +70,8 @@ export function pageChecks(check: Check) {
     { step: "unavailable", status: 503, detail: "x" },
     { step: "paid", free: false, transaction: "0x1", network: "eip155:84532" },
     { step: "paid", free: true },
-    { step: "read", served: 3 },
-    { step: "selected", windowId: "w", durationSeconds: 100, confidence: 500 },
+    { step: "read", served: 3, ids: ["a1", "b2", "c3"] },
+    { step: "selected", windowId: "w", durationSeconds: 100 },
     { step: "nothing-proposable", considered: 3 },
     { step: "proposing", windowId: "w" },
     { step: "proposed", id: 1, clipHash: "0x", status: "pending" },
@@ -90,6 +90,84 @@ export function pageChecks(check: Check) {
     "209 · while a route refusing the credential is the agent's (negative control for 208)");
   check(lineFor({ step: "proposed", id: 1, clipHash: "0x", status: "p" }).actor === "agent",
     "210 · and the work the agent did is the agent's");
+
+  /*
+   * No score on any surface.
+   *
+   * The model's number is carried in the record and rendered nowhere. Spec 05
+   * fixes no derivation for it, publishes no cutoff and no banding, and a bare
+   * integer beside a chosen window is read as a quality whatever the caption
+   * says. It reached the page as "confidence 500" and reached every browser
+   * inside the run stream, which is a public route.
+   *
+   * Read off the mapping rather than off the file, so a value that arrives under
+   * another name is still caught by the shape of what a line may carry.
+   */
+  const drawnLines = everyStep.map(lineFor);
+  check(!/confidence/i.test(JSON.stringify(drawnLines)), "224 · no line carries a score");
+  check(!/confidence/i.test(ui), "224a · and the word is absent from the interface");
+  check(/confidence/i.test(JSON.stringify([{ detail: "confidence 500" }])), "224b · the score check can see one (negative control)");
+
+  /*
+   * Every number on the page came off the wire.
+   *
+   * A price written into the interface survives a change on the server and goes
+   * on saying the old one. The card's three values are read from the challenge
+   * the counterparty sent, and the check is that no literal shaped like money
+   * exists in the file at all.
+   */
+  const money = /\$\s?\d|\b\d+\.\d+\s*(usdc|usd|eth)\b|\busdc\b/i;
+  check(!money.test(ui), "225 · no price is written into the interface");
+  check(money.test("the server asks $0.01"), "225a · the price check can see a planted one (negative control)");
+  check(money.test("it costs 0.01 USDC"), "225b · and one written without a currency sign");
+
+  const card = ui.slice(ui.indexOf('object: { kind: "challenge"'));
+  const cardLiteral = card.slice(0, card.indexOf("}"));
+  check(
+    /amount: challenge\.amount/.test(cardLiteral) &&
+      /asset: challenge\.asset/.test(cardLiteral) &&
+      /network: challenge\.network/.test(cardLiteral),
+    "225c · and the card's three values are read off the served challenge",
+  );
+
+  /*
+   * What the read bought, drawn as tiles carrying identifiers and nothing else.
+   *
+   * A window id is a truncated hash of the channel, the video, the two endpoints
+   * and the station, so on its own it resolves to nothing. The tank, the species
+   * and the alias are in the window the server sent and in the proposal the agent
+   * forms, and neither reaches a browser. The object is asserted by its key set,
+   * so a field added to it later fails here rather than shipping.
+   */
+  const readLine = lineFor({ step: "read", served: 2, ids: ["6fe45c795eb3049c", "74ad9a172b8e01aa"] });
+  const tiles = readLine.object;
+  check(tiles?.kind === "windows" && tiles.ids.length === 2, "226 · the read draws one tile per window");
+  check(
+    tiles !== undefined && Object.keys(tiles).sort().join(",") === "ids,kind",
+    "226a · and the tiles carry the identifiers and nothing else",
+  );
+  const chosenLine = lineFor({ step: "selected", windowId: "6fe45c795eb3049c", durationSeconds: 16 });
+  check(
+    chosenLine.object?.kind === "windows" && chosenLine.object.chosen === "6fe45c795eb3049c",
+    "226b · and the one the agent took is marked as taken",
+  );
+
+  /*
+   * An agent surface carries no decision.
+   *
+   * Counted rather than named, because the words confirm and reject appear on
+   * this page as negatives, in the sentence saying no credential of the agent's
+   * can confirm. Two controls exist, connect and run, and a third arriving is the
+   * thing to catch.
+   */
+  const controls = ui.match(/<button/g) ?? [];
+  check(controls.length === 2, `227 · the page carries two controls and no decision (${controls.length})`);
+
+  // A settlement is linked by the chain the receipt names rather than by a chain
+  // the page assumes, so a receipt from anywhere else is drawn without a link
+  // instead of with a confident wrong one.
+  check(/EXPLORER\[object\.network\]/.test(ui), "228 · the explorer is chosen by the chain the receipt names");
+  check(/"eip155:84532": "https:\/\/sepolia\.basescan\.org\/tx\/"/.test(ui), "228a · and Base Sepolia is the one that settles here");
 
   /*
    * Teal means a person, in this feed and nowhere else in it.

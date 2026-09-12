@@ -24,7 +24,16 @@ export type RunStep =
   | { step: "unavailable"; status: number; detail: string }
   /** Settled on chain, or served under the free daily allowance. */
   | { step: "paid"; free: boolean; transaction?: string; network?: string }
-  | { step: "read"; served: number }
+  /**
+   * What the paid read returned, as a count and as opaque identifiers.
+   *
+   * The ids and nothing beside them. A window id is a truncated hash of the
+   * channel, the video, the two endpoints and the station, so on its own it names
+   * nothing a reader can resolve; the tank, the species and the alias are in the
+   * window the server sent and reach no browser. The ids travel so the page can
+   * draw what was bought as objects rather than as a number.
+   */
+  | { step: "read"; served: number; ids: string[] }
   /**
    * The window the agent chose, named before it acts on it.
    *
@@ -40,7 +49,7 @@ export type RunStep =
    * handful of stations is a handful of hash trials, and the id stops being
    * opaque. With the duration alone the two endpoints are not recoverable.
    */
-  | { step: "selected"; windowId: string; durationSeconds: number; confidence: number }
+  | { step: "selected"; windowId: string; durationSeconds: number }
   /**
    * Every window served was unusable, reported as a count.
    *
@@ -166,7 +175,13 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
   yield { step: "paid", free: !receipt, transaction, network };
 
   const raw = (body as { windows?: unknown[] }).windows ?? [];
-  yield { step: "read", served: raw.length };
+  yield {
+    step: "read",
+    served: raw.length,
+    // Read off the served windows rather than off the validated ones, because this
+    // reports what was bought and the validation has not run yet.
+    ids: raw.map(w => String((w as { windowId?: unknown }).windowId ?? "")).filter(id => id !== ""),
+  };
 
   const ledger = memoryLedger();
   // Kept out of the stream and logged, because each one names a value.
@@ -206,7 +221,6 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
     step: "selected",
     windowId: chosen.windowId,
     durationSeconds: Math.round(chosen.endTime - chosen.startTime),
-    confidence: chosen.confidence,
   };
 
   if (!cfg.ingestUrl || !cfg.ingestKey) {

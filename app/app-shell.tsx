@@ -12,6 +12,13 @@ const REPO = "https://github.com/zenbitETH/xovi-agents";
 // no per clip page to link a proposal to, because /galeria/[slug] in the reviewing
 // application is a BEHAVIOUR page rather than a clip page, and the attestation
 // identifier appears in this repository only in truncated form.
+// Where a settlement can be read by somebody who was not here. Keyed by the chain
+// the receipt names rather than assumed, because a link built for whatever network
+// string arrives would send a reader to a page about a different chain, and a
+// confident wrong link is worse than none. Base Sepolia is the only one that
+// settles here, so it is the only one listed.
+const EXPLORER: Record<string, string> = { "eip155:84532": "https://sepolia.basescan.org/tx/" };
+
 const SCHEMA = "https://sepolia.easscan.org/schema/view/0x8d4a9a6e41e07cb67128eaca5a79f4d39e5199eb8c1c7d7a0096e0a5d11c8c6d";
 
 /**
@@ -40,7 +47,35 @@ const SCHEMA = "https://sepolia.easscan.org/schema/view/0x8d4a9a6e41e07cb67128ea
  * against the surface it actually sits on, which marks and never letters.
  */
 export type Actor = "human" | "agent" | "system";
-export type Line = { text: string; detail?: string; tone: "working" | "good" | "stopped"; actor: Actor };
+
+/**
+ * The thing a line draws, when a sentence is the wrong shape for it.
+ *
+ * A state is an object here rather than a clause: the price is a card, the
+ * settlement is a ticket, what was bought is a row of tiles, the proposal is a
+ * card. The rule is that a drawn object carries only values the step already
+ * carried, so the drawing cannot say more than the sentence it replaces.
+ *
+ * The tiles are the reason this exists. A count of windows is a number a reader
+ * skims; the same windows as tiles are a thing that was bought, and each tile
+ * carries an opaque identifier and nothing else. The tank, the species and the
+ * alias are in the window the server sent and in the proposal the agent forms,
+ * and they reach no browser.
+ */
+export type Drawn =
+  | { kind: "challenge"; amount: string; asset: string; network: string }
+  | { kind: "receipt"; transaction: string; network: string }
+  | { kind: "allowance" }
+  | { kind: "windows"; ids: string[]; chosen?: string }
+  | { kind: "clip"; id: number; status: string };
+
+export type Line = {
+  text: string;
+  detail?: string;
+  tone: "working" | "good" | "stopped";
+  actor: Actor;
+  object?: Drawn;
+};
 
 export function lineFor(step: RunStep): Line {
   switch (step.step) {
@@ -51,22 +86,46 @@ export function lineFor(step: RunStep): Line {
     case "unavailable":
       return { text: "The route cannot serve right now", detail: step.detail, tone: "stopped", actor: "agent" };
     case "paid":
-      return step.free
-        ? { text: "Served under the free daily allowance", detail: "nothing was charged for this read", tone: "good", actor: "agent" }
-        : {
-            text: "Payment settled",
-            detail: step.transaction ? `${step.transaction} on ${step.network}` : "settled without a receipt",
-            tone: "good",
-            actor: "agent",
-          };
-    case "read":
-      return { text: `Read ${step.served} candidate window${step.served === 1 ? "" : "s"}`, tone: "working", actor: "agent" };
-    case "selected":
+      if (step.free) {
+        // No count beside it. The free branch returns the same payload as a paid
+        // read and no field carries what is left of the allowance, so the page
+        // states the allowance and states no number it was not served.
+        return {
+          text: "Served under the free daily allowance",
+          detail: "nothing was charged for this read",
+          tone: "good",
+          actor: "agent",
+          object: { kind: "allowance" },
+        };
+      }
       return {
-        text: `Chose window ${step.windowId}`,
-        detail: `${step.durationSeconds}s of stream, confidence ${step.confidence}`,
+        text: "Payment settled",
+        detail: step.network,
+        tone: "good",
+        actor: "agent",
+        object:
+          step.transaction !== undefined && step.network !== undefined
+            ? { kind: "receipt", transaction: step.transaction, network: step.network }
+            : undefined,
+      };
+    case "read":
+      return {
+        text: `Read ${step.served} candidate window${step.served === 1 ? "" : "s"}`,
         tone: "working",
         actor: "agent",
+        object: { kind: "windows", ids: step.ids },
+      };
+    case "selected":
+      // The duration and not the two endpoints, for the reason the step's own
+      // comment gives, and no score of any kind. The record carries the model's
+      // number and no surface renders it: it is opaque by spec 05, and a value
+      // on a screen is read as a quality whatever the caption says.
+      return {
+        text: `Chose window ${step.windowId}`,
+        detail: `${step.durationSeconds}s of stream`,
+        tone: "working",
+        actor: "agent",
+        object: { kind: "windows", ids: [step.windowId], chosen: step.windowId },
       };
     case "nothing-proposable":
       return {
@@ -78,7 +137,13 @@ export function lineFor(step: RunStep): Line {
     case "proposing":
       return { text: "Submitting the proposal", tone: "working", actor: "agent" };
     case "proposed":
-      return { text: `Proposed as clip ${step.id}`, detail: `status ${step.status}`, tone: "good", actor: "agent" };
+      return {
+        text: `Proposed as clip ${step.id}`,
+        detail: "a person decides what happens to it",
+        tone: "good",
+        actor: "agent",
+        object: { kind: "clip", id: step.id, status: step.status },
+      };
     case "declined":
       return {
         text: `The proposal was declined: ${step.kind}`,
@@ -106,6 +171,80 @@ const PHASE_LABEL: Record<Phase, string> = {
   running: "running",
   finished: "run finished",
 };
+
+/**
+ * A drawn state, under the line that reports it.
+ *
+ * Every value here came off the step. Nothing is computed, looked up or filled in
+ * from a constant, so what a reader sees is what the counterparty said, and a
+ * price that no longer matches the served challenge cannot survive on this page.
+ */
+function Drawing({ object }: { object: Drawn }) {
+  switch (object.kind) {
+    case "challenge":
+      return (
+        <span className="ag-card">
+          <span className="ag-card-cell">
+            <span className="ag-card-value">{object.amount}</span>
+            <span className="ag-card-key">amount</span>
+          </span>
+          <span className="ag-card-cell">
+            <span className="ag-card-value">{object.asset}</span>
+            <span className="ag-card-key">asset</span>
+          </span>
+          <span className="ag-card-cell">
+            <span className="ag-card-value">{object.network}</span>
+            <span className="ag-card-key">network</span>
+          </span>
+        </span>
+      );
+    case "receipt": {
+      const explorer = EXPLORER[object.network];
+      return (
+        <span className="ag-ticket">
+          <span className="ag-ticket-hash">{object.transaction}</span>
+          {explorer !== undefined && (
+            <a className="ag-link ag-ticket-link" href={explorer + object.transaction}>
+              Read it on the explorer
+            </a>
+          )}
+        </span>
+      );
+    }
+    case "allowance":
+      // Drawn as a ticket with nothing on it, because that is what it is: a read
+      // that happened and moved no money. An invented hash here would be a
+      // fabricated settlement on a page whose whole subject is real ones.
+      return (
+        <span className="ag-ticket ag-ticket-free">
+          <span className="ag-ticket-hash">no transaction</span>
+        </span>
+      );
+    case "windows":
+      return (
+        <span className="ag-tiles">
+          {object.ids.map(id => (
+            <span key={id} className={id === object.chosen ? "ag-tile ag-tile-chosen" : "ag-tile"}>
+              {id}
+            </span>
+          ))}
+        </span>
+      );
+    case "clip":
+      return (
+        <span className="ag-card">
+          <span className="ag-card-cell">
+            <span className="ag-card-value">{object.id}</span>
+            <span className="ag-card-key">clip</span>
+          </span>
+          <span className="ag-card-cell">
+            <span className="ag-card-value">{object.status}</span>
+            <span className="ag-card-key">status</span>
+          </span>
+        </span>
+      );
+  }
+}
 
 function Mark() {
   return (
@@ -182,14 +321,17 @@ export function AppShell() {
       // after it closes. Both come from the challenge the server sent: the page is not
       // describing the purchase, the counterparty is.
       const signed = await signChallenge(windowsUrl, address, undefined, challenge => {
-        if (challenge.description !== "") {
-          say({ text: challenge.description, detail: "from the payment challenge", tone: "working", actor: "system" });
-        }
         say({
-          text: `The server asks ${challenge.amount}`,
-          detail: `to ${challenge.payTo} on ${challenge.network}`,
+          // The counterparty's own sentence where it sent one. Where it sent none,
+          // a statement of what happened rather than a description this page
+          // invented of a purchase it is not the one making.
+          text: challenge.description !== "" ? challenge.description : "The route asked to be paid before it would serve",
+          // The recipient in the detail lane, with the three values it will be paid
+          // on the card beside it.
+          detail: `to ${challenge.payTo}`,
           tone: "working",
-          actor: "agent",
+          actor: "system",
+          object: { kind: "challenge", amount: challenge.amount, asset: challenge.asset, network: challenge.network },
         });
       });
       say({ text: "Authorization signed in your wallet", detail: "nothing has moved yet", tone: "good", actor: "human" });
@@ -331,6 +473,7 @@ export function AppShell() {
                       <span>
                         <span className="ag-feed-text">{line.text}</span>
                         {line.detail !== undefined && <span className="ag-feed-detail">{line.detail}</span>}
+                        {line.object !== undefined && <Drawing object={line.object} />}
                       </span>
                     </li>
                   ))}

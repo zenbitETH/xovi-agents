@@ -669,6 +669,107 @@ body::after {
 }
 
 /* ---------------------------------------------------------------------------
+   Drawn states, under the line that reports them.
+
+   A card, a ticket and a row of tiles, so what the run bought and what it paid
+   are objects a reader recognises before reading a word. Every value in them
+   came off the step, so none of these rules may supply a value of its own:
+   nothing here uses `content` to write text.
+
+   No backdrop-filter. Nothing floats over anything, so there is no pane to blur,
+   and the rule stays absent rather than declared and unused: with a prefixer in
+   the pipeline a hand written pair collapses to whichever came last.
+--------------------------------------------------------------------------- */
+.ag-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin-top: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  border-radius: 0.625rem;
+  background-color: color-mix(in srgb, var(--color-base-content) 4%, transparent);
+}
+
+.ag-card-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.ag-card-value {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.875rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ag-card-key {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+/* A settlement, drawn as the stub it is. The free read takes the same shape with
+   nothing written on it, because a read that moved no money is a real outcome and
+   an invented hash beside it would be a fabricated settlement. */
+.ag-ticket {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed color-mix(in srgb, var(--color-base-content) 22%, transparent);
+  border-radius: 0.5rem;
+}
+
+.ag-ticket-hash {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.ag-ticket-free .ag-ticket-hash {
+  opacity: 0.55;
+}
+
+.ag-ticket-link {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+/* What the read bought. One tile per window, each carrying an opaque identifier
+   and nothing else: the tank, the species and the alias are in the window the
+   server sent and reach no browser. */
+.ag-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+.ag-tile {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  border-radius: 0.375rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6875rem;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+}
+
+/* The one the agent took. Marked with the agent's own hue, on the border rather
+   than on the letters, which keeps the hue a mark and never type. */
+.ag-tile-chosen {
+  border-color: var(--color-xv-agent);
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------------------------
    Two axes on one row, and they must not be read as one.
 
    The MARKER carries whose activity a line is: teal for the person, gold for the
