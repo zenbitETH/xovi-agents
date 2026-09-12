@@ -291,7 +291,7 @@ export function AppShell() {
                   keeps a keyed digest of the identifier behind it for thirty days, so
                   the controller has to be reachable from the surface that does it. */}
               <span className="ag-sub">
-                Payments settle on Base Sepolia. Nothing touches mainnet.{" "}
+                Payments settle on Base Sepolia. Nothing here writes to a mainnet; one read is on one.{" "}
                 <a className="ag-link" href="https://zenbit.mx/en/privacy">
                   Privacy
                 </a>
