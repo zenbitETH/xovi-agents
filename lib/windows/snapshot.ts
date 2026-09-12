@@ -1,5 +1,5 @@
-import { readFileSync } from "fs";
-import { isAbsolute, resolve } from "path";
+import { readFileSync, readdirSync, statSync } from "fs";
+import { isAbsolute, join, resolve } from "path";
 import { type CandidateWindow, windowProblems } from "./types";
 
 /** Only string lookups are needed, so the tests can pass a plain object
@@ -24,7 +24,72 @@ export class SnapshotUnavailable extends Error {}
  * window is deterministic for a given cut, which is what makes a snapshot a
  * record rather than one arbitrary result frozen and sold repeatedly.
  */
-export function loadSnapshot(env: EnvLike = process.env): CandidateWindow[] {
+/**
+ * The day a window's footage was recorded, which is not the day it was detected.
+ *
+ * `producedAt` is the detector's clock and a re run months later would move every
+ * window to a new day, so a sidecar wins where one exists: a file beside the
+ * snapshot with the same name and a `.day` suffix, holding one ISO date. The
+ * fallback is `producedAt`'s date, which is right whenever the detector ran on the
+ * recording, and is the only thing available for the fixture that predates this.
+ */
+export function dayOf(window: CandidateWindow, sidecar: string | null): string {
+  if (sidecar !== null) return sidecar;
+  return String(window.producedAt ?? "").slice(0, 10);
+}
+
+/** A window with the two facts the board sorts by, neither of them new: the day
+ *  its footage belongs to and the species its station holds. */
+export type BoardWindow = CandidateWindow & { day: string };
+
+function readDaySidecar(file: string): string | null {
+  try {
+    const raw = readFileSync(`${file}.day`, "utf8").trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every file the setting names, as one set.
+ *
+ * A directory, a comma separated list, or a single file. A directory is read
+ * shallow and only its `.jsonl` files are taken, so a README or a sidecar sitting
+ * beside them is not parsed as windows and does not turn a good snapshot into a
+ * refusal.
+ */
+function filesFrom(configured: string): string[] {
+  const parts = configured
+    .split(",")
+    .map(p => p.trim())
+    .filter(p => p.length > 0);
+  const files: string[] = [];
+  for (const part of parts) {
+    const path = isAbsolute(part) ? part : resolve(process.cwd(), part);
+    let directory = false;
+    try {
+      directory = statSync(path).isDirectory();
+    } catch {
+      throw new SnapshotUnavailable(`snapshot not readable at ${part}`);
+    }
+    if (!directory) {
+      files.push(path);
+      continue;
+    }
+    const inside = readdirSync(path)
+      .filter(name => name.endsWith(".jsonl"))
+      .sort()
+      .map(name => join(path, name));
+    // An empty directory is a misconfiguration wearing the shape of a quiet day,
+    // which is the distinction this function's caller exists to keep.
+    if (inside.length === 0) throw new SnapshotUnavailable(`no .jsonl files in ${part}`);
+    files.push(...inside);
+  }
+  return files;
+}
+
+export function loadSnapshot(env: EnvLike = process.env): BoardWindow[] {
   const configured = env.WINDOWS_SNAPSHOT;
   if (!configured || configured.trim().length === 0) {
     // Deliberately NOT an empty list. An empty list means the detector found
@@ -33,34 +98,71 @@ export function loadSnapshot(env: EnvLike = process.env): CandidateWindow[] {
     // a measurement.
     throw new SnapshotUnavailable("WINDOWS_SNAPSHOT is not set");
   }
-  const path = isAbsolute(configured) ? configured : resolve(process.cwd(), configured);
-  let raw: string;
-  try {
-    raw = readFileSync(path, "utf8");
-  } catch {
-    throw new SnapshotUnavailable(`snapshot not readable at ${configured}`);
-  }
 
-  const out: CandidateWindow[] = [];
+  const out: BoardWindow[] = [];
   const rejected: string[] = [];
-  raw.split("\n").forEach((line, i) => {
-    const t = line.trim();
-    if (t.length === 0) return;
-    let parsed: unknown;
+  for (const file of filesFrom(configured)) {
+    let raw: string;
     try {
-      parsed = JSON.parse(t);
+      raw = readFileSync(file, "utf8");
     } catch {
-      rejected.push(`line ${i + 1}: not JSON`);
-      return;
+      throw new SnapshotUnavailable(`snapshot not readable at ${file}`);
     }
-    const problems = windowProblems(parsed);
-    if (problems.length > 0) rejected.push(`line ${i + 1}: ${problems.join("; ")}`);
-    else out.push(parsed as CandidateWindow);
-  });
+    const sidecar = readDaySidecar(file);
+    raw.split("\n").forEach((line, i) => {
+      const t = line.trim();
+      if (t.length === 0) return;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(t);
+      } catch {
+        rejected.push(`${file} line ${i + 1}: not JSON`);
+        return;
+      }
+      const problems = windowProblems(parsed);
+      if (problems.length > 0) rejected.push(`${file} line ${i + 1}: ${problems.join("; ")}`);
+      else {
+        const w = parsed as CandidateWindow;
+        out.push({ ...w, day: dayOf(w, sidecar) });
+      }
+    });
+  }
 
   // A malformed snapshot is a refusal, not a filter. Serving the readable subset
   // would mean a caller pays for a set whose size depends on a parse error
   // nobody was told about, and the missing rows would look like a quiet day.
   if (rejected.length > 0) throw new SnapshotUnavailable(`snapshot has ${rejected.length} invalid window(s): ${rejected[0]}`);
   return out;
+}
+
+/** The three species the board draws, in the order it draws them. Andersoni is
+ *  here because its absence is a fact worth showing, not because a stream exists. */
+export const BOARD_SPECIES = ["mexicanum", "dumerilii", "andersoni"] as const;
+
+/**
+ * What is on offer, per day and per species, and never how much.
+ *
+ * **No count while the files are public in this repository.** A count beside a
+ * readable file is the embargo drop by subtraction: anyone can read the file,
+ * count the rows, and take the difference as the number of windows withheld,
+ * which is the one number the embargo exists to keep. On offer or none says what
+ * a person needs to choose a cell and nothing else.
+ */
+export type BoardCell = { day: string; species: string; onOffer: boolean };
+
+export function boardFrom(windows: BoardWindow[]): { days: string[]; cells: BoardCell[] } {
+  const days = [...new Set(windows.map(w => w.day).filter(d => d.length > 0))].sort();
+  const cells: BoardCell[] = [];
+  for (const day of days) {
+    for (const species of BOARD_SPECIES) {
+      cells.push({ day, species, onOffer: windows.some(w => w.day === day && w.speciesCode === species) });
+    }
+  }
+  return { days, cells };
+}
+
+/** The windows of one cell. The station and the alias are untouched here: this
+ *  selects, and the embargo drop downstream is what removes. */
+export function cellOf(windows: BoardWindow[], day: string, species: string): BoardWindow[] {
+  return windows.filter(w => w.day === day && w.speciesCode === species);
 }

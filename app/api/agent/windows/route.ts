@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { applyEmbargo } from "~~/lib/windows/embargo";
-import { SnapshotUnavailable, loadSnapshot } from "~~/lib/windows/snapshot";
+import { BOARD_SPECIES, SnapshotUnavailable, cellOf, loadSnapshot } from "~~/lib/windows/snapshot";
 import { authorizationFrom, recordSettlement, takeFreeRead } from "~~/lib/human/cap";
 import { PaymentMisconfigured, WINDOWS_ROUTE, adapterFor, buildServer, paymentHeaderFrom } from "~~/lib/x402";
 
@@ -28,6 +28,35 @@ function refuse(status: number, error: string, extra: Record<string, unknown> = 
  * reads the same for both. A window may contain a person.
  */
 export async function GET(request: Request) {
+  /*
+   * The cell is checked before the payment, so nobody pays for nothing.
+   *
+   * An unknown day, a species the board does not draw, or a cell with no windows
+   * in it are all answers that cost nothing to give, and giving them after the
+   * 402 would take a cent for an empty list. This runs before the resource server
+   * is even built.
+   *
+   * Day and species are what a window already carries under frozen spec 02, so
+   * choosing a cell adds no field to anything and no station or alias is named
+   * here.
+   */
+  const query = new URL(request.url).searchParams;
+  const day = (query.get("day") ?? "").trim();
+  const species = (query.get("species") ?? "").trim();
+  if (day !== "" || species !== "") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return refuse(400, "name a day as YYYY-MM-DD");
+    if (!(BOARD_SPECIES as readonly string[]).includes(species)) return refuse(400, "name a species the board draws");
+    let available;
+    try {
+      available = cellOf(loadSnapshot(), day, species);
+    } catch (err) {
+      return refuse(503, err instanceof SnapshotUnavailable ? err.message : "the snapshot is unavailable");
+    }
+    if (available.length === 0) {
+      return refuse(404, "no windows are on offer for that day and species", { day, species });
+    }
+  }
+
   const { header, sentV1Only } = paymentHeaderFrom(request);
   if (sentV1Only) {
     // v2 would ignore X-PAYMENT silently and answer 402 as though nothing had
@@ -72,7 +101,21 @@ export async function GET(request: Request) {
   let payload;
   try {
     const all = loadSnapshot();
-    const { kept, dropped } = applyEmbargo(all);
+    // The cell, when one was named. Selecting is not dropping: everything in the
+    // committed file for this cell is served.
+    const chosen = day !== "" && species !== "" ? cellOf(all, day, species) : all;
+    /*
+     * **The embargo drop happens at screening, before a file is committed, and
+     * this call must remove nothing.**
+     *
+     * A board that says none for a cell whose public file holds windows says that
+     * every one of them was dropped, which is the withheld set by subtraction. So
+     * a committed file is already screened, the gate here is the belt against a
+     * file that was not, and a check asserts the served set equals the file's set
+     * for every cell. A changed embargo list means re-screen and re-commit rather
+     * than a quieter answer from the same file.
+     */
+    const { kept, dropped } = applyEmbargo(chosen);
     payload = {
       schema: "xovi/candidate-window/v1",
       windows: kept,
