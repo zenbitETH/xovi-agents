@@ -358,6 +358,26 @@ export async function pageChecks(check: Check) {
   const withFigure = verbLines.filter(l => /\b\d+\b/.test(l));
   check(withFigure.length === 0, `254c · and none carries a figure (${withFigure.length})`);
 
+  /*
+   * The command line says nothing a tile already said.
+   *
+   * It read "One signature. The agent reads what it paid for, proposes once, and
+   * stops", which is the Manage tile's second sentence verbatim, about forty words
+   * below it, in the rest state that had just been cut for being text heavy.
+   */
+  const commandLine = (ui.match(/className="ag-command">\s*([^<]+?)\s*<\/p>/) ?? [])[1] ?? "";
+  check(commandLine.length > 0, `256 · the fold carries a command line (${commandLine})`);
+  const echoed = verbLines.filter(l =>
+    l.split(/(?<=\.)\s+/).some(sentence => sentence.length > 12 && commandLine.includes(sentence)),
+  );
+  check(echoed.length === 0, `256a · and it repeats no sentence a tile already carries (${echoed.length})`);
+  check(
+    ["One signature. The agent reads what it paid for, proposes once, and stops."].filter(c =>
+      verbLines.some(l => l.split(/(?<=\.)\s+/).some(x => x.length > 12 && c.includes(x))),
+    ).length === 1,
+    "256b · the echo check can see the line it was written for (negative control)",
+  );
+
   // The definitions are kept and folded, not deleted. A native disclosure, so they
   // open with no script and are in the document for anything that reads it.
   check(/<details className="ag-more">/.test(ui), "255 · the five facts sit behind a disclosure");

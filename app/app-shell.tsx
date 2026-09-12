@@ -1070,9 +1070,13 @@ export function AppShell() {
                     </div>
                   </div>
 
-                  <p className="ag-command">
-                    One signature. The agent reads what it paid for, proposes once, and stops.
-                  </p>
+                  {/* Four words, because the Manage tile above already carries the
+                      sentence this line used to repeat. It restates DISCLOSURE's
+                      delegation bullet, that the reader signs one payment and supplies
+                      nothing else; the phrasing is carried over from the intro paragraph
+                      this branch removed, which came in with the payment card and is not
+                      on `main`. */}
+                  <p className="ag-command">A signature, and go.</p>
 
                   {/* Every sentence below is already merged, public and reviewed in this
                       repository, and each carries the line it came from. The page states
