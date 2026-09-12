@@ -6,6 +6,13 @@ import type { RunStep } from "~~/lib/agent/run";
 
 const REPO = "https://github.com/zenbitETH/xovi-agents";
 
+// The clip confirmation schema on Ethereum Sepolia, README.md:62. Public and
+// unauthenticated, and the only destination of this kind that resolves today: there is
+// no per clip page to link a proposal to, because /galeria/[slug] in the reviewing
+// application is a BEHAVIOUR page rather than a clip page, and the attestation
+// identifier appears in this repository only in truncated form.
+const SCHEMA = "https://sepolia.easscan.org/schema/view/0x8d4a9a6e41e07cb67128eaca5a79f4d39e5199eb8c1c7d7a0096e0a5d11c8c6d";
+
 /**
  * One line of a run, as a person reads it.
  *
@@ -170,8 +177,20 @@ export function AppShell() {
     try {
       const windowsUrl = new URL("/api/agent/windows", window.location.origin).toString();
       say({ text: "Reading the live payment challenge", tone: "working", actor: "agent" });
-      const signed = await signChallenge(windowsUrl, address);
-      say({ text: `The server asks ${signed.amount}`, detail: `to ${signed.payTo} on ${signed.network}`, tone: "working", actor: "agent" });
+      // What is on sale, and the price, are said BEFORE the wallet opens rather than
+      // after it closes. Both come from the challenge the server sent: the page is not
+      // describing the purchase, the counterparty is.
+      const signed = await signChallenge(windowsUrl, address, undefined, challenge => {
+        if (challenge.description !== "") {
+          say({ text: challenge.description, detail: "from the payment challenge", tone: "working", actor: "system" });
+        }
+        say({
+          text: `The server asks ${challenge.amount}`,
+          detail: `to ${challenge.payTo} on ${challenge.network}`,
+          tone: "working",
+          actor: "agent",
+        });
+      });
       say({ text: "Authorization signed in your wallet", detail: "nothing has moved yet", tone: "good", actor: "human" });
 
       setPhase("running");
@@ -246,11 +265,63 @@ export function AppShell() {
           <div className="ag-app-body">
             <div className="ag-app-scroll">
               {lines.length === 0 ? (
-                <p className="xv-desc ag-empty">
-                  You pay for one read from your own wallet and the agent does the rest. It reads the window it paid for,
-                  chooses one, forms a proposal and submits it. You choose nothing that reaches the record: a signature,
-                  and go. Every step it takes appears here as it happens.
-                </p>
+                <div className="ag-intro">
+                  <p className="xv-desc ag-empty">
+                    You pay for one read from your own wallet and the agent does the rest. It reads the window it paid
+                    for, chooses one, forms a proposal and submits it. You choose nothing that reaches the record: a
+                    signature, and go. Every step it takes appears here as it happens.
+                  </p>
+
+                  {/* Every sentence below is already merged, public and reviewed in this
+                      repository, and each carries the line it came from. The page states
+                      nothing that a reviewed surface does not, so it cannot drift from one. */}
+                  <dl className="ag-facts">
+                    <div>
+                      <dt>What a window is</dt>
+                      {/* docs/spec/02-candidate-windows.md:101 */}
+                      <dd>
+                        A claim that something was worth a human&rsquo;s attention. Not a claim that an animal was
+                        identified, or that a behaviour occurred.
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>What paying does not buy</dt>
+                      {/* README.md:84, both sentences */}
+                      <dd>
+                        The attestation certifies no identity, no reputation, no payment and no biological fact. The
+                        agent proposes; no credential of its own can confirm or attest.
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>One person, one allowance</dt>
+                      {/* README.md:60 and :83 for the allowance, DISCLOSURE.md:36 for why it is per person */}
+                      <dd>
+                        The free daily allowance is administered per person rather than per wallet, because a per wallet
+                        limit is not defeated by generating wallets.
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Checkable without Zenbit</dt>
+                      {/* docs/spec/05-anchor-and-query.md:118 */}
+                      <dd>
+                        A confirmation carries the reviewer&rsquo;s signature. The operator can be uncooperative, or
+                        gone, and the confirmation is still checkable by anyone who kept the identifier.{" "}
+                        <a className="ag-link" href={SCHEMA}>
+                          The schema on Sepolia
+                        </a>
+                        .
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Why it exists</dt>
+                      {/* README.md:27 */}
+                      <dd>
+                        Observations are public. What is scarce is derivation and provenance, and that join is the
+                        product.
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
               ) : (
                 <ol className="ag-feed">
                   {lines.map((line, i) => (

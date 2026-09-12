@@ -758,3 +758,48 @@ body::after {
     transform: scale(1.15);
   }
 }
+
+/* The intro a visitor reads before the feed replaces it.
+
+   NO NEW DESIGN VALUES. Every hue is a token already defined above, and the type
+   sizes and the line height are the ones .ag-empty and .ag-sub already use, so this
+   block ports nothing from Xovi that this file does not already carry and adds no
+   value of its own. It is layout.
+
+   Nothing here reintroduces backdrop-filter; the header of this file states that rule
+   for the whole stylesheet and it is not restated per block. */
+.ag-intro {
+  display: flex;
+  flex-direction: column;
+  max-width: 44rem;
+}
+
+.ag-facts {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0 0.25rem 1.25rem;
+}
+
+.ag-facts > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+/* The label differs from its sentence by size and weight rather than by opacity, so
+   the dimmest text on this block stays at the 0.7 the rest of the page already uses
+   instead of introducing a fainter step nobody measured. */
+.ag-facts dt {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  opacity: 0.7;
+}
+
+.ag-facts dd {
+  margin: 0;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  opacity: 0.85;
+}

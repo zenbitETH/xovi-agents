@@ -131,7 +131,12 @@ function readableAmount(amount: string, token: string): string {
  * actually sent rather than from anything this page believes, because the value
  * worth showing a person before they sign is the one the server will charge.
  */
-export async function signChallenge(windowsUrl: string, address: `0x${string}`, maxPerPayment = "$0.05"): Promise<SignedPayment> {
+export async function signChallenge(
+  windowsUrl: string,
+  address: `0x${string}`,
+  maxPerPayment = "$0.05",
+  onChallenge?: (challenge: { description: string; amount: string; payTo: string; network: string }) => void,
+): Promise<SignedPayment> {
   const core = new x402Client();
   registerExactEvmScheme(core, { signer: walletSigner(address) });
   // A client that signs whatever it is told is one typo away from paying it.
@@ -147,6 +152,19 @@ export async function signChallenge(windowsUrl: string, address: `0x${string}`, 
   const accepted = required.accepts[0];
   if (!accepted) throw new Error("the challenge names no payment option");
   const token = String((accepted.extra as { name?: unknown } | undefined)?.name ?? "an unnamed token");
+  // Handed over BEFORE the wallet opens, which is the only moment it is worth
+  // anything: after the prompt the person has already decided. These are the
+  // counterparty's own words rather than a sentence of this page's, so what a person
+  // reads before signing cannot drift from what the server actually charges for. If
+  // the challenge's description changes, this changes with it and nothing here is
+  // edited.
+  onChallenge?.({
+    description: String((accepted as { description?: unknown }).description ?? ""),
+    amount: readableAmount(accepted.amount, token),
+    payTo: accepted.payTo,
+    network: accepted.network,
+  });
+
   const payload = await http.createPaymentPayload(required);
   return {
     headers: http.encodePaymentSignatureHeader(payload) as Record<string, string>,
