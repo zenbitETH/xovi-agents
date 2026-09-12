@@ -301,6 +301,19 @@ export async function pageChecks(check: Check) {
   check(!/when this confirmation is anchored/i.test(ui), "238b · and states no conditional future about anchoring it");
 
   /*
+   * An empty proposals section must not read as "you proposed nothing".
+   *
+   * The list this page reads serves confirmed rows only, so absence there is
+   * absence of a confirmation and not absence of a proposal. The sentence is the
+   * whole guard, and it is checked because it is the difference between a true
+   * empty state and the page lying by omission.
+   */
+  const flatUi = ui.replace(/\s+/g, " ");
+  check(flatUi.includes("Only confirmed proposals appear here. A proposal no person has confirmed is not public."),
+    "245 · the proposals section says which proposals it can show");
+  check(flatUi.includes("This deployment reads no public list"), "245a · and says so when it reads no list at all");
+
+  /*
    * The ladder: each rung two present tense sentences, one merged fact and one
    * negative, and the unlock written as the negative rather than a condition.
    */

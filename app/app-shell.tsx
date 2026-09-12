@@ -195,13 +195,14 @@ type Settlement = {
  * item never leads anywhere empty: the cut removes a section from the page rather
  * than hiding it behind a tab that opens on nothing.
  */
-type Screen = "runs" | "overview" | "receipts" | "records" | "notyet";
+type Screen = "runs" | "overview" | "receipts" | "records" | "proposals" | "notyet";
 
 const SCREENS: { id: Screen; label: string }[] = [
   { id: "runs", label: "Runs" },
   { id: "overview", label: "Overview" },
   { id: "receipts", label: "Receipts" },
   { id: "records", label: "Records" },
+  { id: "proposals", label: "Proposals" },
   { id: "notyet", label: "Not yet" },
 ];
 
@@ -381,6 +382,83 @@ function Receipts({ settlements, state }: { settlements: Settlement[]; state: "i
           ))}
         </section>
       )}
+    </div>
+  );
+}
+
+type Proposal = { id: number | null; clipHash: string | null; status: string | null; submittedAt: string | null; verifiedAt: string | null };
+
+/**
+ * What this wallet proposed, and what came back.
+ *
+ * **The list this reads serves confirmed rows only.** That is a property of the
+ * reviewing application's endpoint and not a filter chosen here, so an empty
+ * section means no proposal of this wallet's has been confirmed, and it does not
+ * mean none was made. Saying that is the whole of the copy below: an empty list
+ * that reads as "you proposed nothing" would be the page lying by omission.
+ *
+ * Confirmed is the only state lit. Attested and anchored live in the anchors
+ * store, which this page has no route to read by clip hash, and proposed and in
+ * queue are on a surface this deployment does not read at all. None of them is
+ * drawn dim or greyed, because a state drawn is a state claimed.
+ */
+function Proposals({ submitter }: { submitter: string | null }) {
+  const [rows, setRows] = useState<Proposal[] | null>(null);
+  const [state, setState] = useState<"idle" | "loading" | "ready" | "failed" | "unconfigured">("idle");
+
+  useEffect(() => {
+    if (submitter === null) {
+      setState("idle");
+      return;
+    }
+    let live = true;
+    setState("loading");
+    fetch(`/api/proposals?submitter=${submitter}`)
+      .then(async r => {
+        if (r.status === 503) return { unconfigured: true as const };
+        if (!r.ok) throw new Error(String(r.status));
+        return (await r.json()) as { proposals: Proposal[] };
+      })
+      .then(answer => {
+        if (!live) return;
+        if ("unconfigured" in answer) {
+          setState("unconfigured");
+          return;
+        }
+        setRows(answer.proposals);
+        setState("ready");
+      })
+      .catch(() => {
+        if (live) setState("failed");
+      });
+    return () => {
+      live = false;
+    };
+  }, [submitter]);
+
+  if (state === "idle") return <p className="xv-desc ag-empty">Connect a wallet to read what it proposed.</p>;
+  if (state === "loading") return <p className="xv-desc ag-empty">Reading the public list.</p>;
+  if (state === "unconfigured")
+    return <p className="xv-desc ag-empty">This deployment reads no public list, so it can say nothing about proposals.</p>;
+  if (state === "failed") return <p className="xv-desc ag-empty">The public list did not answer, so this is not a list of what this wallet proposed.</p>;
+
+  return (
+    <div className="ag-records">
+      <p className="xv-desc ag-empty">
+        Only confirmed proposals appear here. A proposal no person has confirmed is not public.
+      </p>
+      {(rows ?? []).length === 0 && (
+        <p className="xv-desc ag-empty">No proposal of this wallet&rsquo;s has been confirmed.</p>
+      )}
+      {(rows ?? []).map(row => (
+        <div key={String(row.id)} className="ag-ticket ag-ticket-row">
+          <span className="ag-card-value">clip {row.id}</span>
+          <span className="ag-ticket-hash">{row.clipHash}</span>
+          <span className="ag-sub">
+            {row.status}, proposed {row.submittedAt}, confirmed {row.verifiedAt}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -884,6 +962,8 @@ export function AppShell() {
                 <Receipts settlements={settlements} state={ledger} />
               ) : screen === "records" ? (
                 <Records />
+              ) : screen === "proposals" ? (
+                <Proposals submitter={address} />
               ) : screen === "notyet" ? (
                 <NotYet />
               ) : lines.length === 0 ? (
