@@ -54,7 +54,7 @@ This repository was created on 2026-09-06 and is being built across the event wi
 
 | Leg | State |
 |---|---|
-| Agent identity over ENS | resolving: `xovi.eth` is registered on Ethereum Sepolia and its `x402:windows` record resolves to the windows endpoint, read 2026-09-12 through `resolveWindowsEndpoint` with no injected lookup, which is the function `bin/agent.ts` calls. Checkable in one command, `AGENT_ENS_NAME=xovi.eth npm run ens:verify`. The four refusal branches are proven against an injected resolver and the protocol guard is still owed against the real record |
+| Agent identity over ENS | resolving: `xovi.eth` is registered on Ethereum Sepolia and its `x402:windows` record resolves to the windows endpoint, read 2026-09-12 through `resolveWindowsEndpoint` with no injected lookup, which is the function `bin/agent.ts` calls. Checkable in one command, `AGENT_ENS_NAME=xovi.eth npm run ens:verify`. The four refusal branches are proven against an injected resolver, and the protocol guard is proven against the real record: an `http` value stood on it for eighteen blocks on 2026-09-12 and was refused |
 | Paid read over x402 | built, and settled repeatedly on Base Sepolia through the public testnet facilitator, most recently `0x4d609e7b…aa39`. The suite exercises the refusal against a fake; the settlements are real |
 | Agent proposes a clip | built, and exercised twice over: against a fake of the ingest route in the suite, and live against the real route, which is where clip 259 came from |
 | Proof of human, per person caps | built: registry lookup, a keyed digest of the identifier kept for 30 days, and a per person daily allowance |

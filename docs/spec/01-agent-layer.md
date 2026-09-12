@@ -56,7 +56,7 @@ A person delegates to an agent identified by an ENS name. The agent pays USDC ov
 
 ### I5. Names resolve to roles, not to subjects
 
-An agent's ENS records may name a role and a payment endpoint. No record resolves to an individual animal or a registry of them. Note the enforcement honestly: name access control authorises *writers*, not *values*, so this is a commitment Zenbit keeps, not a property the resolver enforces.
+The ENS records issued to an agent may name a role and a payment endpoint. No record resolves to an individual animal or a registry of them. Note the enforcement honestly: name access control authorises *writers*, not *values*, so this is a commitment Zenbit keeps, not a property the resolver enforces.
 
 ### I5b. A failed settlement is retried, and the authorization is never signed again
 
