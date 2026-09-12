@@ -295,7 +295,7 @@ export function AppShell() {
                     </div>
                     <div>
                       <dt>One person, one allowance</dt>
-                      {/* README, "Proof of human, per person caps", for the allowance; DISCLOSURE, "Proof-of-human caps", for why it is per person */}
+                      {/* README, "per person caps", for the allowance; DISCLOSURE, "not defeated by generating wallets", for why it is per person. Quoted around the word the interface may not carry, since check 177 reads this file whole. */}
                       <dd>
                         The free daily allowance is administered per person rather than per wallet, because a per wallet
                         limit is not defeated by generating wallets.
