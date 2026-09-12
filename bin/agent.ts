@@ -15,6 +15,7 @@ import type { CandidateWindow } from "../lib/windows/types";
  * rather than asserted here, which is a stronger thing to be able to say.
  *
  *   WINDOWS_URL=... AGENT_PRIVATE_KEY=0x... XOVI_INGEST_URL=... XOVI_INGEST_KEY=xvi_... npm run agent
+ *   AGENT_IDENTITY_NAME=agent1.xovi.eth ...  and it runs under the name Zenbit issued
  *   npm run agent -- --dry-run       print what would be sent, send nothing
  *   npm run agent -- --limit 1       propose at most one window
  */

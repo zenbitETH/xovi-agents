@@ -434,7 +434,8 @@ async function main() {
   check(await resolveWindowsEndpoint(named, async () => "https://named/windows") === "https://named/windows",
     "83 · and a record that does resolve is used (negative control for 80 to 82)");
 
-  // The name Zenbit issues, and the check that it is this agent's. The instrument is
+  // The name Zenbit issues, and the check that it names the key this agent pays from.
+  // The instrument is
   // `addr` rather than the resolver, because wildcard resolution under the parent
   // makes every subname answer the same resolver whether or not anybody issued it.
   const PAYER = "0xC0686ae97FDf62A37F081922c2a92537862E0B95";
@@ -443,17 +444,29 @@ async function main() {
     try { await assertIssuedIdentity(PAYER, env as never, async () => addr); return false; }
     catch (e) { return e instanceof IdentityMismatch; }
   };
-  check(await assertIssuedIdentity(PAYER, {} as never, async () => PAYER) === null,
-    "83b · no configured name claims nothing, and does not reach the chain to say so");
-  check(await assertIssuedIdentity(PAYER, { AGENT_IDENTITY_NAME: ISSUED } as never, async () => PAYER) === ISSUED,
-    "83c · a name issued to the payer is returned (positive control for 83d to 83f)");
+  // Every call wrapped, including the ones expected to succeed. A bare call here makes
+  // a regression abort the harness rather than print a red line, and an aborted run
+  // sends the next person to debug the harness instead of reading the finding.
+  const idResult = async (payer: string, env: Record<string, string>, resolve: () => Promise<string | null>) => {
+    try { return await assertIssuedIdentity(payer, env as never, resolve as never); }
+    catch (e) { return `RAISED ${e instanceof Error ? e.constructor.name : "unknown"}`; }
+  };
+
+  // Counted rather than asserted. "Does not reach the chain" is a claim about calls,
+  // and until something counts them the label is true of nothing.
+  let idLookups = 0;
+  const countingResolver = async () => { idLookups++; return PAYER; };
+  check(await idResult(PAYER, {}, countingResolver) === null && idLookups === 0,
+    "83b · no configured name claims nothing, and never reaches the chain to say so");
+  check(await idResult(PAYER, { AGENT_IDENTITY_NAME: ISSUED }, countingResolver) === ISSUED && idLookups === 1,
+    "83c · a name issued to the payer is returned, and that one did reach the resolver (positive control for 83b)");
   check(await idRaises({ AGENT_IDENTITY_NAME: ISSUED }, null),
     "83d · a name with no address record raises, because an unissued subname resolves like an issued one");
   check(await idRaises({ AGENT_IDENTITY_NAME: ISSUED }, "0x0000000000000000000000000000000000000000"),
     "83e · and a zero address raises too, which is what the parent answers for a name nobody issued");
   check(await idRaises({ AGENT_IDENTITY_NAME: ISSUED }, "0x51F1D0074793E7Fa336f538299ad7D3e439e2b09"),
-    "83f · a name issued to a DIFFERENT address raises, rather than proposing under somebody else's name");
-  check(await assertIssuedIdentity(PAYER.toLowerCase(), { AGENT_IDENTITY_NAME: ISSUED } as never, async () => PAYER.toUpperCase().replace("0X", "0x")) === ISSUED,
+    "83f · a name issued to a DIFFERENT address raises, rather than proposing under a name issued to somebody else");
+  check(await idResult(PAYER.toLowerCase(), { AGENT_IDENTITY_NAME: ISSUED }, async () => PAYER.toUpperCase().replace("0X", "0x")) === ISSUED,
     "83g · and checksum casing is not a mismatch, so a correct name is never refused for its spelling");
 
   console.log("\n  what the route would refuse, refused here first\n");

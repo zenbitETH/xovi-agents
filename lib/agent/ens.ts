@@ -89,7 +89,8 @@ export async function resolveWindowsEndpoint(
 }
 
 /**
- * The name Zenbit issues to an agent, and the check that it is this agent's.
+ * The name Zenbit issues to an agent, and the check that it names the key this agent
+ * pays from.
  *
  * **Zenbit issues the name; the agent does not own it.** A subname's records live in
  * the parent's resolver and only the parent's owner can write them, so Zenbit can
@@ -102,7 +103,7 @@ export async function resolveWindowsEndpoint(
  * not one ENS name against another, which is why the variables do not share a prefix.
  *
  * The endpoint deliberately stays on the parent rather than being copied onto each
- * agent's subname: one write moves it for every agent, and that is the property the
+ * subname issued to each agent: one write moves it for every agent, and that is the property the
  * record exists to provide.
  *
  * **The instrument here is `addr`, and it has to be, because `resolver` is blind.**
