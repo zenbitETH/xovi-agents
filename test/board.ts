@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GET as boardGET } from "../app/api/agent/board/route";
 import { GET as windowsGET } from "../app/api/agent/windows/route";
+import { GET as registrationGET } from "../app/api/agent/registration/route";
+import { readFileSync } from "node:fs";
 import { BOARD_SPECIES, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
 
@@ -148,6 +150,44 @@ export async function boardChecks(check: Check) {
     "274e · and the route's answer stops carrying the gate's sentence (negative control)");
   if (embargoBefore === undefined) delete process.env.EMBARGOED_ALIASES;
   else process.env.EMBARGOED_ALIASES = embargoBefore;
+
+  /*
+   * The gate's three reads, and the one value that may not cross a wire.
+   *
+   * AgentBook answers with a nullifier, which is deterministic on the identity
+   * and therefore the same for every agent one person registers: publishing it
+   * would let anyone join a person's agents to each other. The route answers with
+   * a word. Unread is an answer about the read and is kept apart from not
+   * registered, because telling somebody to register when they already have is
+   * the one wrong thing that card can do.
+   */
+  const noPayer = await registrationGET(new Request("http://127.0.0.1/api/agent/registration"));
+  check(noPayer.status === 400, `278 · the registration read names a payer or refuses (${noPayer.status})`);
+  const unread = await registrationGET(new Request("http://127.0.0.1/api/agent/registration?payer=0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe"));
+  const unreadBody = (await unread.json()) as Record<string, unknown>;
+  check(Object.keys(unreadBody).join(",") === "state", `278a · and answers with one field (${Object.keys(unreadBody).join(",")})`);
+  check(["registered", "not-registered", "unread"].includes(String(unreadBody.state)), `278b · which is one of the three states (${unreadBody.state})`);
+  // Driven rather than grepped: the route names the nullifier because it compares
+  // it, and a source scan called that a leak. What matters is the body, and a
+  // nullifier is a bigint, so a body with no digit in it carries no nullifier.
+  check(!/\d/.test(JSON.stringify(unreadBody)), `278c · and no digit reaches the body, so no nullifier does (${JSON.stringify(unreadBody)})`);
+  check(/\d/.test(JSON.stringify({ state: 12345n.toString() })), "278d · the digit check can see one (negative control)");
+
+  const page = readFileSync("app/app-shell.tsx", "utf8");
+  check(/REGISTRATION_LINE/.test(page), "279 · the gate draws AgentBook's answer as a sentence per state");
+  check(/did not answer, so this says nothing/.test(page), "279a · with unread saying nothing about the agent");
+  check(/No path issues one from this page/.test(page), "279b · and the issue action written as a negative rather than drawn as a control");
+  // A rung and not a button: the settings screen has the connect and the board
+  // actions and no third that would do nothing.
+  const settingsBlock = page.slice(page.indexOf("function Settings("), page.indexOf("function Board("));
+  const buttons = (settingsBlock.match(/<button/g) ?? []).length;
+  check(buttons === 2, `279c · settings carries two controls, both of which act (${buttons})`);
+
+  // The board never says how many, and the chosen cell travels as day and species.
+  const boardBlock = page.slice(page.indexOf("function Board("), page.indexOf("function Records("));
+  check(/on offer/.test(boardBlock) && !/\{cell\?\.count|length\}/.test(boardBlock), "280 · a cell says on offer or none and never how many");
+  check(/searchParams\.set\("day", chosen\.day\)/.test(page) && /searchParams\.set\("species", chosen\.species\)/.test(page),
+    "280a · and the chosen cell is what the run reads");
 
   if (before === undefined) delete process.env.WINDOWS_SNAPSHOT;
   else process.env.WINDOWS_SNAPSHOT = before;

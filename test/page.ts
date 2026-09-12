@@ -4,6 +4,7 @@ import {
   ACCOUNT_TABS,
   PLAN,
   planFrom,
+  screensFor,
   RECORD,
   RUNGS,
   SCREENS,
@@ -505,7 +506,7 @@ export async function pageChecks(check: Check) {
   for (const d of destinations) {
     check(new RegExp(`screen === "${d}"`).test(ui) || d === "run", `260b · ${d} opens on something`);
   }
-  check(/translateX\(\$\{SCREENS\.findIndex/.test(ui), "261 · the rail indicator is moved with transform");
+  check(/translateX\(\$\{Math\.max\(0, screensFor/.test(ui), "261 · the rail indicator is moved with transform");
   check(/translateX\(\$\{ACCOUNT_TABS\.findIndex/.test(ui), "261a · and so is the account's");
 
   // Finding 15. `currentChain` answers null when the provider throws or is not
@@ -612,13 +613,23 @@ export async function pageChecks(check: Check) {
    * the indicator's column count was written into the stylesheet where nobody
    * edits it at the same time as the array.
    */
-  check(SCREENS.length === 4, `266 · four destinations in the array (${SCREENS.length})`);
+  /*
+   * Six destinations, and Run is not one of them until a cell is chosen.
+   *
+   * A person arrives at Settings, chooses a cell on the Board, and only then has
+   * a Run to look at. Run present and inert would be a control that does nothing,
+   * which is the rule that keeps a drawn but unbuilt action off this page.
+   */
+  check(SCREENS.length === 6, `266 · six destinations in the array (${SCREENS.length})`);
+  check(SCREENS[0].id === "settings" && SCREENS[1].id === "board", `266f · beginning with settings then the board (${SCREENS[0].id}, ${SCREENS[1].id})`);
+  check(!screensFor(false).some(d => d.id === "run"), "266g · and Run is absent until a cell is chosen");
+  check(screensFor(true).some(d => d.id === "run"), "266h · and present once one is (negative control)");
   check(ACCOUNT_TABS.length === 4, `266a · and four account tabs (${ACCOUNT_TABS.length})`);
   const withoutBranch = SCREENS.filter(d => d.id !== "run" && !new RegExp(`screen === "${d.id}"`).test(ui));
   check(withoutBranch.length === 0, `266b · every destination but the default has a branch (${withoutBranch.map(d => d.id).join(", ") || "none"})`);
   const withoutTab = ACCOUNT_TABS.filter(t => t.id !== "names" && !new RegExp(`accountTab === "${t.id}"`).test(ui));
   check(withoutTab.length === 0, `266c · and every tab but the default has one (${withoutTab.map(t => t.id).join(", ") || "none"})`);
-  check(/var\(--xv-strip-n, 4\)/.test(css) && /"--xv-strip-n": SCREENS\.length/.test(ui),
+  check(/var\(--xv-strip-n, 4\)/.test(css) && /"--xv-strip-n": screensFor\(/.test(ui),
     "266d · the indicator's columns come from the array rather than from a constant in the stylesheet");
   check(!/\/ 4\)/.test(css), "266e · and no strip arithmetic hard-codes four");
 

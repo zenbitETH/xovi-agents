@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "fs";
 import { isAbsolute, join, resolve } from "path";
 import { applyEmbargo } from "./embargo";
-import { type CandidateWindow, windowProblems } from "./types";
+import { BOARD_SPECIES, type CandidateWindow, windowProblems } from "./types";
 
 /** Only string lookups are needed, so the tests can pass a plain object
  *  instead of casting a partial to the full process environment. */
@@ -136,9 +136,7 @@ export function loadSnapshot(env: EnvLike = process.env): BoardWindow[] {
   return out;
 }
 
-/** The three species the board draws, in the order it draws them. Andersoni is
- *  here because its absence is a fact worth showing, not because a stream exists. */
-export const BOARD_SPECIES = ["mexicanum", "dumerilii", "andersoni"] as const;
+export { BOARD_SPECIES } from "./types";
 
 /**
  * What is on offer, per day and per species, and never how much.

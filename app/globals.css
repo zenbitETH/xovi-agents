@@ -76,6 +76,8 @@
   /* How many items a strip holds. Set on the element from the array that renders
      them, so a fifth destination moves the indicator with it. */
   --xv-strip-n: 4;
+  /* How many days the board draws. Set on the grid from the days the files carry. */
+  --xv-board-n: 1;
 
   --xv-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
@@ -959,6 +961,84 @@ body::after {
   font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 0.8125rem;
   line-height: 1.55;
+}
+
+/* ---------------------------------------------------------------------------
+   The board: days across, the three species down.
+
+   A grid rather than a list, because what a person is choosing is one of a set of
+   pairs and a list would make them build the pair in their head. Andersoni has a
+   row wherever a day exists, since its absence is a fact worth drawing.
+--------------------------------------------------------------------------- */
+.ag-board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.25rem;
+}
+
+.ag-board-grid {
+  display: grid;
+  grid-template-columns: auto repeat(var(--xv-board-n, 1), minmax(4.5rem, 1fr));
+  gap: 0.375rem;
+  align-items: stretch;
+  overflow-x: auto;
+}
+
+/* The empty square where the two axes meet. It has a rule so that it is a
+   deliberate blank rather than a class nobody styled. */
+.ag-board-corner {
+  display: block;
+}
+
+.ag-board-day,
+.ag-board-species {
+  display: flex;
+  align-items: center;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.ag-board-species {
+  padding-right: 0.5rem;
+}
+
+.ag-board-cell {
+  padding: 0.5rem 0.375rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  border-radius: 0.5rem;
+  background-color: color-mix(in srgb, var(--color-base-content) 4%, transparent);
+  color: inherit;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  cursor: pointer;
+  transition: transform 120ms var(--xv-ease-out), border-color 160ms var(--xv-ease-out);
+}
+
+.ag-board-cell:active {
+  transform: scale(0.97);
+}
+
+/* A cell with nothing in it is not a control. Dimmed and inert rather than
+   removed, so the shape of the week stays readable. */
+.ag-board-cell:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* The chosen cell is outlined rather than filled with an actor hue: a cell is a
+   choice of what to read and is neither a person nor a machine. */
+.ag-board-picked {
+  border-color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ag-board-cell:active {
+    transform: none;
+  }
 }
 
 /* ---------------------------------------------------------------------------

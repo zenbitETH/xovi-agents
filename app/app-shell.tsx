@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   BASE_SEPOLIA_HEX,
   NoWallet,
@@ -14,6 +14,7 @@ import {
   signChallenge,
 } from "~~/lib/agent/browser";
 import type { RunStep } from "~~/lib/agent/run";
+import { BOARD_SPECIES } from "~~/lib/windows/types";
 import { recoverConfirmer } from "~~/lib/anchor/confirmation";
 import { decisionCode } from "~~/lib/anchor/schema";
 import { CONFIRMATION_259 } from "~~/lib/anchor/confirmation-259";
@@ -360,14 +361,48 @@ type Settlement = {
  *
  * A destination is added the day it is built, so no item opens on nothing.
  */
-type Screen = "run" | "account" | "record" | "notyet";
+type Screen = "settings" | "board" | "run" | "account" | "record" | "notyet";
 
+/**
+ * The destinations, and the flow through the first three.
+ *
+ * A person arrives at Settings, chooses a cell on the Board, and only then has a
+ * Run to look at. Run is absent from the strip until a cell is chosen rather than
+ * present and inert, because a control that does nothing is a control that lies,
+ * which is the same rule that keeps a drawn but unbuilt action off this page.
+ */
 export const SCREENS: { id: Screen; label: string }[] = [
+  { id: "settings", label: "Settings" },
+  { id: "board", label: "Board" },
   { id: "run", label: "Run" },
   { id: "account", label: "Account" },
   { id: "record", label: "Record" },
   { id: "notyet", label: "Not yet" },
 ];
+
+export function screensFor(cellChosen: boolean): { id: Screen; label: string }[] {
+  return SCREENS.filter(s => s.id !== "run" || cellChosen);
+}
+
+/** A cell of the board, as the page holds it once a person picks one. */
+export type Chosen = { day: string; species: string };
+
+/**
+ * What AgentBook says, in three states.
+ *
+ * Unread is an answer about the read and not about the agent, so it is not drawn
+ * as not registered: telling somebody to register when they already have is the
+ * one wrong thing this card can do.
+ */
+export type Registration = "registered" | "not-registered" | "unread" | "reading" | "idle";
+
+const REGISTRATION_LINE: Record<Registration, string> = {
+  idle: "Connect a wallet and this reads AgentBook for it.",
+  reading: "Reading AgentBook.",
+  registered: "AgentBook holds a person behind this agent, registered by a verified person.",
+  "not-registered": "AgentBook holds no person behind this agent. Registering is done on World App and not here.",
+  unread: "AgentBook did not answer, so this says nothing about whether a person is behind this agent.",
+};
 
 type AccountTab = "overview" | "receipts" | "proposals" | "names";
 
@@ -777,6 +812,149 @@ function NotYet() {
 }
 
 /**
+ * Settings: what has to be true before a run means anything.
+ *
+ * The wallet, what AgentBook says about it, and whether a name is issued to it.
+ * Each is a card that states its own answer rather than a checklist that grades
+ * the person.
+ *
+ * **The issue action is a rung, not a button.** No issuing path exists, and a
+ * control drawn and marked design is a control that lies; two present tense
+ * sentences with the negative say the same thing truthfully and go on the sweep
+ * with everything else.
+ */
+function Settings({
+  address,
+  chain,
+  registration,
+  name,
+  onConnect,
+  onBoard,
+}: {
+  address: `0x${string}` | null;
+  chain: string | null;
+  registration: Registration;
+  name: string | null;
+  onConnect: () => void;
+  onBoard: () => void;
+}) {
+  return (
+    <div className="ag-records">
+      <div className="ag-panel">
+        <h3 className="ag-panel-title">The wallet</h3>
+        {address === null ? (
+          <>
+            <p className="ag-sub">Nothing is connected, so nothing below can be read.</p>
+            <button className="btn xv-action ag-primary" onClick={onConnect}>
+              Connect wallet
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="ag-ticket-hash">{address}</p>
+            <p className="ag-sub">{chain === BASE_SEPOLIA_HEX ? "on Base Sepolia" : chain === null ? "on a chain that did not answer" : "on another chain"}</p>
+          </>
+        )}
+      </div>
+
+      <div className="ag-panel">
+        <h3 className="ag-panel-title">The person behind the agent</h3>
+        <p className="ag-sub">{REGISTRATION_LINE[registration]}</p>
+        {/* The badge wording belongs to the legal lead and is not strengthened
+            here. Nothing on this card identifies anybody: the registry answers
+            with an anonymous identifier and the route answers with a word. */}
+        <p className="ag-sub">The badge identifies nobody and validates no clip.</p>
+      </div>
+
+      <div className="ag-panel">
+        <h3 className="ag-panel-title">The name</h3>
+        {name !== null ? (
+          <>
+            <p className="ag-card-value">{name}</p>
+            <p className="ag-sub">resolves to this payer</p>
+          </>
+        ) : (
+          <p className="ag-sub">No name is issued for this payer.</p>
+        )}
+        {/* A rung, in the ladder's shape: one merged fact and one negative, in the
+            present tense, so the day it stops being true the sweep catches it. */}
+        <p className="ag-sub ag-panel-note">Zenbit issues a name into a parent it owns. No path issues one from this page.</p>
+      </div>
+
+      <button className="btn xv-action ag-primary" onClick={onBoard}>
+        See what is on offer
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The board: what is on offer, per day and per species.
+ *
+ * Days across and the three species down, andersoni drawn wherever a day exists
+ * because its absence is a fact worth showing rather than a row left out. A cell
+ * says on offer or none and never how many, since the window files are public and
+ * a count is the withheld set by subtraction.
+ */
+function Board({
+  state,
+  days,
+  cells,
+  chosen,
+  onChoose,
+}: {
+  state: "loading" | "ready" | "unconfigured" | "failed";
+  days: string[];
+  cells: { day: string; species: string; onOffer: boolean }[];
+  chosen: Chosen | null;
+  onChoose: (cell: Chosen) => void;
+}) {
+  if (state === "loading") return <p className="xv-desc ag-empty">Reading what is on offer.</p>;
+  if (state === "unconfigured") return <p className="xv-desc ag-empty">This deployment has no windows configured, so there is nothing on offer.</p>;
+  if (state === "failed") return <p className="xv-desc ag-empty">The board did not answer, so this is not a list of what is on offer.</p>;
+  if (days.length === 0) return <p className="xv-desc ag-empty">No day has windows on offer.</p>;
+
+  return (
+    <div className="ag-board">
+      <p className="xv-desc ag-empty">
+        Choose a day and a species to read. The agent chooses the window and forms the proposal; no choice here reaches
+        the clip.
+      </p>
+      <div className="ag-board-grid" style={{ "--xv-board-n": days.length } as React.CSSProperties}>
+        <span className="ag-board-corner" aria-hidden="true" />
+        {days.map(day => (
+          <span key={day} className="ag-board-day">
+            {day}
+          </span>
+        ))}
+        {BOARD_SPECIES.map(species => (
+          <Fragment key={species}>
+            <span className="ag-board-species">{species}</span>
+            {days.map(day => {
+              const cell = cells.find(c => c.day === day && c.species === species);
+              const on = cell?.onOffer === true;
+              const picked = chosen?.day === day && chosen.species === species;
+              return (
+                <button
+                  key={`${day}-${species}`}
+                  type="button"
+                  className={picked ? "ag-board-cell ag-board-picked" : "ag-board-cell"}
+                  aria-current={picked ? "true" : undefined}
+                  disabled={!on}
+                  onClick={() => onChoose({ day, species })}
+                >
+                  {on ? "on offer" : "none"}
+                </button>
+              );
+            })}
+          </Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * The record, and the check a stranger can run beside it.
  *
  * **Seven fields any reader can check without trusting Zenbit**, in spec 05's own
@@ -1175,7 +1353,11 @@ export function AppShell() {
   const [challengeRead, setChallengeRead] = useState(false);
   const [signed, setSigned] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [screen, setScreen] = useState<Screen>("run");
+  const [screen, setScreen] = useState<Screen>("settings");
+  const [chosen, setChosen] = useState<Chosen | null>(null);
+  const [board, setBoard] = useState<{ days: string[]; cells: { day: string; species: string; onOffer: boolean }[] }>({ days: [], cells: [] });
+  const [boardState, setBoardState] = useState<"loading" | "ready" | "unconfigured" | "failed">("loading");
+  const [registration, setRegistration] = useState<Registration>("idle");
   const [accountTab, setAccountTab] = useState<AccountTab>("overview");
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [ledger, setLedger] = useState<"idle" | "loading" | "ready" | "failed">("idle");
@@ -1296,6 +1478,52 @@ export function AppShell() {
     };
   }, [address]);
 
+  // The board is what is for sale and needs no wallet to look at.
+  useEffect(() => {
+    let live = true;
+    fetch("/api/agent/board")
+      .then(async r => {
+        if (r.status === 503) return "unconfigured" as const;
+        if (!r.ok) throw new Error(String(r.status));
+        return (await r.json()) as { days: string[]; cells: { day: string; species: string; onOffer: boolean }[] };
+      })
+      .then(answer => {
+        if (!live) return;
+        if (answer === "unconfigured") {
+          setBoardState("unconfigured");
+          return;
+        }
+        setBoard(answer);
+        setBoardState("ready");
+      })
+      .catch(() => {
+        if (live) setBoardState("failed");
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (address === null) {
+      setRegistration("idle");
+      return;
+    }
+    let live = true;
+    setRegistration("reading");
+    fetch(`/api/agent/registration?payer=${address}`)
+      .then(async r => (r.ok ? ((await r.json()) as { state: Registration }) : { state: "unread" as const }))
+      .then(a => {
+        if (live) setRegistration(a.state);
+      })
+      .catch(() => {
+        if (live) setRegistration("unread");
+      });
+    return () => {
+      live = false;
+    };
+  }, [address]);
+
   const onDisconnect = useCallback(async () => {
     const how = await disconnect();
     setAddress(null);
@@ -1352,7 +1580,14 @@ export function AppShell() {
     setSigned(false);
     setPhase("signing");
     try {
-      const windowsUrl = new URL("/api/agent/windows", window.location.origin).toString();
+      // The cell a person chose on the board. A choice of what to read, and the
+      // agent still chooses the window and forms the proposal.
+      const windowsEndpoint = new URL("/api/agent/windows", window.location.origin);
+      if (chosen !== null) {
+        windowsEndpoint.searchParams.set("day", chosen.day);
+        windowsEndpoint.searchParams.set("species", chosen.species);
+      }
+      const windowsUrl = windowsEndpoint.toString();
       say({ text: "Reading the live payment challenge", tone: "working", actor: "agent" });
       // What is on sale, and the price, are said BEFORE the wallet opens rather than
       // after it closes. Both come from the challenge the server sent: the page is not
@@ -1405,7 +1640,7 @@ export function AppShell() {
     } finally {
       busy.current = false;
     }
-  }, [address, say]);
+  }, [address, say, chosen]);
 
   const running = phase === "signing" || phase === "running";
   // The reason a run stopped, taken from the run's own last stopped line rather
@@ -1458,7 +1693,7 @@ export function AppShell() {
                 ? "Connect a wallet, pay for one read, and the agent does the rest."
                 : "Pay for one read, and the agent does the rest."}
             </p>
-            <nav className="ag-rail" aria-label="Sections" style={{ "--xv-strip-n": SCREENS.length } as React.CSSProperties}>
+            <nav className="ag-rail" aria-label="Sections" style={{ "--xv-strip-n": screensFor(chosen !== null).length } as React.CSSProperties}>
               {/* The indicator is one element moved with `transform`, so the state
                   travels between items rather than being switched off one and on
                   another. Equal columns are what make the arithmetic a percentage
@@ -1466,9 +1701,9 @@ export function AppShell() {
               <span
                 className="ag-rail-indicator"
                 aria-hidden="true"
-                style={{ transform: `translateX(${SCREENS.findIndex(s => s.id === screen) * 100}%)` }}
+                style={{ transform: `translateX(${Math.max(0, screensFor(chosen !== null).findIndex(s => s.id === screen)) * 100}%)` }}
               />
-              {SCREENS.map(s => (
+              {screensFor(chosen !== null).map(s => (
                 <button
                   key={s.id}
                   type="button"
@@ -1494,7 +1729,27 @@ export function AppShell() {
 
           <div className="ag-app-body">
             <div className="ag-app-scroll">
-              {screen === "account" ? (
+              {screen === "settings" ? (
+                <Settings
+                  address={address}
+                  chain={chain}
+                  registration={registration}
+                  name={issuedName}
+                  onConnect={() => void onConnect()}
+                  onBoard={() => setScreen("board")}
+                />
+              ) : screen === "board" ? (
+                <Board
+                  state={boardState}
+                  days={board.days}
+                  cells={board.cells}
+                  chosen={chosen}
+                  onChoose={cell => {
+                    setChosen(cell);
+                    setScreen("run");
+                  }}
+                />
+              ) : screen === "account" ? (
                 <div className="ag-account-body">
                   <nav className="ag-tabs" aria-label="Account" style={{ "--xv-strip-n": ACCOUNT_TABS.length } as React.CSSProperties}>
                     <span
