@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { lineFor } from "../app/app-shell";
+import { fabricated, lineFor, settled } from "../app/app-shell";
+import { FABRICATED_TX } from "../lib/human/store";
 import type { RunStep } from "../lib/agent/run";
 
 type Check = (ok: boolean, label: string) => void;
@@ -154,6 +155,29 @@ export function pageChecks(check: Check) {
     chosenLine.object?.kind === "windows" && chosenLine.object.chosen === "6fe45c795eb3049c",
     "226b · and the one the agent took is marked as taken",
   );
+
+  /*
+   * The fabricated settlement, which is in the production ledger and will be
+   * served to this page.
+   *
+   * The page carries its own copy of the hash because importing the store into a
+   * browser bundle would drag the database driver with it. A copy is a thing that
+   * drifts, so the two are compared here: this is the check that makes the
+   * duplication safe rather than a comment asking somebody to be careful.
+   */
+  const pageCopy = ui.match(/const FABRICATED_TX = `0x\$\{"(\d+)"\.repeat\((\d+)\)\}`/);
+  check(pageCopy !== null, "230 · the page names the fake facilitator's hash");
+  check(
+    pageCopy !== null && `0x${pageCopy[1].repeat(Number(pageCopy[2]))}` === FABRICATED_TX,
+    "230a · and it is the same hash the write path refuses, so the copy cannot drift",
+  );
+
+  const rows = [
+    { source: "route", payer: "0xp", payTo: "0xr", amount: "10000", network: "eip155:84532", nonce: "n1", txHash: "0xreal1", settledAt: "2026-09-11T05:00:00.000Z" },
+    { source: "route", payer: "0xp", payTo: "0xr", amount: "10000", network: "eip155:84532", nonce: "n2", txHash: FABRICATED_TX, settledAt: "2026-09-11T06:00:00.000Z" },
+  ];
+  check(settled(rows).length === 1 && fabricated(rows).length === 1, "230b · a row carrying it is separated from the settlements");
+  check(settled(rows).every(r => r.txHash !== FABRICATED_TX), "230c · and no total is formed over it");
 
   /*
    * An agent surface carries no decision.

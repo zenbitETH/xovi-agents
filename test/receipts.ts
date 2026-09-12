@@ -105,9 +105,15 @@ export async function receiptsChecks(check: Check) {
       throw new Error("relation \"receipts\" does not exist");
     },
   });
-  const broken = await ask(`?payer=${ASKING}`);
-  check(broken.status === 503, "223a · a ledger that throws is 503, not the framework's 500");
-  check(!JSON.stringify(await broken.json()).includes("relation"), "223b · and the driver's message stays in the log");
+  // Wrapped, because the regression this check exists to catch is the route losing
+  // its try and catch, and an unwrapped call would then reject, abort the harness
+  // on this line and skip every check after it. A crash that hides the rest of the
+  // suite is a worse report than one red line.
+  const broken = await ask(`?payer=${ASKING}`).catch(() => null);
+  check(broken !== null, "223a · a ledger that throws is answered rather than raised through the route");
+  check(broken?.status === 503, "223b · and the answer is 503, not the framework's 500");
+  const brokenBody = broken === null ? "" : JSON.stringify(await broken.json());
+  check(!brokenBody.includes("relation"), "223c · while the driver's message stays in the log");
 
   setReceiptReaderForTest(undefined);
 }

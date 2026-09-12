@@ -192,11 +192,12 @@ type Settlement = {
  * item never leads anywhere empty: the cut removes a section from the page rather
  * than hiding it behind a tab that opens on nothing.
  */
-type Screen = "runs" | "overview";
+type Screen = "runs" | "overview" | "receipts";
 
 const SCREENS: { id: Screen; label: string }[] = [
   { id: "runs", label: "Runs" },
   { id: "overview", label: "Overview" },
+  { id: "receipts", label: "Receipts" },
 ];
 
 /**
@@ -209,11 +210,36 @@ const SCREENS: { id: Screen; label: string }[] = [
  * chain, and a row settled anywhere else is counted and not summed rather than
  * added to a number whose unit nobody knows.
  */
+/**
+ * The transaction hash the fake facilitator settles with.
+ *
+ * Written here as a literal rather than imported, because `lib/human/store.ts`
+ * reaches for the database driver and this file runs in a browser. The copy is
+ * held to the original by a check that imports both and compares them, so the two
+ * cannot drift; see `test/page.ts`.
+ *
+ * It is on this page because a row in the production ledger carries it, written
+ * on 2026-09-11 by a local demo run whose process had a real connection string.
+ * The route serves that row because it is in the table. Drawing it as a
+ * settlement would put a payment that happened on no chain into a total, and
+ * dropping it silently would hide a row the ledger really holds, so it is drawn
+ * and named and left out of the sum.
+ */
+const FABRICATED_TX = `0x${"11".repeat(32)}`;
+
 const BASE_SEPOLIA = "eip155:84532";
 const USDC_DECIMALS = 1_000_000n;
 
+export function settled(settlements: Settlement[]): Settlement[] {
+  return settlements.filter(s => s.txHash !== FABRICATED_TX);
+}
+
+export function fabricated(settlements: Settlement[]): Settlement[] {
+  return settlements.filter(s => s.txHash === FABRICATED_TX);
+}
+
 function totalOnBaseSepolia(settlements: Settlement[]): { total: string; counted: number; elsewhere: number } {
-  const here = settlements.filter(s => s.network === BASE_SEPOLIA);
+  const here = settled(settlements).filter(s => s.network === BASE_SEPOLIA);
   let atomic = 0n;
   for (const s of here) {
     try {
@@ -225,7 +251,7 @@ function totalOnBaseSepolia(settlements: Settlement[]): { total: string; counted
   }
   const whole = atomic / USDC_DECIMALS;
   const frac = (atomic % USDC_DECIMALS).toString().padStart(6, "0").replace(/0+$/, "") || "0";
-  return { total: `${whole}.${frac.padEnd(2, "0")}`, counted: here.length, elsewhere: settlements.length - here.length };
+  return { total: `${whole}.${frac.padEnd(2, "0")}`, counted: here.length, elsewhere: settled(settlements).length - here.length };
 }
 
 /**
@@ -251,7 +277,7 @@ function Overview({ settlements, state }: { settlements: Settlement[]; state: "i
     <div className="ag-cards">
       <div className="ag-panel">
         <h3 className="ag-panel-title">Settled reads</h3>
-        <p className="ag-panel-big">{settlements.length}</p>
+        <p className="ag-panel-big">{settled(settlements).length}</p>
         <p className="ag-sub">every one of them has a receipt</p>
       </div>
       <div className="ag-panel">
@@ -268,6 +294,83 @@ function Overview({ settlements, state }: { settlements: Settlement[]; state: "i
           Served under the free daily allowance. The route serves no count of what is left, so this page states none.
         </p>
       </div>
+    </div>
+  );
+}
+
+/** The month a settlement belongs to, in UTC, so a total does not move with
+ *  whoever is reading it. */
+function monthOf(iso: string): string {
+  return iso.slice(0, 7);
+}
+
+/**
+ * Every settlement this wallet made, as tickets, newest first.
+ *
+ * The totals are per month and are recomputed here from the same rows the
+ * tickets draw, so a reader adding up the tickets gets the number above them.
+ * A free read has no ticket in this section and cannot: it writes no receipt.
+ * That is stated rather than left as a gap, because a person who used the
+ * allowance and finds nothing here should learn why and not wonder.
+ */
+function Receipts({ settlements, state }: { settlements: Settlement[]; state: "idle" | "loading" | "ready" | "failed" }) {
+  if (state === "idle") return <p className="xv-desc ag-empty">Connect a wallet to read its receipts.</p>;
+  if (state === "loading") return <p className="xv-desc ag-empty">Reading the ledger.</p>;
+  if (state === "failed") return <p className="xv-desc ag-empty">The ledger did not answer, so this is not a list of what this wallet settled.</p>;
+
+  const real = settled(settlements);
+  const fake = fabricated(settlements);
+  const months = [...new Set(real.map(s => monthOf(s.settledAt)))].sort().reverse();
+
+  return (
+    <div className="ag-receipts">
+      <p className="xv-desc ag-empty">
+        A read served under the free daily allowance settles nothing and writes no receipt, so it has no ticket here.
+      </p>
+
+      {real.length === 0 && <p className="xv-desc ag-empty">This wallet has settled nothing here.</p>}
+
+      {months.map(month => {
+        const rows = real.filter(s => monthOf(s.settledAt) === month);
+        const money = totalOnBaseSepolia(rows);
+        return (
+          <section key={month} className="ag-month">
+            <h3 className="ag-panel-title">
+              {month}, {rows.length} settlement{rows.length === 1 ? "" : "s"}, {money.total} USDC on Base Sepolia
+            </h3>
+            {rows.map(s => (
+              <div key={s.txHash} className="ag-ticket ag-ticket-row">
+                <span className="ag-ticket-hash">{s.txHash}</span>
+                <span className="ag-sub">
+                  {s.amount} atomic, {s.network}, {s.settledAt}
+                </span>
+                {EXPLORER[s.network] !== undefined && (
+                  <a className="ag-link ag-ticket-link" href={EXPLORER[s.network] + s.txHash}>
+                    Read it on the explorer
+                  </a>
+                )}
+              </div>
+            ))}
+          </section>
+        );
+      })}
+
+      {fake.length > 0 && (
+        <section className="ag-month">
+          <h3 className="ag-panel-title">In the table and not a settlement</h3>
+          <p className="xv-desc ag-empty">
+            The ledger holds {fake.length} row{fake.length === 1 ? "" : "s"} carrying the fake facilitator&rsquo;s
+            transaction hash, written by a local demonstration whose process held a real connection string. That
+            transaction is on no chain, so it is shown here and counted in no total.
+          </p>
+          {fake.map(s => (
+            <div key={s.nonce} className="ag-ticket ag-ticket-row ag-ticket-free">
+              <span className="ag-ticket-hash">{s.txHash}</span>
+              <span className="ag-sub">{s.settledAt}</span>
+            </div>
+          ))}
+        </section>
+      )}
     </div>
   );
 }
@@ -555,6 +658,8 @@ export function AppShell() {
             <div className="ag-app-scroll">
               {screen === "overview" ? (
                 <Overview settlements={settlements} state={ledger} />
+              ) : screen === "receipts" ? (
+                <Receipts settlements={settlements} state={ledger} />
               ) : lines.length === 0 ? (
                 <div className="ag-intro">
                   <p className="xv-desc ag-empty">

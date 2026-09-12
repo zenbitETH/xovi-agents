@@ -121,7 +121,10 @@ function readableAmount(amount: string, token: string): string {
   const atomic = BigInt(amount);
   const whole = atomic / 1_000_000n;
   const frac = (atomic % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "") || "0";
-  return `$${whole}.${frac.padEnd(2, "0")} USDC`;
+  // No currency sign. The amount is a token quantity, and the dollar sign came in
+  // from x402's `maxAmountPerPayment`, which is a fiat denominated spend control
+  // and a different thing. USDC is not dollars and the page should not say it is.
+  return `${whole}.${frac.padEnd(2, "0")} USDC`;
 }
 
 /**
