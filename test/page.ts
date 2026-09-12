@@ -322,6 +322,26 @@ export async function pageChecks(check: Check) {
   check(flatUi.includes("A name is issued and is not owned"), "250c · and the section says a name is issued rather than owned");
 
   /*
+   * The footer and the mainnet rung say the same thing.
+   *
+   * They did not. The footer read "Nothing touches mainnet" while the rung two
+   * sections below it read "Nothing here writes to a mainnet; one read is on one",
+   * so one page made a categorical claim and then contradicted it. The identity is
+   * asserted rather than each sentence separately, because two copies of a claim
+   * drift and the interesting failure is that they disagree.
+   */
+  const mainnetRung = RUNGS.find(r => r.rung === "a mainnet");
+  const rungNegative = (mainnetRung?.sentences ?? "").split(/(?<=\.)\s+/)[1] ?? "";
+  // Read over the footer alone. The first version tested the whole file, which the
+  // rung's own copy of the sentence satisfies, so it stayed green with the footer
+  // reverted: it could not tell the two places apart, which is the one thing it
+  // exists to do.
+  const footerAt = flatUi.indexOf("Payments settle on Base Sepolia");
+  const footer = footerAt === -1 ? "" : flatUi.slice(footerAt, footerAt + 200);
+  check(rungNegative.length > 0 && footer.includes(rungNegative), `253 · the footer states the mainnet claim the rung states (${rungNegative})`);
+  check(!/Nothing touches mainnet/.test(ui), "253a · and not the categorical one it contradicted");
+
+  /*
    * The ladder: each rung two present tense sentences, one merged fact and one
    * negative, and the unlock written as the negative rather than a condition.
    */
