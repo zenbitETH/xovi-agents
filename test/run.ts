@@ -340,7 +340,18 @@ async function main() {
 
   console.log("\n  the endpoint, and the way in\n");
 
-  check(await resolveWindowsEndpoint({ WINDOWS_URL: "https://h/w" }) === "https://h/w",
+  /* Wrapped because `resolveWindowsEndpoint` is designed to raise, so a regression on a
+   * success path aborts the harness rather than printing a red line, and an aborted run
+   * sends the next reader to debug the harness instead of the finding. The criterion is
+   * the callee, not the check: calls to the in-memory fakes below return rather than
+   * throw, so a bare one there fails as a comparison. Two in this file matched, both to
+   * this function, and the identity checks are wrapped the same way for the same reason. */
+  const endpointResult = async (...args: Parameters<typeof resolveWindowsEndpoint>) => {
+    try { return await resolveWindowsEndpoint(...args); }
+    catch (e) { return `RAISED ${e instanceof Error ? e.constructor.name : "unknown"}`; }
+  };
+
+  check(await endpointResult({ WINDOWS_URL: "https://h/w" }) === "https://h/w",
     "69 · with no name configured the endpoint is the configured url");
   let noneSet = false;
   try { await resolveWindowsEndpoint({}); } catch (e) { noneSet = e instanceof EndpointUnresolvable; }
@@ -431,7 +442,7 @@ async function main() {
     "81b · and the message names BOTH causes, since a text lookup answers null for each identically (seen to fail)");
   check(await raises(() => resolveWindowsEndpoint(named, async () => "http://plain/windows")),
     "82 · a record naming http is refused, because a bearer credential travels against it");
-  check(await resolveWindowsEndpoint(named, async () => "https://named/windows") === "https://named/windows",
+  check(await endpointResult(named, async () => "https://named/windows") === "https://named/windows",
     "83 · and a record that does resolve is used (negative control for 80 to 82)");
 
   // The name Zenbit issues, and the check that it names the key this agent pays from.
