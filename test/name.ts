@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { GET as nameGET } from "../app/api/name/route";
+import { matchesPayer, setNameResolverForTest } from "../lib/agent/name";
 
 type Check = (ok: boolean, label: string) => void;
 
@@ -81,6 +82,44 @@ export async function nameChecks(check: Check) {
   );
   check(attempted.status === 503, "249a · and a resolver that cannot answer is an outage rather than a missing name");
   await right.close();
+
+  /*
+   * A name that resolves, to somebody who is not asking.
+   *
+   * The case that matters most and the one nothing could reach: the fake endpoint
+   * answers a chain id and cannot answer a resolution, so every check so far saw
+   * either no name or no answer. Under a wildcard parent a resolving name is the
+   * normal case and the payer is the only thing that separates issued to this
+   * wallet from issued to another, which is why replacing the comparison with
+   * `issued` left the suite green.
+   */
+  const good = await startFakeRpc("0xaa36a7");
+  process.env.AGENT_ENS_RPC_URL = good.url;
+
+  setNameResolverForTest(async () => "0xeCB4C1245665e8A1F43826355aaB0Dd6bF336e05");
+  const somebodyElse = (await (await ask(`?payer=${PAYER}`)).json()) as { address: string | null; matches: boolean };
+  check(somebodyElse.address !== null, "251 · a name that resolves is reported as resolving");
+  check(somebodyElse.matches === false, "251a · and does not match a payer it does not name");
+
+  setNameResolverForTest(async () => PAYER);
+  const mine = (await (await ask(`?payer=${PAYER}`)).json()) as { matches: boolean };
+  check(mine.matches === true, "251b · while the payer it does name matches (negative control)");
+
+  setNameResolverForTest(async () => "0x0000000000000000000000000000000000000000");
+  const zero = (await (await ask(`?payer=${PAYER}`)).json()) as { address: string | null; matches: boolean };
+  check(zero.matches === false && zero.address === null, "251c · and the zero address is an unissued name, not a match");
+
+  setNameResolverForTest(async () => null);
+  const none = (await (await ask(`?payer=${PAYER}`)).json()) as { matches: boolean };
+  check(none.matches === false, "251d · as is no record at all");
+
+  setNameResolverForTest(undefined);
+  await good.close();
+
+  // The rule on its own, without a route or a chain around it.
+  check(matchesPayer(PAYER, PAYER), "252 · the rule matches an address against itself");
+  check(!matchesPayer("0xeCB4C1245665e8A1F43826355aaB0Dd6bF336e05", PAYER), "252a · and refuses a different one");
+  check(matchesPayer(PAYER.toLowerCase(), PAYER), "252b · while casing is not a difference (negative control)");
 
   if (rpcBefore === undefined) delete process.env.AGENT_ENS_RPC_URL;
   else process.env.AGENT_ENS_RPC_URL = rpcBefore;

@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import { http, createPublicClient, getAddress, isAddress } from "viem";
 import { sepolia } from "viem/chains";
+import { ZERO_ADDRESS, matchesPayer, nameResolver } from "~~/lib/agent/name";
 
 export const dynamic = "force-dynamic";
 
 const NO_STORE = { "Cache-Control": "private, no-store" } as const;
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 function refuse(status: number, error: string) {
   return NextResponse.json({ error }, { status, headers: NO_STORE });
 }
+
 
 /**
  * Whether the name Zenbit issues resolves to the wallet that is asking.
@@ -45,7 +46,8 @@ export async function GET(request: Request) {
 
   let address: string | null;
   try {
-    address = await client.getEnsAddress({ name });
+    const seam = nameResolver();
+    address = seam ? await seam(name) : await client.getEnsAddress({ name });
   } catch {
     return refuse(503, "the name could not be resolved");
   }
@@ -58,8 +60,12 @@ export async function GET(request: Request) {
     {
       name,
       address: issued ? getAddress(address as string) : null,
-      matches: issued && getAddress(address as string) === getAddress(payer),
+      // Issued and issued to this payer are two questions, and only the second may
+      // draw the positive. Replacing this with `issued` is the mutation the checks
+      // are shaped to catch, because under a wildcard parent every name is issued.
+      matches: matchesPayer(address, payer),
     },
     { headers: NO_STORE },
   );
 }
+
