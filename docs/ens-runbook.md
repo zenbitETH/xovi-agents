@@ -8,7 +8,9 @@ This is an ordinary Sepolia name with one text record, but there **is** a second
 
 ## The order, and why it is not arbitrary
 
-**`AGENT_ENS_NAME` is set last, after a verified read, and never before.**
+**`AGENT_ENS_NAME` is never set before the record it points at resolves.**
+
+> **Corrected 2026-09-12: this said `is set last, after a verified read, and never before`.** *Last* was true of an ordering that has changed twice, and it contradicted the paragraph three lines below it in the same section. What survives both orderings is the dependency, not the position.
 
 Setting it does not add a name alongside the configured url. It makes `WINDOWS_URL` **unused**, deliberately: a name that resolves to nothing is not permission to read from somewhere else, so the agent raises rather than falling back. That is the correct behaviour and it is why the order matters. Set the variable before the record resolves and the agent is not degraded, it is off.
 
