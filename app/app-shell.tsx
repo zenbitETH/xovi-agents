@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { NoWallet, WrongChain, connect, ensureBaseSepolia, signChallenge } from "~~/lib/agent/browser";
 import type { RunStep } from "~~/lib/agent/run";
 
@@ -173,6 +173,106 @@ const PHASE_LABEL: Record<Phase, string> = {
 };
 
 /**
+ * A settlement as `/api/receipts` serves it. Eight fields, and the route builds
+ * them one by one, so this type is the whole of what the page may read.
+ */
+type Settlement = {
+  source: string;
+  payer: string;
+  payTo: string;
+  amount: string;
+  network: string;
+  nonce: string;
+  txHash: string;
+  settledAt: string;
+};
+
+/**
+ * The screens that exist. A screen is added here the day it is built, so a rail
+ * item never leads anywhere empty: the cut removes a section from the page rather
+ * than hiding it behind a tab that opens on nothing.
+ */
+type Screen = "runs" | "overview";
+
+const SCREENS: { id: Screen; label: string }[] = [
+  { id: "runs", label: "Runs" },
+  { id: "overview", label: "Overview" },
+];
+
+/**
+ * The amount, read as money.
+ *
+ * The ledger records the network and the atomic amount and no asset, so the unit
+ * cannot be read off a row. It is read off a merged document instead: the paid
+ * route sells one thing on one chain, and the README and the live challenge both
+ * name that as USDC on Base Sepolia. So a total is formed only for rows on that
+ * chain, and a row settled anywhere else is counted and not summed rather than
+ * added to a number whose unit nobody knows.
+ */
+const BASE_SEPOLIA = "eip155:84532";
+const USDC_DECIMALS = 1_000_000n;
+
+function totalOnBaseSepolia(settlements: Settlement[]): { total: string; counted: number; elsewhere: number } {
+  const here = settlements.filter(s => s.network === BASE_SEPOLIA);
+  let atomic = 0n;
+  for (const s of here) {
+    try {
+      atomic += BigInt(s.amount);
+    } catch {
+      // A row whose amount is not an integer is not guessed at. It is left out of
+      // the total and still counted as a settlement, because it happened.
+    }
+  }
+  const whole = atomic / USDC_DECIMALS;
+  const frac = (atomic % USDC_DECIMALS).toString().padStart(6, "0").replace(/0+$/, "") || "0";
+  return { total: `${whole}.${frac.padEnd(2, "0")}`, counted: here.length, elsewhere: settlements.length - here.length };
+}
+
+/**
+ * What this wallet has done here, from what the ledger serves.
+ *
+ * Six cards and not the design's seven: the seventh counted agents, and the scope
+ * is one agent, the connected wallet. Three of the design's numbers are absent
+ * rather than estimated. A free read writes no receipt and the route serves no
+ * allowance count, so that card carries the sentence and no number. Proposals and
+ * what people decided about them are served by a route that is not built yet, so
+ * those cards are not on the page at all.
+ */
+function Overview({ settlements, state }: { settlements: Settlement[]; state: "idle" | "loading" | "ready" | "failed" }) {
+  const money = totalOnBaseSepolia(settlements);
+  if (state === "idle") return <p className="xv-desc ag-empty">Connect a wallet to read what it has settled here.</p>;
+  if (state === "loading") return <p className="xv-desc ag-empty">Reading the ledger.</p>;
+  if (state === "failed") {
+    // Not an empty history. A ledger that cannot answer says so, because a zero
+    // here would be a statement about the wallet that nothing measured.
+    return <p className="xv-desc ag-empty">The ledger did not answer, so nothing here is a count of what this wallet did.</p>;
+  }
+  return (
+    <div className="ag-cards">
+      <div className="ag-panel">
+        <h3 className="ag-panel-title">Settled reads</h3>
+        <p className="ag-panel-big">{settlements.length}</p>
+        <p className="ag-sub">every one of them has a receipt</p>
+      </div>
+      <div className="ag-panel">
+        <h3 className="ag-panel-title">Spent</h3>
+        <p className="ag-panel-big">{money.total}</p>
+        <p className="ag-sub">
+          USDC on Base Sepolia
+          {money.elsewhere > 0 ? `, and ${money.elsewhere} settled on another chain and not added` : ""}
+        </p>
+      </div>
+      <div className="ag-panel">
+        <h3 className="ag-panel-title">Free reads</h3>
+        <p className="ag-sub ag-panel-note">
+          Served under the free daily allowance. The route serves no count of what is left, so this page states none.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
  * A drawn state, under the line that reports it.
  *
  * Every value here came off the step. Nothing is computed, looked up or filled in
@@ -276,6 +376,9 @@ export function AppShell() {
   const [address, setAddress] = useState<`0x${string}` | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [screen, setScreen] = useState<Screen>("runs");
+  const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const [ledger, setLedger] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const busy = useRef(false);
   const feedEnd = useRef<HTMLLIElement | null>(null);
 
@@ -285,6 +388,36 @@ export function AppShell() {
     // that scrolls, so it follows the run rather than making a reader chase it.
     queueMicrotask(() => feedEnd.current?.scrollIntoView({ block: "end", behavior: "smooth" }));
   }, []);
+
+  /**
+   * Read this wallet's settlements once it is known, and again when a run ends.
+   *
+   * A failure is held as a state rather than swallowed, because the page must be
+   * able to say the ledger did not answer. Rendering zero would be a claim about
+   * the wallet that nothing measured.
+   */
+  useEffect(() => {
+    if (address === null) {
+      setLedger("idle");
+      setSettlements([]);
+      return;
+    }
+    let live = true;
+    setLedger("loading");
+    fetch(`/api/receipts?payer=${address}`)
+      .then(async r => (r.ok ? ((await r.json()) as { settlements: Settlement[] }) : Promise.reject(new Error(String(r.status)))))
+      .then(body => {
+        if (!live) return;
+        setSettlements(body.settlements);
+        setLedger("ready");
+      })
+      .catch(() => {
+        if (live) setLedger("failed");
+      });
+    return () => {
+      live = false;
+    };
+  }, [address, phase]);
 
   const onConnect = useCallback(async () => {
     setError(null);
@@ -393,6 +526,19 @@ export function AppShell() {
                 ? "Connect a wallet, pay for one read, and the agent does the rest."
                 : `${address.slice(0, 6)}…${address.slice(-4)} · ${PHASE_LABEL[phase]}`}
             </p>
+            <nav className="ag-rail" aria-label="Sections">
+              {SCREENS.map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={s.id === screen ? "ag-rail-item ag-rail-on" : "ag-rail-item"}
+                  aria-current={s.id === screen ? "true" : undefined}
+                  onClick={() => setScreen(s.id)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </nav>
             <p className="ag-key">
               <span>
                 <i className="ag-key-human" aria-hidden="true" />
@@ -407,7 +553,9 @@ export function AppShell() {
 
           <div className="ag-app-body">
             <div className="ag-app-scroll">
-              {lines.length === 0 ? (
+              {screen === "overview" ? (
+                <Overview settlements={settlements} state={ledger} />
+              ) : lines.length === 0 ? (
                 <div className="ag-intro">
                   <p className="xv-desc ag-empty">
                     You pay for one read from your own wallet and the agent does the rest. It reads the window it paid

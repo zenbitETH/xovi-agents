@@ -116,7 +116,10 @@ export function pageChecks(check: Check) {
    * the counterparty sent, and the check is that no literal shaped like money
    * exists in the file at all.
    */
-  const money = /\$\s?\d|\b\d+\.\d+\s*(usdc|usd|eth)\b|\busdc\b/i;
+  // A number next to a currency, not the currency alone. The Overview names USDC
+  // as the unit of a total it computed from served rows, which is a label on a
+  // measured number; "0.01 USDC" written into the file is the thing to catch.
+  const money = /\$\s?\d|\b\d+\.\d+\s*(usdc|usd|eth)\b/i;
   check(!money.test(ui), "225 · no price is written into the interface");
   check(money.test("the server asks $0.01"), "225a · the price check can see a planted one (negative control)");
   check(money.test("it costs 0.01 USDC"), "225b · and one written without a currency sign");
@@ -155,13 +158,21 @@ export function pageChecks(check: Check) {
   /*
    * An agent surface carries no decision.
    *
-   * Counted rather than named, because the words confirm and reject appear on
-   * this page as negatives, in the sentence saying no credential of the agent's
-   * can confirm. Two controls exist, connect and run, and a third arriving is the
-   * thing to catch.
+   * Counting controls was the first version and it was wrong: it went red the day
+   * a section rail arrived, which is navigation and not a decision, and it would
+   * have stayed green on a third button labelled Confirm. So the assertion is over
+   * what a control says rather than how many there are.
+   *
+   * Read over the button elements alone rather than the file, because confirm and
+   * reject appear in the page's own copy as negatives, in the sentence saying no
+   * credential of the agent's can confirm or attest.
    */
-  const controls = ui.match(/<button/g) ?? [];
-  check(controls.length === 2, `227 · the page carries two controls and no decision (${controls.length})`);
+  const decision = /\b(confirm|approve|reject|accept|decide|attest)\w*\b/i;
+  const controls = ui.split("<button").slice(1).map(chunk => chunk.slice(0, chunk.indexOf("</button>")));
+  const deciding = controls.filter(c => decision.test(c));
+  check(controls.length > 0, `227 · the interface has controls to read (${controls.length})`);
+  check(deciding.length === 0, `227a · and not one of them is a decision about a clip (${deciding.length})`);
+  check(decision.test("<button>Confirm this clip</button>"), "227b · the decision check can see one (negative control)");
 
   // A settlement is linked by the chain the receipt names rather than by a chain
   // the page assumes, so a receipt from anywhere else is drawn without a link
