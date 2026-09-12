@@ -11,7 +11,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs
 import { tmpdir } from "os";
 import { join } from "path";
 import { GET } from "../app/api/agent/windows/route";
-import { EndpointUnresolvable, resolveWindowsEndpoint } from "../lib/agent/ens";
+import { EndpointUnresolvable, IdentityMismatch, assertIssuedIdentity, resolveWindowsEndpoint } from "../lib/agent/ens";
 import type { Ledger } from "../lib/agent/ledger";
 import { loadLedger, unrefused } from "../lib/agent/ledger";
 import { ATTEMPTS, buildPayer, payingFetch } from "../lib/agent/pay";
@@ -433,6 +433,28 @@ async function main() {
     "82 · a record naming http is refused, because a bearer credential travels against it");
   check(await resolveWindowsEndpoint(named, async () => "https://named/windows") === "https://named/windows",
     "83 · and a record that does resolve is used (negative control for 80 to 82)");
+
+  // The name Zenbit issues, and the check that it is this agent's. The instrument is
+  // `addr` rather than the resolver, because wildcard resolution under the parent
+  // makes every subname answer the same resolver whether or not anybody issued it.
+  const PAYER = "0xC0686ae97FDf62A37F081922c2a92537862E0B95";
+  const ISSUED = "agent1.xovi.eth";
+  const idRaises = async (env: Record<string, string>, addr: string | null) => {
+    try { await assertIssuedIdentity(PAYER, env as never, async () => addr); return false; }
+    catch (e) { return e instanceof IdentityMismatch; }
+  };
+  check(await assertIssuedIdentity(PAYER, {} as never, async () => PAYER) === null,
+    "83b · no configured name claims nothing, and does not reach the chain to say so");
+  check(await assertIssuedIdentity(PAYER, { AGENT_IDENTITY_NAME: ISSUED } as never, async () => PAYER) === ISSUED,
+    "83c · a name issued to the payer is returned (positive control for 83d to 83f)");
+  check(await idRaises({ AGENT_IDENTITY_NAME: ISSUED }, null),
+    "83d · a name with no address record raises, because an unissued subname resolves like an issued one");
+  check(await idRaises({ AGENT_IDENTITY_NAME: ISSUED }, "0x0000000000000000000000000000000000000000"),
+    "83e · and a zero address raises too, which is what the parent answers for a name nobody issued");
+  check(await idRaises({ AGENT_IDENTITY_NAME: ISSUED }, "0x51F1D0074793E7Fa336f538299ad7D3e439e2b09"),
+    "83f · a name issued to a DIFFERENT address raises, rather than proposing under somebody else's name");
+  check(await assertIssuedIdentity(PAYER.toLowerCase(), { AGENT_IDENTITY_NAME: ISSUED } as never, async () => PAYER.toUpperCase().replace("0X", "0x")) === ISSUED,
+    "83g · and checksum casing is not a mismatch, so a correct name is never refused for its spelling");
 
   console.log("\n  what the route would refuse, refused here first\n");
 
