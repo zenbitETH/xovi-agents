@@ -328,6 +328,9 @@ export type BoardCell = {
   thumbnail?: string;
   recordingSeconds?: number;
   windowSeconds?: { min: number; max: number };
+  /** What this payer's own agent last did here, and nobody else's. Present only
+   *  where a payer was named and only for that payer's runs. */
+  read?: { outcome: string; clipId: number | null; ranAt: string };
 };
 
 /**
@@ -344,6 +347,9 @@ export function servedCell(cell: BoardCell): BoardCell {
     day: cell.day,
     species: cell.species,
     onOffer: cell.onOffer,
+    // Built key by key like the rest: a mark carries what came of a run and when,
+    // and never a window, a station or an alias, none of which the row holds.
+    ...(cell.read === undefined ? {} : { read: { outcome: cell.read.outcome, clipId: cell.read.clipId, ranAt: cell.read.ranAt } }),
     ...(cell.videoId === undefined ? {} : { videoId: cell.videoId }),
     ...(cell.thumbnail === undefined ? {} : { thumbnail: cell.thumbnail }),
     ...(cell.recordingSeconds === undefined ? {} : { recordingSeconds: cell.recordingSeconds }),

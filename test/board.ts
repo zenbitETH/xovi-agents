@@ -5,6 +5,8 @@ import { GET as boardGET } from "../app/api/agent/board/route";
 import { GET as windowsGET } from "../app/api/agent/windows/route";
 import { GET as registrationGET } from "../app/api/agent/registration/route";
 import { POST as runPOST } from "../app/api/agent/run/route";
+import { type RunMark, type RunRow, runsStoreFrom, setRunsStoreForTest } from "../lib/agent/runs-store";
+import { type RunOutcome, type RunStep, runOutcome } from "../lib/agent/run";
 import { POST as namePOST } from "../app/api/agent/name/route";
 import { setClockForTest } from "../lib/human/clock";
 import { ENROLLMENT_CALLS_PER_MINUTE, ENROLLMENT_WINDOW_MS, enrollmentThrottle } from "../lib/human/throttle";
@@ -16,7 +18,7 @@ import { fakeStore, fakeVerifications } from "./human";
 import { CREDENTIAL_REFUSED, NO_CREDENTIAL, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, onboardingFrom, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellRecording, cellState, loadSnapshot, servedCell } from "../lib/windows/snapshot";
 import { NOT_SUBMITTED_SENTENCE, environmentCredentialCovers, namesACell, windowsUrlFor as runWindowsUrlFor } from "../lib/agent/run";
-import { type BoardCellView, cellMetaLine, readableLength, windowsUrlFor } from "../app/app-shell";
+import { type BoardCellView, cellMetaLine, readMarkLine, readableLength, windowsUrlFor } from "../app/app-shell";
 import { resetServerForTest } from "../lib/x402";
 
 type Check = (ok: boolean, label: string) => void;
@@ -95,7 +97,7 @@ export async function boardChecks(check: Check) {
   check(board.cells.some(c => c.species === "andersoni" && !c.onOffer), "270b · andersoni is drawn where no stream exists, as its negative");
   check(BOARD_SPECIES.length === 3, "270c · and the board draws three species");
 
-  const served = (await (await boardGET()).json()) as { days: string[]; cells: Record<string, unknown>[] };
+  const served = (await (await boardGET(new Request("http://127.0.0.1/api/agent/board"))).json()) as { days: string[]; cells: Record<string, unknown>[] };
   const keys = [...new Set(served.cells.flatMap(c => Object.keys(c)))].sort();
   /*
    * A CLOSED LIST OF FIELDS, AND NOT ONE OF THEM IS A COUNT.
@@ -815,6 +817,101 @@ export async function boardChecks(check: Check) {
     "320i · and the page sends the chosen cell with the run it pays for");
   check(/fetch\(runUrl\.toString\(\), \{ method: "POST"/.test(runPost),
     "320j · posting that url rather than a second one built beside it");
+
+  /*
+   * WHERE THIS WALLET'S OWN AGENT HAS BEEN, AND NOBODY ELSE'S.
+   *
+   * The row is thin on purpose: a cell, a payer, how it was paid for, what came of
+   * it and when. No window, no station, no alias, because the windows are the thing
+   * being sold and the thing the gate screens, and a table that remembered which
+   * ones a person received would put exactly that behind an address the board reads
+   * from. And no count of anything, for the reason the board serves none.
+   */
+  const MINE = "0x1111111111111111111111111111111111111aaa";
+  const THEIRS = "0x1111111111111111111111111111111111111bbb";
+  const rows: RunRow[] = [];
+  const asked: string[] = [];
+  setRunsStoreForTest({
+    record: async row => {
+      rows.push({ ...row, ranAt: row.ranAt.toISOString() });
+    },
+    marksFor: async payer => {
+      asked.push(String(payer));
+      const seen = new Map<string, RunMark>();
+      for (const r of rows) {
+        if (r.payer.toLowerCase() !== payer.toLowerCase()) continue;
+        const key = `${r.day}|${r.species}`;
+        const kept = seen.get(key);
+        if (kept === undefined || kept.ranAt < r.ranAt) seen.set(key, { day: r.day, species: r.species, outcome: r.outcome, clipId: r.clipId, ranAt: r.ranAt });
+      }
+      return [...seen.values()];
+    },
+  });
+
+  const paidStep: RunStep = { step: "paid", free: false, transaction: "0xabc", network: "eip155:84532" };
+  const proposedRun = runOutcome([paidStep, { step: "proposed", id: 261, clipHash: "0xhash", status: "proposed" }]);
+  check(proposedRun?.outcome === "proposed" && proposedRun.clipId === 261 && proposedRun.free === false && proposedRun.txHash === "0xabc",
+    `321 · a run that proposed is recorded as proposed, with its clip (${JSON.stringify(proposedRun)})`);
+  const duplicateRun = runOutcome([{ step: "paid", free: true }, { step: "declined", kind: "duplicate", detail: "" }]);
+  check(duplicateRun?.outcome === "declined:duplicate" && duplicateRun.free === true && duplicateRun.txHash === null && duplicateRun.clipId === null,
+    `321a · a declined run keeps its kind, and a free read carries no transaction (${JSON.stringify(duplicateRun)})`);
+  check(runOutcome([{ step: "presenting" }, { step: "payment-refused", status: 402, detail: "" }]) === null,
+    "321b · a run the route never served leaves no row, because it read nothing");
+  check(runOutcome([{ step: "paid", free: false }]) === null,
+    "321c · and a settled read with no transaction is not recorded as free (negative control)");
+  const rowKeys = Object.keys(proposedRun ?? {}).sort().join(",");
+  check(rowKeys === "clipId,free,outcome,txHash", `321d · a row carries those four facts and nothing about a window (${rowKeys})`);
+
+  const record = async (payer: string, day: string, species: string, outcome: RunOutcome, at: string) => {
+    const store = runsStoreFrom();
+    await store?.record({ payer, day, species, ...outcome, ranAt: new Date(at) });
+  };
+  await record(MINE, "2026-09-03", "mexicanum", { free: true, txHash: null, outcome: "proposed", clipId: 261 }, "2026-09-13T05:12:00Z");
+  await record(THEIRS, "2026-09-03", "dumerilii", { free: true, txHash: null, outcome: "proposed", clipId: 999 }, "2026-09-13T05:20:00Z");
+  check(rows.length === 2, `321e · each served run writes one row (${rows.length})`);
+
+  const mineBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`))).json()) as { cells: Record<string, unknown>[] };
+  const myMarks = mineBoard.cells.filter(c => c.read !== undefined);
+  check(myMarks.length === 1 && (myMarks[0] as { day: string }).day === "2026-09-03" && (myMarks[0] as { species: string }).species === "mexicanum",
+    `322 · the board marks the cell this payer read (${JSON.stringify(myMarks)})`);
+  check(!JSON.stringify(mineBoard).includes("999"), "322a · and carries nothing of another payer's runs (negative control)");
+  const theirsBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${THEIRS}`))).json()) as { cells: Record<string, unknown>[] };
+  check(theirsBoard.cells.filter(c => c.read !== undefined).length === 1 && JSON.stringify(theirsBoard).includes("999"),
+    "322b · while that payer sees its own (negative control)");
+  const anonymous = (await (await boardGET(new Request("http://127.0.0.1/api/agent/board"))).json()) as { cells: Record<string, unknown>[] };
+  check(anonymous.cells.every(c => c.read === undefined), "322c · a board asked without a payer carries no marks at all");
+  // And the table is not asked at all, which is the property the guard carries: a
+  // store asked about nobody answers nothing either way, so the absence of marks
+  // alone cannot tell whether the guard is there.
+  const askedBefore = asked.length;
+  await boardGET(new Request("http://127.0.0.1/api/agent/board"));
+  check(asked.length === askedBefore, `322c2 · and the table is never asked (${asked.length - askedBefore} asks)`);
+  await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`));
+  check(asked.length === askedBefore + 1, "322c3 · while a board naming a payer asks once (negative control)");
+  const markKeys = [...new Set(myMarks.flatMap(c => Object.keys(c.read as object)))].sort().join(",");
+  check(markKeys === "clipId,outcome,ranAt", `322d · a mark carries what came of the run and when, and nothing else (${markKeys})`);
+  const planted = servedCell({ day: "2026-09-03", species: "mexicanum", onOffer: true, read: { outcome: "proposed", clipId: 1, ranAt: "2026-09-13T05:12:00Z", stationId: "AM 1", specimenAlias: "Alfa" } } as never);
+  check(!JSON.stringify(planted).includes("AM 1") && !JSON.stringify(planted).includes("Alfa"),
+    `322e · and a station or an alias planted in a row is refused by the shape (${JSON.stringify(planted.read)})`);
+  setRunsStoreForTest(undefined);
+
+  check(readMarkLine({ outcome: "proposed", clipId: 261, ranAt: "2026-09-13T05:12:00Z" }) === "read by your agent · proposed clip 261 · 05:12 UTC",
+    `323 · the mark says what the run did and when (${readMarkLine({ outcome: "proposed", clipId: 261, ranAt: "2026-09-13T05:12:00Z" })})`);
+  check(readMarkLine({ outcome: "declined:duplicate", clipId: null, ranAt: "2026-09-13T05:12:00Z" }) === "read by your agent · already a clip · 05:12 UTC",
+    "323a · a duplicate says the window is already a clip");
+  check(readMarkLine({ outcome: "declined:refused", clipId: null, ranAt: "2026-09-13T05:12:00Z" }) === "read by your agent · declined · 05:12 UTC",
+    "323b · and a refusal says declined");
+  /*
+   * Every branch, including the one that answers an outcome this page does not
+   * know. Driving one outcome left the fallback untested, and a count planted there
+   * stayed green: the branch nobody drives is the branch nobody guards.
+   */
+  const everyOutcome = ["proposed", "declined:duplicate", "declined:refused", "declined:rejected", "cell-spent", "nothing-proposable", "not-submitted", "something-new"];
+  const lines = everyOutcome.map(outcome => readMarkLine({ outcome, clipId: null, ranAt: "2026-09-13T05:12:00Z" }));
+  const counted = lines.filter(l => /\d+\s*(windows|reads|clips)\b/.test(l));
+  check(counted.length === 0, `323c · no branch of the mark counts anything (${counted.join(" | ") || "none"})`);
+  check(lines.every(l => /05:12 UTC$/.test(l) && l.startsWith("read by your agent")), `323d · and every branch says whose agent and when (${lines.length} branches)`);
+  check(/\d+\s*windows\b/.test("read by your agent · 5 windows · 05:12 UTC"), "323e · the count check can see one (negative control)");
 
   const lookups = [...boardJsx.matchAll(/prices\[([^\]]*)\]/g)].map(m => m[1]);
   check(lookups.length === 1 && lookups[0] === "`${day}|${species}`",

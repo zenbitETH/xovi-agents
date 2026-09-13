@@ -1468,6 +1468,15 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   opacity: 0.75;
 }
 
+/* Where this wallet's own agent has been, in the teal that means a person: the run
+   was theirs, delegated, and the clay hue is the machine's own activity. */
+.ag-board-read {
+  margin-top: 0.25rem;
+  color: var(--color-primary);
+  font-size: 0.6875rem;
+  line-height: 1.35;
+}
+
 .ag-board-name {
   font-family: var(--font-display), system-ui, sans-serif;
   font-size: 0.9375rem;

@@ -455,7 +455,29 @@ export type BoardCellView = {
   thumbnail?: string;
   recordingSeconds?: number;
   windowSeconds?: { min: number; max: number };
+  read?: { outcome: string; clipId: number | null; ranAt: string };
 };
+
+/**
+ * What this wallet's own agent last did here, in a person's words.
+ *
+ * The outcome is the run's own step name, so this is the one place it becomes a
+ * sentence and the board and the run cannot end up with two vocabularies. A run
+ * whose outcome is not one of these says only that the cell was read, which is
+ * the fact the mark exists to carry.
+ */
+export function readMarkLine(read: { outcome: string; clipId: number | null; ranAt: string }): string {
+  const at = read.ranAt.slice(11, 16);
+  if (read.outcome === "proposed") {
+    return read.clipId === null ? `read by your agent · proposed · ${at} UTC` : `read by your agent · proposed clip ${read.clipId} · ${at} UTC`;
+  }
+  if (read.outcome === "declined:duplicate") return `read by your agent · already a clip · ${at} UTC`;
+  if (read.outcome.startsWith("declined:")) return `read by your agent · declined · ${at} UTC`;
+  if (read.outcome === "cell-spent") return `read by your agent · already a clip · ${at} UTC`;
+  if (read.outcome === "nothing-proposable") return `read by your agent · nothing to propose · ${at} UTC`;
+  if (read.outcome === "not-submitted") return `read by your agent · not submitted · ${at} UTC`;
+  return `read by your agent · ${at} UTC`;
+}
 
 /** The url of one cell's windows. One builder, so the price a person is shown and
  *  the read they pay for are the same request. */
@@ -1405,6 +1427,10 @@ function Board({
                   <span className="ag-board-name">{species}</span>
                   <span className={on ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>{on ? "on offer" : "none"}</span>
                   {meta !== "" && <span className="ag-board-meta">{meta}</span>}
+                  {/* Where this wallet's own agent has been. Drawn in the person's
+                      hue, because a run is delegated by a person and the two hues
+                      are what separates their activity from the machine's. */}
+                  {cell?.read !== undefined && <span className="ag-board-read">{readMarkLine(cell.read)}</span>}
                 </button>
               );
             })}
@@ -2055,7 +2081,11 @@ export function AppShell() {
   // The board is what is for sale and needs no wallet to look at.
   useEffect(() => {
     let live = true;
-    fetch("/api/agent/board")
+    // The payer is asked for so the board can mark the cells this wallet's own
+    // agent has read. A page with no wallet asks without one and gets no marks.
+    const boardUrl = new URL("/api/agent/board", window.location.origin);
+    if (address !== null) boardUrl.searchParams.set("payer", address);
+    fetch(boardUrl.toString())
       .then(async r => {
         if (r.status === 503) return "unconfigured" as const;
         if (!r.ok) throw new Error(String(r.status));
@@ -2076,7 +2106,9 @@ export function AppShell() {
     return () => {
       live = false;
     };
-  }, []);
+    // Re-read when the wallet changes and when a run finishes, so a cell this
+    // agent has just read is marked without anybody reloading the page.
+  }, [address, phase === "finished"]);
 
   useEffect(() => {
     if (address === null) {

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { isAddress } from "viem";
+import { runsStoreFrom } from "~~/lib/agent/runs-store";
 import { SnapshotUnavailable, boardFrom, loadSnapshot, servedCell } from "~~/lib/windows/snapshot";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +22,7 @@ export const dynamic = "force-dynamic";
  * Day and species are what a window already carries under frozen spec 02. No
  * station and no alias crosses this route, because neither is needed to choose.
  */
-export async function GET() {
+export async function GET(request: Request) {
   let windows;
   try {
     windows = loadSnapshot();
@@ -34,12 +36,36 @@ export async function GET() {
   }
 
   const { days, cells } = boardFrom(windows);
+
+  /*
+   * WHAT THIS WALLET'S OWN AGENT HAS ALREADY READ, AND NOBODY ELSE'S.
+   *
+   * The payer is a parameter and the store is asked for that payer alone, so there
+   * is no request that returns another wallet's marks: a person sees where their
+   * own agent has been and nothing about anyone else's. Without a payer the board
+   * carries no marks at all, which is what a stranger and a signed out page get.
+   *
+   * Read on every request rather than remembered, so a run that has just finished
+   * shows on the next load and a table that cannot answer simply leaves the marks
+   * off rather than failing the board.
+   */
+  const payer = new URL(request.url).searchParams.get("payer");
+  let marked = cells;
+  if (payer !== null && isAddress(payer)) {
+    const store = runsStoreFrom();
+    const marks = store === null ? [] : await store.marksFor(payer).catch(() => []);
+    const byCell = new Map(marks.map(m => [`${m.day}|${m.species}`, m]));
+    marked = cells.map(cell => {
+      const mark = byCell.get(`${cell.day}|${cell.species}`);
+      return mark === undefined ? cell : { ...cell, read: { outcome: mark.outcome, clipId: mark.clipId, ranAt: mark.ranAt } };
+    });
+  }
   return NextResponse.json(
     {
       days,
       // Built key by key by a mapping that lives beside the board, so a check can
       // drive it with a cell carrying more than it should and watch the extra go.
-      cells: cells.map(servedCell),
+      cells: marked.map(servedCell),
     },
     { headers: { "Cache-Control": "no-store" } },
   );
