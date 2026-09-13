@@ -15,17 +15,20 @@ import { type VerificationStore, expiryFrom } from "./verifications";
  * the installed package rather than its documentation, and three of those facts
  * were measured rather than read:
  *
- * **The signal is hashed as bytes when it looks like hex.** `hashSignal` from the
+ * **The signal is hashed as bytes, and only as bytes.** `hashSignal` from the
  * installed package treats a `0x` string of valid hex as raw bytes and any other
- * string as UTF-8, and the wasm the widget runs agrees: for the recording wallet
- * both give `0x00151c58…`, while hashing the 42 character string as text gives
- * `0x00a408b0…`. The documentation says a wallet address may be the signal and
- * that the backend should enforce the same value, and stops there. A server that
- * hashed the string as text would refuse every valid result. What World App
- * itself does with the raw address in a version 4 request is not measured until a
- * real result arrives, so this accepts either encoding of the lowercased payer.
- * Both are injective in the wallet, so a result for another wallet matches
- * neither, which is the property the comparison exists for.
+ * string as UTF-8: hashing the lowercased address as a string and hashing its
+ * twenty decoded bytes give the same value, and hashing the 42 character string as
+ * text gives another. The widget's own wasm, driven with the lowercased address as
+ * the signal, produces the bytes form; the text form appeared in no run. The
+ * documentation says a wallet address may be the signal and that the backend
+ * should enforce the same value, and stops there.
+ *
+ * This accepted either encoding while no result from a real World App had been
+ * seen. One has, on 2026-09-13, so the pair is collapsed to the form the widget
+ * produces and the text form is refused. The hash is injective in the wallet, so a
+ * result for another wallet matches nothing, which is the property the comparison
+ * exists for.
  *
  * **`signRequest` answers `sig`, `createdAt` and `expiresAt`**, and the widget's
  * `RpContext` wants `signature`, `created_at` and `expires_at`. The remap is the
@@ -95,10 +98,9 @@ export function requestContext(env: EnvLike = process.env): RequestContext {
   };
 }
 
-/** The two hashes a result bound to this wallet may carry, both lowercase. */
-export function signalHashesFor(payer: string): string[] {
-  const lower = payer.toLowerCase();
-  return [hashSignal(lower).toLowerCase(), hashSignal(new TextEncoder().encode(lower)).toLowerCase()];
+/** The one hash a result bound to this wallet may carry, lowercase. */
+export function signalHashFor(payer: string): string {
+  return hashSignal(payer.toLowerCase()).toLowerCase();
 }
 
 /**
@@ -245,8 +247,8 @@ export async function verifyEnrollment(input: {
 
   // The binding. Derived from the address the server holds, never read from the
   // body: a `signal` field in the body, were there one, would not be consulted.
-  const allowed = signalHashesFor(payer);
-  if (!shape.responses.every(p => allowed.includes(p.signal_hash.toLowerCase()))) {
+  const allowed = signalHashFor(payer);
+  if (!shape.responses.every(p => p.signal_hash.toLowerCase() === allowed)) {
     return { ok: false, status: 403, error: OTHER_WALLET };
   }
 

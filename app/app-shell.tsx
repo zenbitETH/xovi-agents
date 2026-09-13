@@ -1093,7 +1093,7 @@ function Onboarding({
                 name below are read for it.
               </p>
               {chain !== BASE_SEPOLIA_HEX && (
-                <button type="button" className="ag-rail-item ag-setup-do" onClick={onSwitch}>
+                <button type="button" className="btn xv-action ag-setup-do" onClick={onSwitch}>
                   Switch to Base Sepolia
                 </button>
               )}
@@ -1112,7 +1112,7 @@ function Onboarding({
           {credential !== null && <p className="ag-account-address">World ID credential: {credential}</p>}
           <WorldIdCard payer={address} onRegistered={onRetry} />
           {(registration === "not-registered" || registration === "unread") && (
-            <button type="button" className="ag-rail-item ag-setup-do" onClick={onRetry}>
+            <button type="button" className="btn xv-action-outline ag-setup-do" onClick={onRetry}>
               {registration === "unread" ? "Read it again" : "Check again"}
             </button>
           )}

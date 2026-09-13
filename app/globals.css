@@ -1293,8 +1293,30 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   cursor: default;
 }
 
+/* The controls on the three onboarding cards.
+   They were strip items: transparent, borderless, 0.75rem and at 0.65 opacity, so
+   they rendered as text and a person looking at the card saw nothing to press. They
+   take the page's own button now, the filled form for the action that completes a
+   card and the outlined form for the one that only reads again, which is the same
+   pair the header and the run already use. The press feedback lives here rather
+   than on `.btn`, so the merged controls elsewhere are not restyled by this. */
 .ag-setup-do {
   align-self: flex-start;
+  transition:
+    transform 120ms var(--xv-ease-out),
+    background-color 150ms var(--xv-ease-out),
+    border-color 150ms var(--xv-ease-out);
+}
+
+.ag-setup-do:active {
+  transform: scale(0.97);
+}
+
+/* Gentler, not none: the hue transition stays and the movement goes. */
+@media (prefers-reduced-motion: reduce) {
+  .ag-setup-do:active {
+    transform: none;
+  }
 }
 
 .ag-setup-name {

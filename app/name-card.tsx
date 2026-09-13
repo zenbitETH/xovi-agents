@@ -104,7 +104,7 @@ export function NameCard({
       {/* ONE control, and it exists only where it can do something. A disabled button
           for a wallet that cannot ask is a dead end wearing the shape of an action. */}
       {state === "none" && canRequest && (
-        <button type="button" className="ag-rail-item ag-setup-do" onClick={onRequest} disabled={requesting}>
+        <button type="button" className="btn xv-action ag-setup-do" onClick={onRequest} disabled={requesting}>
           {requesting ? "Asking Zenbit for a name" : "Get a name"}
         </button>
       )}

@@ -90,13 +90,28 @@ export async function GET(request: Request) {
    */
   const state = matches ? "issued" : row ? "requested" : "none";
 
+  /*
+   * A NAME THIS WALLET HAS NO CLAIM ON IS NOT SERVED TO IT.
+   *
+   * `name` falls back to the configured one for a wallet with no row, which is what
+   * lets the recording wallet match from the chain alone. For every other wallet
+   * that fallback answered with somebody else's name and the address it resolves
+   * to, alongside `matches: false`. Nothing about it was a secret, and it was still
+   * this route telling a stranger which name a deployment claims and which wallet
+   * holds it, which is the thing this file's own comment says it must not do.
+   *
+   * A wallet with a row keeps its label whatever the chain says, because that name
+   * is its own and waiting for it is the state the card draws.
+   */
+  const ownsTheName = row !== null || matches;
+
   return NextResponse.json(
     {
       state,
       label: row ? row.label : null,
       requestedAt: row ? row.requestedAt : null,
-      name,
-      address: issued ? getAddress(address as string) : null,
+      name: ownsTheName ? name : null,
+      address: ownsTheName && issued ? getAddress(address as string) : null,
       // Issued and issued to this payer are two questions, and only the second may
       // draw the positive. Replacing this with `issued` is the mutation the checks
       // are shaped to catch, because under a wildcard parent every name is issued.

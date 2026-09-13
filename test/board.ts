@@ -401,6 +401,39 @@ export async function boardChecks(check: Check) {
   // The word in the name card's pill is the checklist's, because only the checklist
   // knows the step before it is unfinished; `waiting` exists in no other vocabulary.
   check(/pill=\{namePill\(nameState, of\("name"\)\)\}/.test(page), "297b · with the checklist's own word in its pill");
+
+  /*
+   * EVERY CONTROL ON THE THREE CARDS LOOKS LIKE ONE.
+   *
+   * They carried the section strip's class, which is transparent, borderless and
+   * at 0.65 opacity: correct for a strip and, on a card, a control that renders as
+   * a sentence. A person on the served page saw Verify with World ID and Check
+   * again as text and had nothing to press, which is the same defect as a control
+   * that does nothing, arrived at from the other side.
+   *
+   * Read across all three cards, two of which are their own files, with the count
+   * of controls compared against the count this read could classify so a button
+   * with no class is a red line rather than a silent omission.
+   */
+  const onboardingStart = page.indexOf("function Onboarding(");
+  const onboardingEnd = page.indexOf("function Board(");
+  check(onboardingStart > 0 && onboardingEnd > onboardingStart, "309 · the onboarding block is found in the shell (negative control for the slice)");
+  const cardSources = [page.slice(onboardingStart, onboardingEnd), readFileSync("app/world-id-card.tsx", "utf8"), readFileSync("app/name-card.tsx", "utf8")];
+  const controls = cardSources.reduce((total, src) => total + (src.match(/<button\b/g) ?? []).length, 0);
+  const classes = cardSources.flatMap(src => [...src.matchAll(/<button\b[\s\S]{0,400}?className="([^"]*)"/g)].map(m => m[1]));
+  check(controls >= 3 && classes.length === controls, `309a · every control on the cards was read with its classes (${classes.length} of ${controls})`);
+  const notButtons = classes.filter(c => !/\bbtn\b/.test(c) || !/\bxv-action(-outline)?\b/.test(c));
+  check(notButtons.length === 0, `309b · and each carries the page's own button, filled or outlined (${notButtons.join(" | ") || "all do"})`);
+  const linkish = classes.filter(c => /\bag-link\b|\bag-rail-item\b|\bag-tab\b/.test(c));
+  check(linkish.length === 0, `309c · and none of them is styled as a link or a strip item (${linkish.join(" | ") || "none"})`);
+  check(/\bag-rail-item\b/.test('className="ag-rail-item ag-setup-do"'), "309d · the strip class this refuses is one it can see (negative control)");
+  // The press, which is the half a class cannot carry: the filled and outlined
+  // forms give the hue and the focus ring, and the card's own rule gives the
+  // feedback that the control heard the person, dropped where movement is refused.
+  const sheet = readFileSync("app/globals.css", "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const press = /\.ag-setup-do:active\s*\{[^}]*transform:\s*scale\(0?\.9[0-9]\)/.test(sheet);
+  const stillUnderReduced = /prefers-reduced-motion[^{]*\{[\s\S]*?\.ag-setup-do:active\s*\{[^}]*transform:\s*none/.test(sheet);
+  check(press && stillUnderReduced, `309e · the controls press and stop pressing where movement is refused (${press}, ${stillUnderReduced})`);
   // A rung and not a button: the settings screen has the connect and the board
   // actions and no third that would do nothing.
   const settingsBlock = page.slice(page.indexOf("function Onboarding("), page.indexOf("function Board("));

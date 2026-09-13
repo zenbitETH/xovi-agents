@@ -1,10 +1,11 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { concatBytes, isAddress, keccak256, recoverMessageAddress, toBytes, toHex } from "viem";
+import { concatBytes, hexToBytes, isAddress, keccak256, recoverMessageAddress, toBytes, toHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { GET as registrationGET, POST as registrationPOST } from "../app/api/agent/registration/route";
 import { GET as requestGET } from "../app/api/agent/registration/request/route";
 import { setCapForTest } from "../lib/human/cap";
+import { hashSignal } from "@worldcoin/idkit/hashing";
 import { setClockForTest } from "../lib/human/clock";
 import { deriveIdentifier } from "../lib/human/derive";
 import { setRegistryForTest } from "../lib/human/registry";
@@ -21,7 +22,7 @@ import {
   type Verifier,
   enrolmentMessage,
   setVerifierForTest,
-  signalHashesFor,
+  signalHashFor,
 } from "../lib/human/worldid";
 import { HUMAN_A, fakeRegistry, fakeStore, fakeVerifications } from "./human";
 
@@ -89,7 +90,7 @@ function resultFor(wallet: string, over: Record<string, unknown> = {}, nonce = "
     responses: [
       {
         identifier: "proof_of_human",
-        signal_hash: signalHashesFor(wallet)[0],
+        signal_hash: signalHashFor(wallet),
         proof,
         nullifier: NULLIFIER,
         issuer_schema_id: 1,
@@ -266,16 +267,33 @@ export async function enrolChecks(check: Check) {
   // A `signal` field in the body is not consulted: the binding is the address.
   const smuggled = await keep(await post({ payer: WALLET_B, result: resultFor(WALLET_A, { signal: WALLET_B.toLowerCase() }, "nonce-d") }));
   check(smuggled.status === 403 && state.calls.length === 1, "337d · a body naming its own signal does not move the binding");
-  const textForm = resultFor(WALLET_B, { responses: [{ ...resultFor(WALLET_B, {}, "nonce-e").responses[0], signal_hash: signalHashesFor(WALLET_B)[1] }] }, "nonce-e");
-  state.nullifier = NULLIFIER_2;
+  /*
+   * ONE ENCODING, NOW THAT A REAL RESULT HAS BEEN SEEN.
+   *
+   * This accepted the address hashed as text as well, because no result from a real
+   * World App had arrived and refusing the wrong one of the two would have refused
+   * every enrolment. One arrived on 2026-09-13, and the widget's wasm was measured
+   * producing the bytes form, so the text form is refused and nothing is forwarded
+   * for it.
+   */
+  const textHash = hashSignal(new TextEncoder().encode(WALLET_B.toLowerCase())).toLowerCase();
+  const textForm = resultFor(WALLET_B, { responses: [{ ...resultFor(WALLET_B, {}, "nonce-e").responses[0], signal_hash: textHash }] }, "nonce-e");
+  const callsBeforeText = state.calls.length;
   const asText = await keep(await post({ payer: WALLET_B, result: textForm }));
-  check(asText.status === 200 && state.calls.length === 2,
-    `337e · the wallet hashed as text is the same binding, until a real result says which encoding World App uses (negative control, ${asText.status} ${await asText.clone().text()})`);
+  check(asText.status === 403 && state.calls.length === callsBeforeText,
+    `337e · the wallet hashed as text is refused and never forwarded (${asText.status}, ${state.calls.length - callsBeforeText} calls)`);
+  const bytesForm = resultFor(WALLET_B, { responses: [{ ...resultFor(WALLET_B, {}, "nonce-e2").responses[0], signal_hash: signalHashFor(WALLET_B) }] }, "nonce-e2");
+  state.nullifier = NULLIFIER_2;
+  const asBytes = await keep(await post({ payer: WALLET_B, result: bytesForm }));
+  check(asBytes.status === 200 && state.calls.length === callsBeforeText + 1,
+    `337e2 · while the same result hashed as bytes is accepted (negative control, ${asBytes.status})`);
   state.nullifier = NULLIFIER;
-  check(signalHashesFor(RECORDING)[0] === "0x00151c582efed6bc3f5dc56e31c4bf48c758c6b35a6dcba3dd6abf2d825e1527",
+  check(signalHashFor(RECORDING) === "0x00151c582efed6bc3f5dc56e31c4bf48c758c6b35a6dcba3dd6abf2d825e1527",
     "337f · the bytes hash of the recording wallet is the value the widget's wasm was measured producing");
-  check(signalHashesFor(RECORDING)[0] !== signalHashesFor(RECORDING)[1] && signalHashesFor(RECORDING)[0] !== signalHashesFor(WALLET_A)[0],
-    "337g · the two encodings differ from each other and from another wallet's (negative control)");
+  check(signalHashFor(RECORDING) === hashSignal(hexToBytes(RECORDING.toLowerCase() as `0x${string}`)).toLowerCase(),
+    "337g · and the string the server hashes is read as its twenty bytes, not as its characters");
+  check(signalHashFor(RECORDING) !== textHash && signalHashFor(RECORDING) !== signalHashFor(WALLET_A),
+    "337h · the two encodings differ from each other and from another wallet's (negative control)");
 
   /*
    * Control of the wallet. A result names a wallet as its signal and proves

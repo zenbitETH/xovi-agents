@@ -145,7 +145,7 @@ export function WorldIdCard({ payer, onRegistered }: { payer: `0x${string}` | nu
       {/* ONE control, only where it can do something: a wallet, a configured
           deployment, and a state a person can act from. */}
       {payer !== null && config && (state === "idle" || state === "refused") && (
-        <button type="button" className="ag-rail-item ag-setup-do" onClick={() => void begin()}>
+        <button type="button" className="btn xv-action ag-setup-do" onClick={() => void begin()}>
           {state === "refused" ? "Try again with World ID" : "Verify with World ID"}
         </button>
       )}
