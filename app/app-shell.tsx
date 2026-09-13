@@ -405,7 +405,13 @@ export function screensFor(cellChosen: boolean): { id: Screen; label: string }[]
 export type Chosen = { day: string; species: string };
 
 /**
- * What AgentBook says, in three states.
+ * Whether a person stands behind this agent, in three states.
+ *
+ * **Two sources answer one question.** AgentBook holds registrations made outside
+ * this page, and a World ID verification made in this page holds its own. The
+ * route names which one answered, because `registered` without a source is two
+ * different facts wearing one word, and a reader who wants to check the claim has
+ * to know which of them to go and read.
  *
  * Unread is an answer about the read and not about the agent, so it is not drawn
  * as not registered: telling somebody to register when they already have is the
@@ -413,17 +419,48 @@ export type Chosen = { day: string; species: string };
  */
 export type Registration = "registered" | "not-registered" | "unread" | "reading" | "idle";
 
-const REGISTRATION_LINE: Record<Registration, string> = {
-  idle: "Connect a wallet and this reads AgentBook for it.",
-  reading: "Reading AgentBook.",
-  // The page's own words. The English badge sentences belong to the legal lead
-  // and are not hers to have quoted here before her word; and no merged text
-  // says how a registration is made, so the negative stands alone rather than
-  // naming somebody else's product as the place to go.
-  registered: "AgentBook holds a registration behind this agent.",
-  "not-registered": "AgentBook holds no registration behind this agent. Registering is not done here.",
-  unread: "AgentBook did not answer, so this says nothing about whether a person is behind this agent.",
-};
+/**
+ * Which source answered, or nobody.
+ *
+ * **Null is not a third source.** It is the route not naming one, and the page
+ * then says registered and credits nobody rather than picking a source it was not
+ * told about. A positive drawn from a non answer is the defect this page already
+ * carried once, on the chain badge that read Base Sepolia when no chain had
+ * answered at all.
+ */
+export type RegistrationSource = "agentbook" | "worldid";
+
+/** What the card says for each state, and it names a source only where it was told one. */
+export function registrationLine(state: Registration, source: RegistrationSource | null): string {
+  switch (state) {
+    case "idle":
+      return "Connect a wallet and this reads whether a person stands behind it.";
+    case "reading":
+      return "Reading whether a person stands behind this wallet.";
+    case "registered":
+      return source === "agentbook"
+        ? "AgentBook holds a registration behind this agent."
+        : source === "worldid"
+          ? "This wallet was verified with World ID in this page."
+          : "A registration stands behind this agent.";
+    case "not-registered":
+      // The two sentences that stood here are gone. One told a person registering
+      // was not done here, which stopped being true the moment this page could do
+      // it; the other sent them to a third party's command line tool, which was a
+      // statement about somebody else's product that this page cannot stand behind.
+      return "No registration stands behind this agent.";
+    case "unread":
+      return "The registry did not answer, so this says nothing about whether a person is behind this agent.";
+  }
+}
+
+/** The pill, which credits a source or none, and never a source it was not given. */
+export function registrationPill(mark: StepMark, source: RegistrationSource | null): string {
+  if (mark === "done") {
+    return source === "agentbook" ? "registered by AgentBook" : source === "worldid" ? "registered by World ID" : "registered";
+  }
+  return mark === "waiting" ? "waiting" : "not yet";
+}
 
 type AccountTab = "overview" | "receipts" | "proposals" | "names";
 
@@ -783,7 +820,11 @@ function Proposals({ submitter }: { submitter: string | null }) {
  * carries, rather than from the branch that holds the file.
  */
 const RUNGS: { rung: string; sentences: string }[] = [
-  { rung: "a name", sentences: "`agent1.xovi.eth` resolves to the agent's payer. No other name is issued." },
+  // The negative moved, because the old one was about to expire by Zenbit's own
+  // hand: labels are assigned now, so "no other name is issued" flips the day the
+  // second one is. What replaces it is the measurement the whole name leg rests
+  // on, and it is falsified by a key on a server rather than by an issuance.
+  { rung: "a name", sentences: "`agent1.xovi.eth` resolves to the agent's payer. No server holds a key that issues names." },
   { rung: "the money", sentences: "Receipts land in a ledger. No rule routes any of it onward." },
   { rung: "the look", sentences: "A human confirms or rejects every proposal and signs the decision. No institution has paid for one." },
   { rung: "the query", sentences: "The anchor joins the confirmation. No key but Zenbit's has queried it." },
@@ -839,31 +880,37 @@ function NotYet() {
  * done. The flow ran straight for anyone already set up and a new person could
  * walk past all of it to a run that could not work.
  *
- * **The registration step is hard by default.** A person the registry does not
- * know sees the onboarding and never the board, which is the founder's call and
- * is a real cost: it is also what a judge without a registration would meet. The
- * softer path exists in the code behind `ONBOARDING_ALLOW_UNREGISTERED`, off
- * unless set, so changing it is a variable and a redeploy rather than a build.
+ * **Every step now has something on its own card that completes it**, which is
+ * what changed. The registration step used to draw `blocked` for a wallet the
+ * registry did not know: a state with a sentence and no way out, on the one card
+ * where a person most needs one. A wallet can be verified here now, so the step is
+ * a thing to do rather than a wall, and `blocked` is gone rather than left in the
+ * type for nobody to reach.
  *
- * **The name step completes without an issuing path and without lying about it.**
- * Issued where a name resolves to the payer; otherwise acknowledged, and the card
- * says acknowledged and no name issued rather than requested, because nothing was
- * recorded anywhere Zenbit reads. A recorded request is a table and a route and
- * comes later.
+ * **The name step completes on the request and not on the issuance.** The record
+ * is written by Zenbit's own transaction, because the resolver that answers for
+ * the parent admits no operator and no server can hold a key it would accept. That
+ * is somebody else's work on somebody else's clock, so holding a person here until
+ * the chain catches up would gate the product on a task they cannot do.
  */
 export type StepId = "wallet" | "person" | "name";
-export type StepMark = "done" | "todo" | "waiting" | "blocked";
+export type StepMark = "done" | "todo" | "waiting";
 export type Step = { id: StepId; mark: StepMark };
 
-export type Acks = { person: boolean; name: boolean };
+/** What the name route answers, and the card's three states are its three. */
+export type NameState = "none" | "requested" | "issued";
+
+/** The pill for the name card. Waiting is about the step before it, never about the name. */
+export function namePill(state: NameState, mark: StepMark): string {
+  if (mark === "waiting") return "waiting";
+  return state === "issued" ? "issued" : state === "requested" ? "requested" : "not yet";
+}
 
 export function onboardingFrom(input: {
   address: string | null;
   chain: string | null;
   registration: Registration;
-  name: string | null;
-  acks: Acks;
-  allowUnregistered: boolean;
+  nameState: NameState;
 }): { steps: Step[]; done: boolean; at: StepId } {
   const walletDone = input.address !== null && input.chain === BASE_SEPOLIA_HEX;
   const wallet: Step = { id: "wallet", mark: walletDone ? "done" : "todo" };
@@ -872,49 +919,22 @@ export function onboardingFrom(input: {
   if (!walletDone) person = { id: "person", mark: "waiting" };
   else if (input.registration === "registered") person = { id: "person", mark: "done" };
   else if (input.registration === "reading" || input.registration === "idle") person = { id: "person", mark: "waiting" };
-  else if (input.registration === "unread") person = { id: "person", mark: "todo" };
-  // Hard unless the flag is set. Blocked and todo are drawn differently: one has
-  // something a person can do and the other says why they cannot.
-  else person = { id: "person", mark: input.allowUnregistered ? (input.acks.person ? "done" : "todo") : "blocked" };
+  // Not registered and unread are both todo, and for the same reason: this card
+  // carries something a person can press for either of them. They are still two
+  // different sentences, because one is an answer about the wallet and the other
+  // is an answer about the read.
+  else person = { id: "person", mark: "todo" };
 
   const name: Step =
     person.mark !== "done"
       ? { id: "name", mark: "waiting" }
-      : input.name !== null
-        ? { id: "name", mark: "done" }
-        : { id: "name", mark: input.acks.name ? "done" : "todo" };
+      : input.nameState === "none"
+        ? { id: "name", mark: "todo" }
+        : { id: "name", mark: "done" };
 
   const steps = [wallet, person, name];
   const at = steps.find(step => step.mark !== "done")?.id ?? "name";
   return { steps, done: steps.every(step => step.mark === "done"), at };
-}
-
-const ACK_PERSON = "xovi-agents:paying-per-read-acknowledged";
-const ACK_NAME = "xovi-agents:no-name-issued-acknowledged";
-
-/** Remembered per wallet, and re-verified on load rather than trusted: a stored
- *  yes is a person's answer, never a substitute for the read itself. */
-function ackKey(base: string, address: string | null): string {
-  return `${base}:${(address ?? "none").toLowerCase()}`;
-}
-
-export function readAcks(address: string | null): Acks {
-  try {
-    return {
-      person: globalThis.localStorage?.getItem(ackKey(ACK_PERSON, address)) === "yes",
-      name: globalThis.localStorage?.getItem(ackKey(ACK_NAME, address)) === "yes",
-    };
-  } catch {
-    return { person: false, name: false };
-  }
-}
-
-export function writeAck(which: "person" | "name", address: string | null): void {
-  try {
-    globalThis.localStorage?.setItem(ackKey(which === "person" ? ACK_PERSON : ACK_NAME, address), "yes");
-  } catch {
-    // A person who cannot store it is asked again, which is the safe direction.
-  }
 }
 
 /**
@@ -984,32 +1004,58 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
  * sentences with the negative say the same thing truthfully and go on the sweep
  * with everything else.
  */
+/**
+ * Where `app/world-id-card.tsx` mounts.
+ *
+ * That component carries the widget and the two calls behind it, and it arrives on
+ * its own branch. This file owns the card's place in the checklist and the sentence
+ * saying what verifying keeps, so that sentence survives whatever the component
+ * says; the integration commit puts the component here and nothing else moves.
+ *
+ * It draws nothing until then, and deliberately draws no control: a button that
+ * cannot do the thing it names is the defect this page was already caught with
+ * once, on a retry that set a number nobody read.
+ */
+function WorldIdSlot(props: { payer: `0x${string}` | null; onRegistered: () => void }) {
+  void props;
+  return null;
+}
+
+/** Where `app/name-card.tsx` mounts, on the same terms. */
+function NameSlot(props: { payer: `0x${string}` | null; onRequested: () => void }) {
+  void props;
+  return null;
+}
+
 function Onboarding({
   address,
   chain,
   registration,
+  source,
+  credential,
+  nameState,
   name,
-  acks,
-  allowUnregistered,
-  onAck,
+  label,
   onSwitch,
   onRetry,
+  onNameRead,
 }: {
   address: `0x${string}` | null;
   chain: string | null;
   registration: Registration;
+  source: RegistrationSource | null;
+  credential: string | null;
+  nameState: NameState;
   name: string | null;
-  acks: Acks;
-  allowUnregistered: boolean;
-  onAck: (which: "person" | "name") => void;
+  label: string | null;
   onSwitch: () => void;
   onRetry: () => void;
+  onNameRead: () => void;
 }) {
-  const { steps, at } = onboardingFrom({ address, chain, registration, name, acks, allowUnregistered });
+  const { steps, at } = onboardingFrom({ address, chain, registration, nameState });
   const of = (id: StepId) => steps.find(step => step.id === id)?.mark ?? "waiting";
   const cls = (id: StepId) => (id === at ? "ag-panel ag-step ag-step-at" : of(id) === "done" ? "ag-panel ag-step ag-step-done" : "ag-panel ag-step");
-  const pill = (m: StepMark) =>
-    m === "done" ? "ag-chip ag-chip-good" : m === "blocked" ? "ag-chip ag-chip-stopped" : "ag-chip ag-chip-idle";
+  const pill = (m: StepMark) => (m === "done" ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle");
 
   return (
     <div className="ag-setup">
@@ -1051,6 +1097,13 @@ function Onboarding({
                   {address.slice(0, 6)}…{address.slice(-4)}
                 </span>
               </span>
+              {/* Said on the card rather than left to be worked out. The two cards
+                  below read this address, the run pays from it, and a person who
+                  switches accounts is looking at a different agent. */}
+              <p className="ag-sub">
+                The connected wallet is the agent&apos;s address. It signs the payment, and the registration and the
+                name below are read for it.
+              </p>
               {chain !== BASE_SEPOLIA_HEX && (
                 <button type="button" className="ag-rail-item ag-setup-do" onClick={onSwitch}>
                   Switch to Base Sepolia
@@ -1062,51 +1115,46 @@ function Onboarding({
 
         <li className={cls("person")}>
           <h3 className="ag-panel-title">A person behind the agent</h3>
-          <span className={pill(of("person"))}>
-            {of("person") === "done" ? "registered" : of("person") === "blocked" ? "not registered" : of("person") === "waiting" ? "waiting" : "not yet"}
-          </span>
-          <p className="ag-sub">{REGISTRATION_LINE[registration]}</p>
-          {registration === "not-registered" && (
-            <>
-              {/* The page's own words, and no product named as a place to go. */}
-              <p className="ag-sub">A registration is made with the World command line tool against AgentBook and then read here.</p>
-              <button type="button" className="ag-rail-item ag-setup-do" onClick={onRetry}>
-                Check again
-              </button>
-              {allowUnregistered && !acks.person && (
-                <button type="button" className="ag-rail-item ag-setup-do" onClick={() => onAck("person")}>
-                  Continue paying per read, without the free allowance
-                </button>
-              )}
-            </>
-          )}
-          {registration === "unread" && (
+          <span className={pill(of("person"))}>{registrationPill(of("person"), source)}</span>
+          <p className="ag-sub">{registrationLine(registration, source)}</p>
+          {/* What the verification does and what it leaves behind, on the card where
+              it is offered rather than only in a document. The retention and the
+              purpose are the ruling's, and the digest is what the table holds. */}
+          <p className="ag-sub">
+            World ID asserts that one person stands behind this wallet. Verifying here keeps a keyed digest of your
+            World ID identifier, for thirty days, to count free reads; never the identifier.
+          </p>
+          {credential !== null && <p className="ag-account-address">World ID credential: {credential}</p>}
+          <WorldIdSlot payer={address} onRegistered={onRetry} />
+          {(registration === "not-registered" || registration === "unread") && (
             <button type="button" className="ag-rail-item ag-setup-do" onClick={onRetry}>
-              Read it again
+              {registration === "unread" ? "Read it again" : "Check again"}
             </button>
           )}
         </li>
 
         <li className={cls("name")}>
           <h3 className="ag-panel-title">A name</h3>
-          <span className={pill(of("name"))}>
-            {name !== null ? "issued" : of("name") === "done" ? "acknowledged, no name issued" : of("name") === "waiting" ? "waiting" : "not yet"}
-          </span>
-          {name !== null ? (
+          <span className={pill(of("name"))}>{namePill(nameState, of("name"))}</span>
+          {nameState === "issued" && name !== null && (
             <>
               <p className="ag-setup-name">{name}</p>
               <p className="ag-account-address">resolves to this payer</p>
             </>
-          ) : (
-            <p className="ag-sub">
-              A name is issued into a parent Zenbit owns, by hand. No path issues one from this page.
-            </p>
           )}
-          {name === null && of("name") === "todo" && (
-            <button type="button" className="ag-rail-item ag-setup-do" onClick={() => onAck("name")}>
-              Understood, continue without a name
-            </button>
+          {nameState === "requested" && (
+            <>
+              {label !== null && <p className="ag-setup-name">{label}.xovi.eth</p>}
+              <p className="ag-sub">
+                Requested. Zenbit issues the name from the parent it owns, and this card shows it once the record
+                resolves to this payer.
+              </p>
+            </>
           )}
+          {nameState === "none" && (
+            <p className="ag-sub">A name is issued into a parent Zenbit owns. Zenbit issues names by hand from its own key.</p>
+          )}
+          <NameSlot payer={address} onRequested={onNameRead} />
         </li>
       </ol>
     </div>
@@ -1635,15 +1683,21 @@ export function AppShell() {
   const [board, setBoard] = useState<{ days: string[]; cells: { day: string; species: string; onOffer: boolean }[] }>({ days: [], cells: [] });
   const [boardState, setBoardState] = useState<"loading" | "ready" | "unconfigured" | "failed">("loading");
   const [registration, setRegistration] = useState<Registration>("reading");
-  const [acks, setAcks] = useState<Acks>({ person: false, name: false });
-  const [allowUnregistered, setAllowUnregistered] = useState(false);
+  /** Which source answered, and what it carried. Null until an answer names one. */
+  const [source, setSource] = useState<RegistrationSource | null>(null);
+  const [credential, setCredential] = useState<string | null>(null);
   const [readAgain, setReadAgain] = useState(0);
   const [accountTab, setAccountTab] = useState<AccountTab>("overview");
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [ledger, setLedger] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [chain, setChain] = useState<string | null>(null);
   const [issuedName, setIssuedName] = useState<string | null>(null);
+  const [nameState, setNameState] = useState<NameState>("none");
+  const [nameLabel, setNameLabel] = useState<string | null>(null);
   const [nameRead, setNameRead] = useState(false);
+  /** Bumped when the name card records a request, so the read runs again and the
+   *  state comes back from the route rather than being assumed here. */
+  const [nameAgain, setNameAgain] = useState(0);
   const [walletNote, setWalletNote] = useState<string | null>(null);
   const busy = useRef(false);
   const runDialog = useRef<HTMLDialogElement | null>(null);
@@ -1697,7 +1751,6 @@ export function AppShell() {
    */
   // Asked once. Read on mount rather than at render, so the server and the first
   // client render agree about it.
-  useEffect(() => setAcks(readAcks(address)), [address]);
 
   useEffect(() => {
     let live = true;
@@ -1743,6 +1796,8 @@ export function AppShell() {
     if (address === null) {
       setChain(null);
       setIssuedName(null);
+      setNameState("none");
+      setNameLabel(null);
       setNameRead(false);
       return;
     }
@@ -1752,23 +1807,36 @@ export function AppShell() {
       if (live) setChain(c);
     });
     fetch(`/api/name?payer=${address}`)
-      .then(async r => (r.ok ? ((await r.json()) as { name: string | null; matches: boolean }) : null))
-      // Only on a match. A name that resolves to somebody else is not this
-      // account's name, and under a wildcard parent every name resolves.
+      .then(async r =>
+        r.ok ? ((await r.json()) as { state: NameState; label: string | null; name: string | null; matches: boolean }) : null,
+      )
       .then(answer => {
         if (!live) return;
+        // The name is drawn only on a match. A name that resolves to somebody else
+        // is not this account's name, and under a wildcard parent every name
+        // resolves, so "it resolves" is true of every label there will ever be.
         setIssuedName(answer !== null && answer.matches ? answer.name : null);
+        // The state is the route's, which draws issued from the chain and never
+        // from the row. A refusal is not a state: it leaves the card at none, with
+        // nothing claimed either way.
+        setNameState(answer === null ? "none" : answer.state);
+        setNameLabel(answer === null ? null : answer.label);
         setNameRead(true);
       })
       .catch(() => {
         if (!live) return;
         setIssuedName(null);
+        setNameState("none");
+        setNameLabel(null);
         setNameRead(true);
       });
     return () => {
       live = false;
     };
-  }, [address]);
+    // `nameAgain` is what the name card bumps once a request is recorded. Without it
+    // here the card would have to remember its own answer, which is the shape that
+    // let a row draw a state the chain does not hold.
+  }, [address, nameAgain]);
 
   // The board is what is for sale and needs no wallet to look at.
   useEffect(() => {
@@ -1807,16 +1875,26 @@ export function AppShell() {
     let live = true;
     setRegistration("reading");
     fetch(`/api/agent/registration?payer=${address}`)
-      .then(async r => (r.ok ? ((await r.json()) as { state: Registration; allowUnregistered?: boolean }) : { state: "unread" as const }))
+      .then(async r =>
+        r.ok
+          ? ((await r.json()) as { state: Registration; source?: RegistrationSource | null; credential?: string | null })
+          : { state: "unread" as const },
+      )
       .then(a => {
         if (!live) return;
         setRegistration(a.state);
-        // Read off the same answer rather than a public variable, so the flag
-        // stays server side and there is one round trip either way.
-        setAllowUnregistered(("allowUnregistered" in a && a.allowUnregistered) === true);
+        // An answer that names no source leaves the page naming none. Filling it in
+        // here would credit a source nobody was told about, which is a positive
+        // drawn from a non answer.
+        setSource("source" in a && (a.source === "agentbook" || a.source === "worldid") ? a.source : null);
+        setCredential("credential" in a && typeof a.credential === "string" && a.credential !== "" ? a.credential : null);
       })
       .catch(() => {
-        if (live) setRegistration("unread");
+        if (live) {
+          setRegistration("unread");
+          setSource(null);
+          setCredential(null);
+        }
       });
     return () => {
       live = false;
@@ -1970,7 +2048,7 @@ export function AppShell() {
   // The strip, and everything behind it, does not exist until the third step is
   // done. Re-derived on every render from the reads themselves, so a remembered
   // acknowledgement never stands in for a registration that is no longer there.
-  const onboarded = onboardingFrom({ address, chain, registration, name: issuedName, acks, allowUnregistered }).done;
+  const onboarded = onboardingFrom({ address, chain, registration, nameState }).done;
   const at = pinned === null ? Math.max(0, lines.length - 1) : Math.min(pinned, Math.max(0, lines.length - 1));
 
   return (
@@ -2060,15 +2138,14 @@ export function AppShell() {
                   address={address}
                   chain={chain}
                   registration={registration}
+                  source={source}
+                  credential={credential}
+                  nameState={nameState}
                   name={issuedName}
-                  acks={acks}
-                  allowUnregistered={allowUnregistered}
-                  onAck={which => {
-                    writeAck(which, address);
-                    setAcks(readAcks(address));
-                  }}
+                  label={nameLabel}
                   onSwitch={() => void onSwitch()}
                   onRetry={() => setReadAgain(n => n + 1)}
+                  onNameRead={() => setNameAgain(n => n + 1)}
                 />
               ) : screen === "board" ? (
                 <Board

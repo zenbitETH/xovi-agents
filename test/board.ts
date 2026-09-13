@@ -6,7 +6,7 @@ import { GET as windowsGET } from "../app/api/agent/windows/route";
 import { GET as registrationGET } from "../app/api/agent/registration/route";
 import { readFileSync } from "node:fs";
 import { setRegistryForTest } from "../lib/human/registry";
-import { SCREENS, onboardingFrom } from "../app/app-shell";
+import { SCREENS, namePill, onboardingFrom, registrationLine, registrationPill } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
 
@@ -212,14 +212,78 @@ export async function boardChecks(check: Check) {
 
   const page = readFileSync("app/app-shell.tsx", "utf8");
   const css = readFileSync("app/globals.css", "utf8");
-  check(/REGISTRATION_LINE/.test(page), "279 · the gate draws AgentBook's answer as a sentence per state");
-  // Read off the line the gate actually shows for unread. The substring was also
-  // the Names section's sentence, so a wrong line here left it green.
-  check(/unread: "AgentBook did not answer, so this says nothing about whether a person is behind this agent\."/.test(page),
+  check(/registrationLine\(/.test(page), "279 · the gate draws the registry's answer as a sentence per state");
+  // Driven through the function rather than read off the file, so the sentence is
+  // checked where it is decided and the check survives the copy moving.
+  check(registrationLine("unread", null) === "The registry did not answer, so this says nothing about whether a person is behind this agent.",
     "279a · with unread saying nothing about the agent");
   check(!/identifies nobody|verified person|World App/.test(page),
     "279d · and the gate carries no sentence that is the legal lead's or names a third party's product");
-  check(/No path\s+issues one from this page/.test(page.replace(/\s+/g, " ")), "279b · and the issue action written as a negative rather than drawn as a control");
+  /*
+   * Both sentences inverted, and for the same reason: they were true of a page
+   * that could not enrol anybody.
+   *
+   * `Registering is not done here` stopped being true the moment this page could
+   * do it, and `No path issues one from this page` stopped being true when a
+   * request route existed. Each is now refused by name, with the sentence that
+   * replaced it required beside it, so neither can come back quietly.
+   */
+  check(!/Registering is not done here/.test(page), "279b · and neither sentence the enrolment falsified is left on the page");
+  check(!/No path\s+issues one from this page/.test(page.replace(/\s+/g, " ")), "279b2 · including the one about issuing a name");
+  check(/Zenbit issues names by hand from its own key/.test(page), "279b3 · which says instead who issues a name (negative control)");
+
+  /*
+   * TWO SOURCES ANSWER ONE QUESTION, AND THE PAGE SAYS WHICH.
+   *
+   * AgentBook holds registrations made outside this page and a World ID
+   * verification made in it holds its own. `registered` without a source is two
+   * different facts wearing one word, and a reader who wants to check the claim
+   * has to know which of them to read.
+   *
+   * **A source the route did not name is not filled in here.** That is the one
+   * that matters: the page already drew a positive from a non answer once, on a
+   * chain badge that read Base Sepolia when no chain had answered, and this is the
+   * same shape one card along. Null credits nobody.
+   */
+  check(registrationPill("done", "agentbook") === "registered by AgentBook", "294 · the pill credits AgentBook where AgentBook answered");
+  check(registrationPill("done", "worldid") === "registered by World ID", "294a · and World ID where the page enrolled the wallet");
+  check(registrationPill("done", null) === "registered", "294b · and names no source at all where the answer named none");
+  check(registrationPill("todo", "worldid") === "not yet" && registrationPill("waiting", "agentbook") === "waiting",
+    "294c · a step not done credits nothing whatever a source says (negative control)");
+
+  const lineNamed = registrationLine("registered", "worldid");
+  const lineUnnamed = registrationLine("registered", null);
+  check(lineUnnamed === "A registration stands behind this agent.", "295 · the sentence for a source the route did not name claims no source");
+  check(lineNamed !== lineUnnamed && /World ID/.test(lineNamed), "295a · and a named source changes it (negative control)");
+  check(!/AgentBook/.test(lineUnnamed) && !/World ID/.test(lineUnnamed), "295b · with neither source named in the unnamed sentence");
+
+  /*
+   * What the verification keeps, on the card that offers it.
+   *
+   * The retention and the purpose are the ruling's conditions and they are stated
+   * where the person decides, not only in a document they will not open. The
+   * clause about the digest is the one that must not drift: what is kept is a
+   * keyed derivation and never the identifier.
+   */
+  const personCard = page.slice(page.indexOf('<h3 className="ag-panel-title">A person behind the agent</h3>'), page.indexOf('<h3 className="ag-panel-title">A name</h3>'));
+  check(personCard.length > 0, "296 · the person card is found (negative control for the slice)");
+  const kept = personCard.replace(/\s+/g, " ");
+  check(/keyed digest of your World ID identifier, for thirty days, to count free reads; never the identifier/.test(kept),
+    "296a · and says what verifying keeps, for how long, what for, and what it never keeps");
+  check(!/\bnullifier\b/.test(personCard), "296b · without naming the value itself on the page");
+
+  /*
+   * The two components mount in slots, and the slots take the wallet.
+   *
+   * Each leg delivers its own card; this file owns their place in the checklist.
+   * A slot that took no payer would be a card that could not act on the account in
+   * front of it, which is worth catching before the component lands rather than
+   * after.
+   */
+  check(/<WorldIdSlot payer=\{address\}/.test(page), "297 · the World ID card mounts in a slot that takes the connected wallet");
+  check(/<NameSlot payer=\{address\}/.test(page), "297a · and so does the name card");
+  check(/function WorldIdSlot\(props: \{ payer: `0x\$\{string\}` \| null; onRegistered: \(\) => void \}\)/.test(page),
+    "297b · with the props the component it takes is written against");
   // A rung and not a button: the settings screen has the connect and the board
   // actions and no third that would do nothing.
   const settingsBlock = page.slice(page.indexOf("function Onboarding("), page.indexOf("function Board("));
@@ -335,9 +399,7 @@ export async function boardChecks(check: Check) {
       address: ADDR,
       chain: "0x14a34",
       registration: "registered",
-      name: "agent1.xovi.eth",
-      acks: { person: false, name: false },
-      allowUnregistered: false,
+      nameState: "issued",
       ...over,
     });
 
@@ -351,21 +413,48 @@ export async function boardChecks(check: Check) {
    * The registration step is hard by default, and the softer path is a flag.
    */
   check(!flow({ registration: "not-registered" }).done, "287 · an unregistered wallet never reaches the board");
-  check(flow({ registration: "not-registered" }).steps[1].mark === "blocked", "287a · and its step says so rather than offering a way past");
-  check(!flow({ registration: "not-registered", allowUnregistered: true }).done, "287b · with the flag set it is still not done unacknowledged");
-  check(flow({ registration: "not-registered", allowUnregistered: true, acks: { person: true, name: false } }).done,
-    "287c · and done once acknowledged (negative control for the flag)");
+  /*
+   * The step it stops on is a thing to do, not a wall.
+   *
+   * It drew `blocked` before, which is a state with a sentence and no way out, and
+   * a wallet AgentBook did not know sat at it with nothing to press. The card
+   * carries the verification now, so the mark is todo and `blocked` is gone from
+   * the type rather than left in it for nobody to reach.
+   */
+  check(flow({ registration: "not-registered" }).steps[1].mark === "todo", "287a · and its step is something to do rather than a wall");
+  /*
+   * The gate has no way past, and no configuration opens it.
+   *
+   * `ONBOARDING_ALLOW_UNREGISTERED` and the acknowledgement it gated are retired:
+   * a person who could not register had a button that waived the free allowance,
+   * and now they have one that enrols them instead. So the rule is read as a whole,
+   * every state against the one that completes it, rather than as one flag's two
+   * branches.
+   */
+  const notRegistered = (["not-registered", "unread", "reading", "idle"] as const).filter(r => !flow({ registration: r }).done);
+  check(notRegistered.length === 4, `287b · and no registration state but registered completes the step (${notRegistered.length} of 4)`);
+  check(flow({ registration: "registered" }).done, "287c · which registered does (negative control)");
   check(!flow({ registration: "unread" }).done, "287d · an unread registry does not complete the step either");
 
   /*
    * The name completes two ways and neither of them records anything.
    */
-  check(flow({ name: "agent1.xovi.eth" }).done, "288 · a name that resolves to the payer completes the step as issued");
-  check(!flow({ name: null }).done, "288a · and no name does not complete it on its own");
-  check(flow({ name: null, acks: { person: false, name: true } }).done, "288b · but an acknowledgement does");
-  const nameCard = page.slice(page.indexOf('<h3 className="ag-panel-title">A name</h3>'), page.indexOf("function Board("));
-  check(/acknowledged, no name issued/.test(nameCard) && !/requested/.test(nameCard),
-    "288c · and the card says acknowledged and no name issued, never requested");
+  check(flow({ nameState: "issued" }).done, "288 · a name that resolves to the payer completes the step as issued");
+  check(!flow({ nameState: "none" }).done, "288a · and no name does not complete it on its own");
+  /*
+   * A recorded request completes it, and that is the whole change.
+   *
+   * The record is written by Zenbit's own transaction, on its own clock, so a
+   * person held here until the chain caught up would be gated on work they cannot
+   * do. Requested is not issued and the card never says it is: the pill keeps the
+   * two words apart and `issued` is drawn from the chain.
+   */
+  check(flow({ nameState: "requested" }).done, "288b · and so does a request the route recorded");
+  check(namePill("requested", "done") === "requested" && namePill("issued", "done") === "issued" && namePill("none", "todo") === "not yet",
+    "288c · with the card's three states being the route's three");
+  check(namePill("issued", "waiting") === "waiting", "288c2 · and a step not reached yet says so instead (negative control)");
+  check(!/acknowledged/.test(page), "288d · and no acknowledgement is left anywhere on the page");
+  check(/acknowledged/.test("acknowledged, no name issued"), "288e · the acknowledgement check can see one (negative control)");
 
   // The strip does not exist until the third step is done.
   check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
