@@ -3,8 +3,6 @@ import { join } from "node:path";
 import {
   ACCOUNT_TABS,
   CHAIN,
-  PLAN,
-  planFrom,
   screensFor,
   RECORD,
   SCREENS,
@@ -810,30 +808,20 @@ export async function pageChecks(check: Check) {
   check(!/\/ 4\)/.test(css), "266e · and no strip arithmetic hard-codes four");
 
   /*
-   * The plan is five nodes, and a node lights from its own event.
+   * 267 to 267d are retired with the plan list they drove.
    *
-   * The propose node is the reason the rule is written that way. A run on a
-   * deployment with no ingest credential ends at not-submitted, and a stepper
-   * that lit propose because pay and read had happened would draw a proposal that
-   * never left the machine, on the deployment where that is exactly what happens.
+   * They held five nodes lit from their own events, and the propose node above
+   * all: a run on a deployment with no ingest credential ends at not-submitted,
+   * and a stepper that lit propose because pay and read had happened would draw a
+   * proposal that never left the machine. The list is gone because the rail beside
+   * the card now carries those same five names, and two steppers in one dialog,
+   * one lit by events and one by a cursor, is worse than either.
+   *
+   * What replaces the rule, rather than the mechanism: the rail's node for a state
+   * is `nodeNameFor` of that state's own step, so a run that never proposed has no
+   * node called propose to light, and a run that stopped is named failed by the
+   * step that stopped it. 417 to 417e hold that below.
    */
-  check(PLAN.length === 5, `267 · the plan is five nodes (${PLAN.length})`);
-  const atRest = planFrom(false, false, []);
-  check(atRest.every(x => !x), "267a · and none of them is lit at rest");
-
-  const notSubmitted: RunStep[] = [
-    { step: "presenting" },
-    { step: "paid", free: false, transaction: "0x1", network: "eip155:84532" },
-    { step: "read", served: 2, ids: ["a1", "b2"] },
-    { step: "selected", windowId: "a1", durationSeconds: 16 },
-    { step: "not-submitted", detail: "no ingest credential is configured on this deployment" },
-    { step: "done" },
-  ];
-  const litOnDeployment = planFrom(true, true, notSubmitted);
-  check(litOnDeployment[2], "267b · a run that paid and read lights that node");
-  check(!litOnDeployment[3], "267c · and a run that stopped before submitting never lights propose");
-  const proposed: RunStep[] = [...notSubmitted.slice(0, 4), { step: "proposing", windowId: "a1" }, { step: "done" }];
-  check(planFrom(true, true, proposed)[3], "267d · while a run that did submit lights it (negative control)");
 
   /*
    * 268 to 268c are retired with the marks they counted.

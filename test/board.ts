@@ -24,7 +24,7 @@ import { AUTHORIZATION_TYPES, PAYMENT_TOKEN, ruledValue } from "../lib/human/fre
 import { setNonceStoreForTest } from "../lib/human/nonces";
 import { getAddress, hashDomain } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { AGENTBOOK_ON_WORLD_CHAIN, ENS_APP, LIFECYCLE, NEXT_STEP, failedAt, stepState, NOT_SEEN_REASON, WORLDSCAN_ADDRESS, WORLD_ID_PAGE, reasonForStage, registrationHref, registrationHrefTitle, type BoardCellView, cellMetaLine, lifecycleLine, lifecycleOf, readableLength, stopReason, windowsUrlFor } from "../app/app-shell";
+import { AGENTBOOK_ON_WORLD_CHAIN, ENS_APP, LIFECYCLE, NEXT_STEP, NODE_NAMES, NODE_NAME_MAX, failedAt, stepState, NOT_SEEN_REASON, WORLDSCAN_ADDRESS, WORLD_ID_PAGE, reasonForStage, registrationHref, registrationHrefTitle, type BoardCellView, cellMetaLine, lifecycleLine, lifecycleOf, readableLength, stopReason, windowsUrlFor } from "../app/app-shell";
 import { type AnchorRow, nextAction, setStoreForTest } from "../lib/anchor/store";
 import { resetServerForTest } from "../lib/x402";
 
@@ -986,7 +986,11 @@ export async function boardChecks(check: Check) {
    * file under `app`, since the layout is where a link tag would live and this
    * check only ever looked at the shell.
    */
-  const HOSTS = ["worldscan.org", "world.org", "app.ens.dev"];
+  // The hosts and the names the page holds them under. Matching the literal alone
+  // left an `img` whose src was built from the exported constant green, which is
+  // the same hole one level up: what matters is that the browser reaches the host,
+  // however the string was spelled at the call site.
+  const HOSTS = ["worldscan.org", "world.org", "app.ens.dev", "WORLDSCAN_ADDRESS", "WORLD_ID_PAGE", "ENS_APP"];
   const appFiles = (function walk(dir: string): string[] {
     return readdirSync(dir, { withFileTypes: true }).flatMap(entry =>
       entry.isDirectory() ? walk(join(dir, entry.name)) : /\.(tsx?|css)$/.test(entry.name) ? [join(dir, entry.name)] : [],
@@ -2034,7 +2038,10 @@ export async function boardChecks(check: Check) {
    * capped and scrolled, so on a tall dialog it stopped short of the card and a
    * long run hid its own first states behind a scroll nobody saw.
    */
-  const stepsRule = /\.ag-steps\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  // At the start of its own line, so the phone rule inside a media query, which is
+  // indented, is not read as the base one: it declares `height: auto` and took
+  // these two red the moment the column was added.
+  const stepsRule = /\n\.ag-steps\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
   check(stepsRule.length > 0, `414k · the line's own rule is found (negative control for the read, ${stepsRule.length})`);
   check(/height:\s*100%/.test(stepsRule) && !/max-height/.test(stepsRule),
     `414l · it takes the height it is given and is capped at nothing (${stepsRule.replace(/\s+/g, " ").trim().slice(0, 80)})`);
@@ -2140,10 +2147,23 @@ export async function boardChecks(check: Check) {
   check(spent.size === 1 && [...spent.values()][0] === freeAccount.address,
     `416b · and the nonce recorded against the recovered signer (${[...spent.values()].join(", ") || "none"})`);
 
-  // The same header again: the authorization is unspent on chain, so without this
-  // whoever captured one could take a person's whole allowance with it.
+  /*
+   * The same header again, with the allowance refilled first.
+   *
+   * Without the refill this passed on the allowance rather than on the nonce: one
+   * free read a day, spent by the request above, so the replay was refused by the
+   * counter and the replay guard was never reached. Replacing the take with `true`
+   * left it green, which is how that was found. Refilled, a second serving of the
+   * same header can only be refused by the nonce.
+   */
+  setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: freeTable, freePerDay: 2 });
   const replayed = await askFree(await headerFor());
   check(replayed.status !== 200, `416c · the same header served free twice is refused the second time (${replayed.status})`);
+  // And the control: with that same refilled allowance, a fresh nonce is served,
+  // so the refusal above is the nonce and not the allowance after all.
+  const freshNonce = await askFree(await headerFor({ nonce: `0x${"8e".repeat(32)}` }));
+  check(freshNonce.status === 200, `416c2 · while a fresh nonce on the same allowance is served (negative control, ${freshNonce.status})`);
+  setCapForTest({ registry: async () => 0n, store: freeStore, verifications: freeTable, freePerDay: 1 });
 
   // The allowance is spent now, so the same wallet with a fresh nonce goes to the
   // facilitator like any other read, and the facilitator is what refuses it.
@@ -2252,6 +2272,71 @@ export async function boardChecks(check: Check) {
   setClockForTest(undefined);
   setRegistryForTest(undefined);
   resetServerForTest();
+
+  /*
+   * THE LINE CARRIES NAMES, AND THE CARD CARRIES THE SENTENCE.
+   *
+   * The rail drew each state's full text, absolutely positioned and so out of the
+   * layout entirely: nothing measured it, nothing stopped it, and on a long
+   * sentence it ran under the card beside it. The founder read it on the
+   * deployment. Names now, from one fixed list, with the sentence left on the card
+   * where somebody is reading it.
+   */
+  const everyStepKind: RunStep[] = [
+    { step: "presenting" },
+    { step: "payment-refused", status: 402, detail: "insufficient_funds" },
+    { step: "unavailable", status: 503, detail: "x" },
+    { step: "paid", free: true },
+    { step: "read", served: 2, ids: ["a", "b"] },
+    { step: "selected", windowId: "a", durationSeconds: 16 },
+    { step: "nothing-proposable", considered: 2 },
+    { step: "cell-spent", considered: 2 },
+    { step: "proposing", windowId: "a" },
+    { step: "proposed", id: 1, clipHash: "0x", status: "proposed" },
+    { step: "declined", kind: "duplicate", detail: "x" },
+    { step: "not-submitted", detail: "x" },
+    { step: "done" },
+  ];
+  const namesGiven = everyStepKind.map(st => lineFor(st).node);
+  const offList = namesGiven.filter(n => !(NODE_NAMES as readonly string[]).includes(n));
+  check(namesGiven.length === everyStepKind.length, `417 · every kind of step the run reports is named (${namesGiven.length})`);
+  check(offList.length === 0, `417a · each from the fixed list and nothing invented (${offList.join(", ") || "none"})`);
+  const tooLong = NODE_NAMES.filter(n => n.length > NODE_NAME_MAX);
+  check(tooLong.length === 0, `417b · and every name is within the bound the column is sized for (${tooLong.join(", ") || "none"}, max ${NODE_NAME_MAX})`);
+  check(NODE_NAME_MAX <= 24, `417b2 · which is short rather than nominal (${NODE_NAME_MAX})`);
+  const sentences = everyStepKind.map(st => lineFor(st)).filter(l => l.node === l.text);
+  check(sentences.length === 0, `417c · and no node is drawn as its own sentence (${sentences.length})`);
+  check(lineFor({ step: "payment-refused", status: 402, detail: "insufficient_funds" }).node === "failed",
+    "417d · a run that stopped is named failed by the step that stopped it");
+  check(lineFor({ step: "proposed", id: 1, clipHash: "0x", status: "proposed" }).node === "propose" && lineFor({ step: "done" }).node === "stop",
+    "417e · while a run that proposed and finished carries those two (negative control)");
+  check(/<span className="ag-steps-label">\{line\.node\}<\/span>/.test(roll),
+    "417f · the rail draws the name rather than the text");
+  check(!/ag-plan\b/.test(page), "417g · with the plan list retired, so the dialog does not draw the stepper twice");
+
+  /*
+   * AND THE LINE HAS A COLUMN OF ITS OWN, SO AN OVERLAP IS NOT POSSIBLE.
+   *
+   * A narrower label would have been a smaller version of the same bug. The column
+   * has a width, the labels are in flow inside it, and the card area begins where
+   * the column ends, whatever any name says.
+   */
+  const rollRule = /\n\.ag-roll\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(rollRule.length > 0, `418 · the wheel's own rule is found (negative control for the read, ${rollRule.length})`);
+  const column = /--ag-steps-col:\s*([0-9.]+)rem/.exec(rollRule)?.[1] ?? "";
+  check(column !== "", `418a · the line's column has a width of its own (${column || "none"}rem)`);
+  check(/grid-template-columns:\s*var\(--ag-steps-col\)\s+minmax\(0, 1fr\)/.test(rollRule),
+    `418b · and the card area begins after it (${/grid-template-columns:[^;]*/.exec(rollRule)?.[0] ?? "none"})`);
+  check(!/grid-template-columns:\s*auto/.test(rollRule),
+    "418c · never sized from its own longest label, which is what let the labels out");
+  const labelRuleNow = /\n\.ag-steps-label\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/position:\s*static/.test(labelRuleNow), `418d · the names are in the layout rather than out of it (${/position:[^;]*/.exec(labelRuleNow)?.[0] ?? "none"})`);
+  const stacked = /@media \(max-width: 30rem\)\s*\{\s*\.ag-roll\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/grid-template-columns:\s*minmax\(0, 1fr\)/.test(stacked),
+    `418e · and on a phone the column stacks above the card rather than sharing the width (${stacked.replace(/\s+/g, " ").trim()})`);
+  const dialogWidth = /\n\.ag-run-dialog\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/width:\s*min\(64rem,\s*90vw\)/.test(dialogWidth), `418f · with a dialog wide enough for both (${/width:[^;]*/.exec(dialogWidth)?.[0] ?? "none"})`);
+  check(/min-height:/.test(dialogWidth) && /max-height:/.test(dialogWidth), "418g · and its height rule unchanged");
 
   check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
   check(/const enrolment = enrolmentState\(\{ address, registration, skipped \}\);/.test(page) &&

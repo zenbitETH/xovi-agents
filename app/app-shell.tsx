@@ -130,6 +130,9 @@ export type Line = {
    *  one map, in the present tense: a run that failed has to tell a person what to
    *  do about it, and *what would change it* is a fact rather than a promise. */
   next?: string;
+  /** What this state is called on the line. Short, fixed, and never the sentence
+   *  above it: the rail is the plan and the card is the reading. */
+  node: NodeName;
 };
 
 /**
@@ -199,6 +202,12 @@ export const CREDENTIAL_REFUSED = 403;
 export const NO_CREDENTIAL = "The read was paid and served; Xovi holds no credential for this agent, so it cannot propose.";
 
 export function lineFor(step: RunStep): Line {
+  // The short name is decided in one place and added here, so no branch below can
+  // forget it and none of them has to repeat it.
+  return { ...sentenceFor(step), node: nodeNameFor(step) };
+}
+
+function sentenceFor(step: RunStep): Omit<Line, "node"> {
   switch (step.step) {
     case "presenting":
       return { text: "Presenting the signed authorization", tone: "working", actor: "agent" };
@@ -372,39 +381,18 @@ export function supplySentence(supply: Supply): string {
   return `This snapshot serves ${supply.served} window${supply.served === 1 ? "" : "s"} and the one this run chose is already a clip. No new window has been served into it.`;
 }
 
-/**
- * The plan, before anything moves.
+/*
+ * `PLAN` and `planFrom` are retired here with the list they drew.
  *
- * *Action plan* in the skill's terms: the sequence the run will follow, readable
- * whole before a person signs anything. Five nodes, each in the hue of whoever
- * acts, idle at rest and lit as the run reports.
- *
- * **A node lights from an event, never from the one before it.** The propose node
- * is the reason: a run on a deployment with no ingest credential ends at
- * not-submitted, and a stepper that lit propose because pay and read had happened
- * would draw a proposal that never left the machine.
+ * The plan stood at the head of the run dialog as five nodes lit by the run's own
+ * events, and the rail beside the card carried each state's full sentence. Fixing
+ * those sentences running under the card made the rail carry short names, and
+ * those names are the plan's: the dialog would have drawn the same stepper twice,
+ * once lit by events and once by a cursor. The rail is the stepper now.
+ * `NODE_NAMES` is the one list and `nodeNameFor` the one function that maps a
+ * step to one of them; a state's own sentence stays on the card, where somebody
+ * is reading it.
  */
-export type PlanNode = { label: string; actor: Actor };
-
-export const PLAN: PlanNode[] = [
-  { label: "read the challenge", actor: "system" },
-  { label: "you sign", actor: "human" },
-  { label: "pay and read", actor: "agent" },
-  { label: "propose", actor: "agent" },
-  { label: "stop", actor: "system" },
-];
-
-export function planFrom(challengeRead: boolean, signed: boolean, steps: RunStep[]): boolean[] {
-  return [
-    challengeRead,
-    signed,
-    steps.some(s => s.step === "paid" || s.step === "read"),
-    // Only the two steps that mean a proposal actually reached the ingest.
-    // `not-submitted` is the run stopping one short and must not light this.
-    steps.some(s => s.step === "proposing" || s.step === "proposed"),
-    steps.some(s => s.step === "done"),
-  ];
-}
 
 type Phase = "idle" | "connecting" | "ready" | "signing" | "running" | "finished";
 
@@ -519,6 +507,53 @@ export type BoardCellView = {
  * yet anchored, so a bar that filled itself forward would draw a chain that has
  * not happened.
  */
+/**
+ * The short name a state takes on the line, which is never its sentence.
+ *
+ * The rail carried each state's full text, absolutely positioned, and on a long
+ * sentence it ran under the card beside it. A narrower label is not the fix: a
+ * line of states is a plan, and the plan has names for them. These are the five
+ * the dialog's own plan list used to carry, plus one word for a run that stopped,
+ * and they are the only names the line draws. **Every one is short by rule**: the
+ * bound is held by a check, because a name that grows is the overlap coming back.
+ */
+export const NODE_NAMES = ["read the challenge", "you sign", "pay and read", "propose", "stop", "failed"] as const;
+export type NodeName = (typeof NODE_NAMES)[number];
+
+/** The longest a node's name may be. Short enough that the column holding them
+ *  never has to grow into the card, which is the defect this bound exists for. */
+export const NODE_NAME_MAX = 20;
+
+/**
+ * Which of those a step is, and every kind is mapped here.
+ *
+ * No default arm: a step this does not name fails to compile rather than falling
+ * through to a word that happens to fit, which is how a run would end up with a
+ * node called something nobody chose.
+ */
+export function nodeNameFor(step: RunStep): NodeName {
+  switch (step.step) {
+    case "payment-refused":
+    case "unavailable":
+    case "declined":
+    case "not-submitted":
+      return "failed";
+    case "presenting":
+      return "you sign";
+    case "paid":
+    case "read":
+      return "pay and read";
+    case "selected":
+    case "proposing":
+    case "proposed":
+    case "nothing-proposable":
+    case "cell-spent":
+      return "propose";
+    case "done":
+      return "stop";
+  }
+}
+
 export const LIFECYCLE = ["read", "proposed", "confirmed", "attested"] as const;
 
 /**
@@ -1337,7 +1372,7 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
             onClick={() => onStep(i)}
           >
             <span className="ag-steps-dot" aria-hidden="true" />
-            <span className="ag-steps-label">{line.text}</span>
+            <span className="ag-steps-label">{line.node}</span>
           </button>
         ))}
       </nav>
@@ -2664,7 +2699,7 @@ export function AppShell() {
       // The cell a person chose on the board. A choice of what to read, and the
       // agent still chooses the window and forms the proposal.
       const windowsUrl = windowsUrlFor(window.location.origin, chosen);
-      say({ text: "Reading the live payment challenge", tone: "working", actor: "agent" });
+      say({ text: "Reading the live payment challenge", tone: "working", actor: "agent", node: "read the challenge" });
       // What is on sale, and the price, are said BEFORE the wallet opens rather than
       // after it closes. Both come from the challenge the server sent: the page is not
       // describing the purchase, the counterparty is.
@@ -2678,13 +2713,14 @@ export function AppShell() {
           // The recipient in the detail lane, with the three values it will be paid
           // on the card beside it.
           detail: `to ${challenge.payTo}`,
+          node: "read the challenge",
           tone: "working",
           actor: "system",
           object: { kind: "challenge", amount: challenge.amount, asset: challenge.asset, network: challenge.network },
         });
       });
       setSigned(true);
-      say({ text: "Authorization signed in your wallet", detail: "nothing has moved yet", tone: "good", actor: "human" });
+      say({ text: "Authorization signed in your wallet", detail: "nothing has moved yet", tone: "good", actor: "human", node: "you sign" });
 
       setPhase("running");
       // The cell travels with the run, as it travels with the challenge. One
@@ -2754,7 +2790,6 @@ export function AppShell() {
   // Read off the steps rather than off the sentences, so the state is the run's
   // and not a phrase match over its narration.
   const supply = running ? null : supplyFrom(steps);
-  const lit = planFrom(challengeRead, signed, steps);
   // Connected and either enrolled or skipped. Re-derived on every render from the
   // read itself, so a remembered refusal never stands in for a registration that
   // is no longer there, and a registration that arrives opens the board at once.
@@ -2985,17 +3020,6 @@ export function AppShell() {
               <h2 id="ag-run-thesis" className="ag-run-thesis">
                 An agent may propose. No credential in existence may confirm.
               </h2>
-              <ol className="ag-plan">
-              {PLAN.map((node, i) => (
-                <li
-                  key={node.label}
-                  className={lit[i] ? `ag-plan-node ag-actor-${node.actor} ag-plan-lit` : `ag-plan-node ag-actor-${node.actor}`}
-                >
-                  <span className="ag-plan-dot" aria-hidden="true" />
-                  <span className="ag-plan-label">{node.label}</span>
-                </li>
-                ))}
-              </ol>
             </div>
           </div>
 
