@@ -17,7 +17,7 @@ import {
 } from "../app/app-shell";
 import { signedBy } from "../lib/anchor/confirmation";
 import { BASE_SEPOLIA_HEX, disconnect, restoreConnection } from "../lib/agent/browser";
-import { CONFIRMATION_259 } from "../lib/anchor/confirmation-259";
+import { ANCHOR_259, CONFIRMATION_259 } from "../lib/anchor/confirmation-259";
 import { FABRICATED_TX } from "../lib/human/store";
 import type { RunStep } from "../lib/agent/run";
 
@@ -212,14 +212,13 @@ export async function pageChecks(check: Check) {
   // The call beside an identifier is the call for that identifier. getAttestation
   // asked for an offchain one answers with an empty struct, which is a badge with
   // nothing behind it, so the page names it only for the onchain identifier.
-  const timestampAt = ui.indexOf("getTimestamp");
-  const attestationAt = ui.indexOf("getAttestation");
-  check(timestampAt > 0 && attestationAt > timestampAt, "232a · getTimestamp is named for the offchain identifier, before getAttestation");
-  // Over a whitespace collapsed copy, because JSX wraps prose across lines and the
-  // sentence being asserted is prose rather than markup.
-  const flat = ui.replace(/\s+/g, " ");
-  check(/getAttestation[^.]*onchain identifier/.test(flat.slice(flat.indexOf("getAttestation"))),
-    "232b · and getAttestation is bound to the onchain one where it is named");
+  // Each call bound to the identifier it answers for, in whichever order the copy
+  // names them, since the page now leads with the onchain one it can show.
+  const flatRecord = ui.replace(/\s+/g, " ");
+  check(/onchain one, which a query returns and which getAttestation answers/.test(flatRecord), "232a · getAttestation is bound to the onchain identifier");
+  check(/offchain[^.]*getTimestamp/.test(flatRecord), "232b · and getTimestamp to the offchain one");
+  check(/getAttestation asked for an offchain identifier returns an empty struct/.test(flatRecord),
+    "232e · with the wrong call beside the wrong identifier named as the badge it would be");
 
   /*
    * The check runs with the operator's site down.
@@ -311,9 +310,18 @@ export async function pageChecks(check: Check) {
    * The record says what it is, in the present tense, and the absence is a
    * negative rather than a condition.
    */
-  check(/not anchored/i.test(ui), "238 · the page states that this confirmation is not anchored");
-  check(/fixture/i.test(ui), "238a · and that it is the fixture this repository carries");
-  check(!/when this confirmation is anchored/i.test(ui), "238b · and states no conditional future about anchoring it");
+  /*
+   * Inverted, because the page said the opposite of the chain: it claimed this
+   * confirmation was not anchored, which was true of the fixture and false of
+   * Ethereum Sepolia, where it has been anchored since 2026-09-11. An absence
+   * asserted from a file's silence is not an absence measured.
+   */
+  check(/anchored on Ethereum Sepolia/.test(flatRecord), "238 · the page states that this confirmation is anchored");
+  check(!/not anchored/i.test(ui), "238a · and never the opposite, which is the copy this replaced");
+  check(/\{ANCHOR_259\.onchainUid\}/.test(ui), "238b · rendering the onchain identifier from the constant");
+  check(/^0x[0-9a-f]{64}$/.test(ANCHOR_259.onchainUid) && ANCHOR_259.attestedAt === 1789110516,
+    "238e · which is the value read from the chain, with the time getAttestation returns");
+  check(/sepolia\.etherscan\.io\/tx\/\$\{ANCHOR_259\.attestTx\}/.test(ui), "238c · and linking the transaction that carries it");
 
   /*
    * An empty proposals section must not read as "you proposed nothing".

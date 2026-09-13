@@ -18,7 +18,7 @@ import type { RunStep } from "~~/lib/agent/run";
 import { BOARD_SPECIES } from "~~/lib/windows/types";
 import { recoverConfirmer } from "~~/lib/anchor/confirmation";
 import { decisionCode } from "~~/lib/anchor/schema";
-import { CONFIRMATION_259 } from "~~/lib/anchor/confirmation-259";
+import { ANCHOR_259, CONFIRMATION_259 } from "~~/lib/anchor/confirmation-259";
 
 const REPO = "https://github.com/zenbitETH/xovi-agents";
 
@@ -1263,9 +1263,9 @@ function Records() {
   return (
     <div className="ag-records">
       <p className="xv-desc ag-empty">
-        <strong>This confirmation is not anchored and has no attestation identifier.</strong> It is the confirmation
-        this repository carries as a fixture for clip {RECORD.clipId}, and it asserts existence and time and who
-        confirmed. It is not a claim about whether the clip shows what anyone says it shows.
+        <strong>This confirmation is anchored on Ethereum Sepolia.</strong> It is the confirmation this repository
+        carries for clip {RECORD.clipId}, and it asserts existence and time and who confirmed. It is not a claim about
+        whether the clip shows what anyone says it shows.
       </p>
 
       <ol className="ag-chain">
@@ -1318,13 +1318,33 @@ function Records() {
             <span className="ag-sub">{matches ? "equal to the verifier the record names" : "not the verifier the record names"}</span>
           </div>
         )}
-        <p className="ag-sub">
-          An anchored confirmation carries two identifiers that share nothing. The offchain one keys the payload
-          endpoint, and its time is read with getTimestamp, which answers with a time and no fields. getAttestation
-          answers with the schema, the attester and the encoded fields, and it belongs only beside the onchain
-          identifier a query returns; asked for an offchain one it returns an empty struct, which is a badge with no
-          check behind it. This one is anchored on no chain, so neither call has anything to answer for it.
-        </p>
+        <section className="ag-month">
+          <h3 className="ag-panel-title">The anchor</h3>
+          <dl className="ag-facts">
+            <div>
+              <dt>onchain identifier</dt>
+              <dd className="ag-ticket-hash">{ANCHOR_259.onchainUid}</dd>
+            </div>
+            <div>
+              <dt>attester</dt>
+              <dd className="ag-ticket-hash">{ANCHOR_259.attester}</dd>
+            </div>
+            <div>
+              <dt>attested at</dt>
+              <dd className="ag-ticket-hash">{ANCHOR_259.attestedAt}</dd>
+            </div>
+          </dl>
+          <a className="ag-link ag-ticket-link" href={`https://sepolia.etherscan.io/tx/${ANCHOR_259.attestTx}`}>
+            Read the attestation transaction
+          </a>
+          <p className="ag-sub">
+            An anchored confirmation carries two identifiers that share nothing. This is the onchain one, which a query
+            returns and which getAttestation answers with the schema, the attester and the encoded fields. The offchain
+            one keys the payload endpoint and its time is read with getTimestamp, which answers with a time and no
+            fields; getAttestation asked for an offchain identifier returns an empty struct, which is a badge with no
+            check behind it. This page does not print the offchain identifier, because it does not hold its value.
+          </p>
+        </section>
       </section>
     </div>
   );

@@ -27,3 +27,31 @@ export const CONFIRMATION_259 = {
   verifiedAt: "2026-09-09T02:28:59.058Z",
   submitter: "0xC0686ae97FDf62A37F081922c2a92537862E0B95",
 } as const;
+
+/**
+ * The anchor, read from Ethereum Sepolia rather than taken from a message.
+ *
+ * The page said this confirmation was not anchored, which was true of the fixture
+ * and false of the chain: it has been anchored since 2026-09-11 and the copy never
+ * moved with it. Asserting an absence from a file's silence is how that happened.
+ *
+ * **These are constants and the page reads nothing live.** That is the trade: a
+ * page that reads would always be current and would also fail when an endpoint
+ * does, on the screen whose whole argument is that a stranger can check without
+ * the operator. So they are written down, and the recovery check beside them is
+ * the part that runs. The consequence is that this block has to change when the
+ * anchor does, which is exactly what rotted, so it names where each value came
+ * from and how to read it again.
+ *
+ * Verified against EAS at `0xC2679fBD37d54388Ce493F1DB75320D236e1815e` on chain
+ * 11155111: the `Attested` log under the frozen schema returns this uid, this
+ * attester and this transaction, and `getAttestation` returns time 1789110516 with
+ * a schema equal to `schemaUid()`.
+ */
+export const ANCHOR_259 = {
+  chainId: 11155111,
+  onchainUid: "0xf3e3edf3c8bf0051bc2d70848592846b0604f89bd0b9439c4ba06bccf0232044",
+  attester: "0x51F1D0074793E7Fa336f538299ad7D3e439e2b09",
+  attestedAt: 1789110516,
+  attestTx: "0xd86c2902aaf8cb0cebf529e4171f64bdd1b4235aa6f5e2eb419c1e044fca5538",
+} as const;
