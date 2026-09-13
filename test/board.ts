@@ -189,8 +189,9 @@ export async function boardChecks(check: Check) {
   check(noPayer.status === 400, `278 · the registration read names a payer or refuses (${noPayer.status})`);
   const unread = await registrationGET(new Request("http://127.0.0.1/api/agent/registration?payer=0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe"));
   const unreadBody = (await unread.json()) as Record<string, unknown>;
-  check(Object.keys(unreadBody).sort().join(",") === "allowUnregistered,state", `278a · and answers with the state and the flag (${Object.keys(unreadBody).sort().join(",")})`);
+  check(Object.keys(unreadBody).sort().join(",") === "credential,source,state", `278a · and answers with the state, the source and the credential (${Object.keys(unreadBody).sort().join(",")})`);
   check(["registered", "not-registered", "unread"].includes(String(unreadBody.state)), `278b · which is one of the three states (${unreadBody.state})`);
+  check([null, "agentbook", "worldid"].includes(unreadBody.source as never), `278g · and a source that is one of two words or none (${unreadBody.source})`);
   /*
    * The branch that actually holds a nullifier.
    *
