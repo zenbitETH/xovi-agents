@@ -2478,6 +2478,28 @@ export async function boardChecks(check: Check) {
   check(detailsOrder, "421n · the reading on the left and the re-read on the right");
   check(/className="ag-chip ag-chip-idle ag-chip-do ag-step-again"/.test(stepBody),
     "421o · and the re-read is a pill rather than one of the two choices");
+  /*
+   * AND THE READING'S WAY OUT DOES NOT BREATHE.
+   *
+   * `ag-run-close-ready` is the run dialog's way out arriving into its active
+   * state and then breathing, so an eye that has been watching a run finds it when
+   * the run ends. This one is active from the moment the reading opens, so wearing
+   * that class made it breathe for as long as the modal stood there, reporting a
+   * change that had already happened. Read over the modal alone, because the run
+   * dialog's own button carries it correctly and a file-wide count would pass on
+   * the wrong one.
+   */
+  // Over the markup with the comments stripped: the comment above that button says
+  // which class it must not carry, and counting the raw text found the sentence
+  // explaining the rule and read it as the rule being broken.
+  const spokenMarkup = (block: string) => block.replace(/\{\/\*[\s\S]*?\*\/\}/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ");
+  const readyInModal = (spokenMarkup(stepModal).match(/ag-run-close-ready/g) ?? []).length;
+  check(readyInModal === 0, `421p · the reading's way out carries no activation class, so it does not breathe (${readyInModal})`);
+  check((spokenMarkup('{/* no ag-run-close-ready here */}\n<button className="ag-run-close">').match(/ag-run-close-ready/g) ?? []).length === 0,
+    "421p0 · the read strips the comment that names the class (negative control)");
+  check(/ag-run-close\b/.test(stepModal), "421p2 · while it is still the dialog's own way out (negative control)");
+  const readyInRun = (spokenMarkup(page.slice(page.indexOf("<dialog ref={runDialog}"))).match(/ag-run-close-ready/g) ?? []).length;
+  check(readyInRun === 1, `421p3 · and the run's way out, which the class was written for, still carries it (${readyInRun})`);
 
   check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
   check(/const enrolment = enrolmentState\(\{ address, registration, skipped \}\);/.test(page) &&

@@ -1588,7 +1588,13 @@ function Enrol({
         </div>
         <div className="ag-run-dialog-foot">
           <form method="dialog">
-            <button type="submit" className="btn xv-action ag-run-close ag-run-close-ready">
+            {/* No `ag-run-close-ready`. That class is the run dialog's way out
+                arriving into its active state and then breathing so an eye that
+                has been watching a run finds it; this way out is active from the
+                moment the reading opens, so wearing it made the button breathe
+                for as long as the modal stood there, reporting a change that had
+                already happened. */}
+            <button type="submit" className="btn xv-action ag-run-close">
               Close
             </button>
           </form>
