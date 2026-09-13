@@ -3,7 +3,7 @@ import { x402Client, x402HTTPClient } from "@x402/core/client";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { GET } from "../app/api/agent/windows/route";
 import { resetServerForTest } from "../lib/x402";
-import { runOnce, windowsUrlFor, type RunStep } from "../lib/agent/run";
+import { namesACell, runOnce, windowsUrlFor, type RunStep } from "../lib/agent/run";
 import { startFakeFacilitator } from "./facilitator";
 import { startFakeIngest } from "./ingest";
 
@@ -248,10 +248,25 @@ export async function agentRunChecks(check: Check) {
     windowsUrlFor("https://xovi-agents.example/api/agent/run") === "https://xovi-agents.example/api/agent/windows",
     "194 · the run derives the paid route from its own request, so both halves name one resource",
   );
+  /*
+   * INVERTED. This asserted that the query was dropped, which is exactly how the
+   * cell a person chose reached the challenge and never the read: they paid for one
+   * cell and the run read every day in the snapshot. The cell is carried now and
+   * anything else is still left behind.
+   */
+  check(
+    windowsUrlFor("http://localhost:3000/api/agent/run?day=2026-09-04&species=mexicanum") ===
+      "http://localhost:3000/api/agent/windows?day=2026-09-04&species=mexicanum",
+    "195 · including the port, and carrying the cell across",
+  );
   check(
     windowsUrlFor("http://localhost:3000/api/agent/run?x=1") === "http://localhost:3000/api/agent/windows",
-    "195 · including the port, and without carrying the query across",
+    "195a · while anything that is not the cell is left behind (negative control)",
   );
+  check(!namesACell("http://localhost:3000/api/agent/run") && !namesACell("http://localhost:3000/api/agent/run?day=2026-09-04"),
+    "195b · a request naming neither, or only half a cell, names no cell");
+  check(namesACell("http://localhost:3000/api/agent/run?day=2026-09-04&species=mexicanum"),
+    "195c · and one naming both does (negative control)");
 
   // The run presents at exactly the URL it was given, with the header it was given.
   arrange("fixtures/windows.synthetic.jsonl");

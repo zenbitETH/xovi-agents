@@ -1641,6 +1641,9 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 0.6875rem;
   cursor: pointer;
+  /* For the price ribbon and the lifecycle border, both of which sit on the cell
+     rather than in its column. */
+  position: relative;
   transition: transform 120ms var(--xv-ease-out), border-color 160ms var(--xv-ease-out);
 }
 
@@ -1657,6 +1660,95 @@ body:has(.ag-run-dialog[open]) .ag-surface {
 
 /* The species in the display face, so a tile reads as the thing it names before
    its state is read. */
+/* The recording a cell is cut from, as its own public thumbnail. It sets the
+   card's width rather than following it, so a slow image does not reflow the grid
+   under somebody choosing, and it never grows past the cell it sits in. */
+.ag-board-thumb {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  margin-bottom: 0.5rem;
+  border-radius: 0.5rem;
+  object-fit: cover;
+  background-color: color-mix(in srgb, var(--color-base-content) 8%, transparent);
+}
+
+/* Species, state and the two times on one row, so the facts about the footage
+   read as one thing rather than as a caption under another. */
+.ag-board-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+}
+
+/* The two times a cell says about itself: how long the recording runs and the
+   span its windows cover. Never how many windows there are, and no labels: the
+   units carry which is which, since a recording runs in minutes and a window in
+   seconds. */
+.ag-board-meta {
+  font-size: 0.6875rem;
+  line-height: 1.35;
+  opacity: 0.75;
+}
+
+/* What a read costs, on the corner of the cell it prices rather than in the line
+   of facts about the footage: it is the thing being decided about. Over the
+   thumbnail, so it needs a ground of its own rather than the cell's. */
+.ag-board-price {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.375rem;
+  padding: 0.0625rem 0.375rem;
+  border: 1px solid color-mix(in srgb, var(--color-xv-agent) 60%, transparent);
+  border-radius: 0.375rem;
+  background-color: color-mix(in srgb, var(--color-base-100) 88%, var(--color-xv-agent));
+  color: var(--color-base-content);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+/* How far a cell got: four segments, one per event, and no words at all. The
+   sentence under them carries the run's own reason, because a colour cannot say
+   why a run stopped and must not be asked to. */
+.ag-life {
+  display: flex;
+  gap: 0.1875rem;
+  width: 100%;
+  margin-top: 0.375rem;
+}
+
+.ag-life-seg {
+  flex: 1;
+  height: 3px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--color-base-content) 14%, transparent);
+}
+
+/* Done is the person's hue at every stage, because all four are things that have
+   happened rather than things in progress. */
+.ag-life-seg[data-state="done"] {
+  background-color: var(--color-primary);
+}
+
+/* A run that ended before proposing and said why. The tone the run's own log uses
+   for a stop that is not a fault. */
+.ag-life-seg[data-state="stopped"] {
+  background-color: var(--color-warning);
+}
+
+/* Where this wallet's own agent has been, in the teal that means a person: the run
+   was theirs, delegated, and the clay hue is the machine's own activity. */
+.ag-board-read {
+  margin-top: 0.25rem;
+  color: var(--color-primary);
+  font-size: 0.6875rem;
+  line-height: 1.35;
+}
+
 .ag-board-name {
   font-family: var(--font-display), system-ui, sans-serif;
   font-size: 0.9375rem;
@@ -1667,6 +1759,49 @@ body:has(.ag-run-dialog[open]) .ag-surface {
 .ag-board-picked {
   border-color: var(--color-xv-agent);
   font-weight: 600;
+}
+
+/* The border a cell earns, and it says which of two things happened.
+
+   A pseudo element so only `opacity` moves: animating a box shadow directly is a
+   paint on every frame, and the rule in this file is transform and opacity or
+   nothing. The base state is visible on its own, which is what the reduced motion
+   clamp at the top of this file leaves behind when it stops the breathing: gentler
+   rather than gone. */
+.ag-board-cell[data-life]::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border: 1px solid currentColor;
+  border-radius: 0.5rem;
+  color: var(--color-xv-agent);
+  box-shadow: 0 0 0.5rem color-mix(in srgb, var(--color-xv-agent) 55%, transparent);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Waiting on a person, in the agent hue, and breathing rather than pulsing: 2400ms
+   reports a state that lasts, where a fast one would read as loading. */
+.ag-board-cell[data-life="proposed"]::after {
+  animation: xvCellWait 2400ms var(--xv-ease-in-out) infinite;
+}
+
+/* A person decided, so the border takes their hue and stops moving. Motion here
+   would say something is still happening. */
+.ag-board-cell[data-life="confirmed"]::after {
+  color: var(--color-primary);
+  box-shadow: 0 0 0.5rem color-mix(in srgb, var(--color-primary) 55%, transparent);
+  opacity: 0.7;
+}
+
+@keyframes xvCellWait {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.85;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

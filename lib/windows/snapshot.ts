@@ -61,7 +61,81 @@ export class DayUnknown extends Error {}
 
 /** A window with the two facts the board sorts by, neither of them new: the day
  *  its footage belongs to and the species its station holds. */
-export type BoardWindow = CandidateWindow & { day: string };
+export type BoardWindow = CandidateWindow & { day: string; meta?: RecordingMeta };
+
+/**
+ * What the board may say about the recording behind a cell, and nothing more.
+ *
+ * TWO FIELDS, AND THE LIST IS CLOSED. A recording's metadata is a rich object and
+ * almost all of it is exactly what this repository spends its checks keeping off a
+ * public surface: the title carries the species and the date, and a description or a
+ * tag list can carry a station or an alias. So the sidecar is not "the metadata", it
+ * is these two values, and a file carrying a third key is REFUSED rather than read
+ * past. Refusing is the point: a loader that ignored unknown keys would let a title
+ * sit in a committed file, unread today and read by whatever wants it tomorrow.
+ */
+export type RecordingMeta = { durationSeconds: number; thumbnail: string };
+
+/** A meta sidecar that exists and is wrong. Refused rather than dropped: a file
+ *  sitting beside the windows saying there should be a thumbnail, while the board
+ *  serves none, is a misconfiguration nobody would see. */
+export class MetaInvalid extends SnapshotUnavailable {}
+
+/** The one host a thumbnail may come from. A URL is a request the browser makes on
+ *  behalf of whoever opens the board, so the host is pinned rather than trusted. */
+const THUMBNAIL_HOST = "i.ytimg.com";
+const META_KEYS = ["durationSeconds", "thumbnail"];
+
+/**
+ * The recording's two facts, or null when there is no meta file.
+ *
+ * Absent is fine and is not an error: meta is optional and a windows file without one
+ * is served without one. Present and wrong is an error, for the reason above.
+ */
+function readMetaSidecar(file: string): RecordingMeta | null {
+  const path = `${file}.meta.json`;
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new MetaInvalid(`${path} is not JSON`);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new MetaInvalid(`${path} is not an object`);
+  }
+
+  const keys = Object.keys(parsed as Record<string, unknown>).sort();
+  const extra = keys.filter(k => !META_KEYS.includes(k));
+  if (extra.length > 0) throw new MetaInvalid(`${path} carries ${extra.join(", ")}; only ${META_KEYS.join(" and ")} may be served`);
+  const missing = META_KEYS.filter(k => !keys.includes(k));
+  if (missing.length > 0) throw new MetaInvalid(`${path} is missing ${missing.join(", ")}`);
+
+  const { durationSeconds, thumbnail } = parsed as Record<string, unknown>;
+  // Integer, because it is read from the recording rather than estimated, and a
+  // fractional second would be a sign it was computed from something else.
+  if (typeof durationSeconds !== "number" || !Number.isInteger(durationSeconds) || durationSeconds <= 0) {
+    throw new MetaInvalid(`${path}: durationSeconds must be a positive whole number of seconds`);
+  }
+  if (typeof thumbnail !== "string") throw new MetaInvalid(`${path}: thumbnail must be a url`);
+  let url: URL;
+  try {
+    url = new URL(thumbnail);
+  } catch {
+    throw new MetaInvalid(`${path}: thumbnail is not a url`);
+  }
+  if (url.protocol !== "https:" || url.hostname !== THUMBNAIL_HOST) {
+    throw new MetaInvalid(`${path}: thumbnail must be https on ${THUMBNAIL_HOST}, got ${url.protocol}//${url.hostname}`);
+  }
+
+  return { durationSeconds, thumbnail };
+}
 
 function readDaySidecar(file: string): string | null {
   try {
@@ -170,6 +244,9 @@ export function loadSnapshot(env: EnvLike = process.env): BoardWindow[] {
       throw new SnapshotUnavailable(`snapshot not readable at ${file}`);
     }
     const sidecar = readDaySidecar(file);
+    // Read before any window is parsed, so a wrong meta file refuses the snapshot
+    // rather than half of it.
+    const meta = readMetaSidecar(file);
     // Invented data has no recording day to state, and it is named explicitly or
     // not read at all. It is served with no day, so it draws no cell: `boardFrom`
     // keeps only the days that exist.
@@ -192,7 +269,13 @@ export function loadSnapshot(env: EnvLike = process.env): BoardWindow[] {
       if (problems.length > 0) rejected.push(`${file} line ${i + 1}: ${problems.join("; ")}`);
       else {
         const w = parsed as CandidateWindow;
-        out.push({ ...w, day: sidecar === null ? "" : dayOf(sidecar) });
+        out.push({
+          ...w,
+          day: sidecar === null ? "" : dayOf(sidecar),
+          // Spread only when there is one, so a window without meta has no key at
+          // all rather than an undefined one that serialises into the wire shape.
+          ...(meta === null ? {} : { meta }),
+        });
       }
     });
   }
@@ -222,7 +305,87 @@ export { BOARD_SPECIES } from "./types";
  * which is the one number the embargo exists to keep. On offer or none says what
  * a person needs to choose a cell and nothing else.
  */
-export type BoardCell = { day: string; species: string; onOffer: boolean };
+/**
+ * A cell, and what an on offer one may carry beyond its state.
+ *
+ * **Never a count and never a sum.** The window files are public, so the
+ * difference between the rows in a file and a number served here is the withheld
+ * set by subtraction, which is the one thing the gate exists to keep. A range of
+ * durations is not that: it is two of the numbers already in the public file and
+ * says nothing about how many lie between them.
+ *
+ * The recording's facts are optional in both directions. A windows file with no
+ * meta sidecar serves a cell with no thumbnail and no length rather than a
+ * refusal, and a cell whose windows come from more than one recording serves the
+ * same way, because `videoId` and its two facts would then be true of part of the
+ * cell and asserted of all of it.
+ */
+export type BoardCell = {
+  day: string;
+  species: string;
+  onOffer: boolean;
+  videoId?: string;
+  thumbnail?: string;
+  recordingSeconds?: number;
+  windowSeconds?: { min: number; max: number };
+  /** What this payer's own agent last did here, and nobody else's. Present only
+   *  where a payer was named and only for that payer's runs.
+   *
+   *  `attested` is the anchor store's answer for that clip and never an inference
+   *  from the proposal existing: a clip can be proposed, confirmed and not yet
+   *  anchored, and reading the three as one would draw a chain that has not
+   *  happened. Absent where the store cannot answer, which is not false. */
+  read?: { outcome: string; clipId: number | null; ranAt: string; attested?: boolean };
+};
+
+/**
+ * The cell as the wire carries it, built key by key.
+ *
+ * It lives here rather than in the route because a route module may export only
+ * its handlers, and a mapping nothing can call is a mapping no check can drive.
+ * Spreading the cell instead of naming its fields is the mutation this exists to
+ * catch: it would publish whatever a later field happens to be called, and the
+ * one field that must never reach this wire is a count.
+ */
+export function servedCell(cell: BoardCell): BoardCell {
+  return {
+    day: cell.day,
+    species: cell.species,
+    onOffer: cell.onOffer,
+    // Built key by key like the rest: a mark carries what came of a run and when,
+    // and never a window, a station or an alias, none of which the row holds.
+    ...(cell.read === undefined
+      ? {}
+      : {
+          read: {
+            outcome: cell.read.outcome,
+            clipId: cell.read.clipId,
+            ranAt: cell.read.ranAt,
+            ...(cell.read.attested === undefined ? {} : { attested: cell.read.attested }),
+          },
+        }),
+    ...(cell.videoId === undefined ? {} : { videoId: cell.videoId }),
+    ...(cell.thumbnail === undefined ? {} : { thumbnail: cell.thumbnail }),
+    ...(cell.recordingSeconds === undefined ? {} : { recordingSeconds: cell.recordingSeconds }),
+    ...(cell.windowSeconds === undefined ? {} : { windowSeconds: { min: cell.windowSeconds.min, max: cell.windowSeconds.max } }),
+  };
+}
+
+/**
+ * What one cell's own recording says, where there is exactly one.
+ *
+ * Exported so a check can drive the parts without a board around them.
+ */
+export function cellRecording(windows: BoardWindow[]): Pick<BoardCell, "videoId" | "thumbnail" | "recordingSeconds" | "windowSeconds"> {
+  if (windows.length === 0) return {};
+  const durations = windows.map(w => w.endTime - w.startTime);
+  const windowSeconds = { min: Math.min(...durations), max: Math.max(...durations) };
+  const videos = [...new Set(windows.map(w => w.videoId))];
+  if (videos.length !== 1) return { windowSeconds };
+  const meta = windows.find(w => w.meta !== undefined)?.meta;
+  if (meta === undefined) return { videoId: videos[0], windowSeconds };
+  return { videoId: videos[0], thumbnail: meta.thumbnail, recordingSeconds: meta.durationSeconds, windowSeconds };
+}
 
 /** The windows of one cell, before the gate. */
 export function cellOf(windows: BoardWindow[], day: string, species: string): BoardWindow[] {
@@ -263,7 +426,12 @@ export function boardFrom(windows: BoardWindow[], env?: EnvLike): { days: string
   const cells: BoardCell[] = [];
   for (const day of days) {
     for (const species of BOARD_SPECIES) {
-      cells.push({ day, species, onOffer: cellState(windows, day, species, env).kind === "offer" });
+      const state = cellState(windows, day, species, env);
+      const onOffer = state.kind === "offer";
+      // The recording's facts ride only on a cell that is on offer: a cell that is
+      // empty or unscreened has nothing to sell, and a thumbnail beside it would
+      // be an invitation to something the route will refuse.
+      cells.push({ day, species, onOffer, ...(onOffer ? cellRecording(state.windows) : {}) });
     }
   }
   return { days, cells };

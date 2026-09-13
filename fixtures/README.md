@@ -116,3 +116,33 @@ come back, identical to the higher-resolution read. A third of that resolution f
 outright, and, in the case that matters most, an upscale back from it recovers the
 badge while silently losing a roster chip, which would have left the contradiction
 check weaker with nothing on the surface to show it.
+
+## `windows.<videoId>.jsonl.meta.json`, what the board may say about the recording
+
+Beside a windows file, optionally, a meta sidecar holding exactly two values and
+nothing else:
+
+```json
+{ "durationSeconds": 42896, "thumbnail": "https://i.ytimg.com/vi/<videoId>/mqdefault.jpg" }
+```
+
+`durationSeconds` is read from the recording with the tool's own metadata dump, never
+estimated and never computed from a span, which is why it is a whole number of seconds
+and why a fractional one is refused. `thumbnail` is the recording's own still, and the
+url was requested and answered 200 with a JPEG before the file was written.
+
+**The list of keys is closed, and a third key refuses the whole snapshot.** That is the
+point of the file rather than a detail of it. A recording's metadata is mostly the
+things this repository spends its checks keeping off a public surface: the title
+carries the species and the date, and a description or a tag list can carry a station
+or an alias. A loader that read past unknown keys would let any of that sit in a
+committed file, unread today and read by whatever wants it tomorrow. So the sidecar is
+not "the metadata", it is these two values.
+
+The host is pinned for the same kind of reason. A thumbnail url is a request the
+reader's browser makes on their behalf, so it must be https and on the one host, and
+anything else is refused rather than served.
+
+The sidecar is optional: a windows file without one is served without one. The
+synthetic file has none and will not have one, because there is no recording behind it
+and a duration and a still would be a picture of something that does not exist.

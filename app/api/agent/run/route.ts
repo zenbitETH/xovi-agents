@@ -1,6 +1,8 @@
 import { GET as windowsRoute } from "../windows/route";
+import type { RunStep } from "~~/lib/agent/run";
 import { credentialFor, credentialStoreFrom } from "~~/lib/agent/credentials";
-import { DECLINE_SENTENCE, runOnce, windowsUrlFor } from "~~/lib/agent/run";
+import { DECLINE_SENTENCE, namesACell, payerFromHeader, runOnce, runOutcome, windowsUrlFor } from "~~/lib/agent/run";
+import { recordRun, runsStoreFrom } from "~~/lib/agent/runs-store";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +33,21 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const paymentHeader = request.headers.get("PAYMENT-SIGNATURE") ?? undefined;
 
+  /*
+   * A run is one cell, and a request that names none is refused.
+   *
+   * It used to be served the whole snapshot, which is the defect this route was
+   * fixed for: a person chose a cell, signed a challenge for that cell and read
+   * every day there was. Refusing is the honest floor, since the page never sends
+   * a run without a cell and anything else arriving here is not the product.
+   */
+  if (!namesACell(request.url)) {
+    return new Response(JSON.stringify({ error: "name the day and the species this run reads" }), {
+      status: 400,
+      headers: { "content-type": "application/json", "cache-control": "no-store" },
+    });
+  }
+
   // Same origin, so both halves name the same resource without a second place to
   // configure it. Not a security boundary: see windowsUrlFor.
   const windowsUrl = windowsUrlFor(request.url);
@@ -53,11 +70,23 @@ export async function POST(request: Request) {
     },
   });
 
+  const asked = new URL(request.url);
+  const cell = { day: asked.searchParams.get("day") ?? "", species: asked.searchParams.get("species") ?? "" };
+
   const encoder = new TextEncoder();
+  /*
+   * Kept so the run can be recorded once it has finished.
+   *
+   * The steps are the run, and what is written afterwards is derived from them
+   * rather than assembled alongside them, so the row and the stream cannot come
+   * to different conclusions about the same run.
+   */
+  const walked: RunStep[] = [];
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
         for await (const step of steps) {
+          walked.push(step);
           // Newline delimited JSON. One object per line, so a reader can act on
           // each step as it arrives instead of waiting for a parseable whole.
           controller.enqueue(encoder.encode(`${JSON.stringify(step)}\n`));
@@ -77,6 +106,24 @@ export async function POST(request: Request) {
         );
       } finally {
         controller.close();
+        /*
+         * The run is recorded after it has been delivered, and never before.
+         *
+         * Nothing about the answer depends on this write: a person who paid has
+         * been served whatever happens here, and failing their run over a row on
+         * the board would be the larger wrong, which is the same rule the receipt
+         * ledger works under. A run the route never served leaves no row at all,
+         * because the mark on the board says this cell was read by your agent and
+         * a refused payment read nothing.
+         */
+        await recordRun({
+          outcome: runOutcome(walked),
+          payer: payerFromHeader(paymentHeader),
+          day: cell.day,
+          species: cell.species,
+          store: runsStoreFrom(),
+          at: new Date(),
+        });
       }
     },
   });
