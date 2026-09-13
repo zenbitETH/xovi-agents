@@ -2474,8 +2474,30 @@ export async function boardChecks(check: Check) {
   const cornerRule = /\n\.ag-step-corners\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
   check(/position:\s*absolute/.test(cornerRule) && /bottom:/.test(cornerRule) && /justify-content:\s*space-between/.test(cornerRule),
     `421m · the two quiet controls sit in the step's bottom corners (${cornerRule.replace(/\s+/g, " ").trim().slice(0, 70)})`);
-  const detailsOrder = stepBody.indexOf("See details") < stepBody.indexOf("Check again");
-  check(detailsOrder, "421n · the reading on the left and the re-read on the right");
+  /*
+   * THE ORDER AS IT RENDERS, NOT AS IT IS WRITTEN.
+   *
+   * This read the markup alone, so a swap through `order`, a `row-reverse` on the
+   * row, or an auto margin moved onto the first control each left it green while
+   * the corners changed places on the screen. Markup is one of three inputs to
+   * where a flex child lands, and the other two are read here.
+   */
+  const inMarkup = stepBody.indexOf("See details") < stepBody.indexOf("Check again");
+  const cornersRule = /\n\.ag-step-corners\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  const detailsRule = /\n\.ag-step-details\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  const againRule = /\n\.ag-step-again\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(cornersRule.length > 0 && detailsRule.length > 0 && againRule.length > 0,
+    `421n0 · the row and its two controls have rules to read (negative control, ${cornersRule.length}/${detailsRule.length}/${againRule.length})`);
+  const reversed = /flex-direction:\s*(row-reverse|column-reverse)/.test(cornersRule);
+  const ordered = [detailsRule, againRule].filter(r => /(^|;)\s*order\s*:/.test(r));
+  // An auto margin on the FIRST child pushes it off the edge it is meant to hold;
+  // on the second it only pins it to the far edge, which is what is wanted.
+  const pushedOff = /margin(-left|-inline-start)?:[^;]*\bauto\b/.test(detailsRule);
+  check(inMarkup, "421n · the reading is written before the re-read");
+  check(!reversed && ordered.length === 0 && !pushedOff,
+    `421n2 · and nothing reorders them, so it renders that way: the reading holds the left corner and the re-read the right (reversed ${reversed}, ordered ${ordered.length}, pushed ${pushedOff})`);
+  check(/(^|;)\s*order\s*:/.test("order: 2;") && /margin(-left|-inline-start)?:[^;]*\bauto\b/.test("margin-left: auto;"),
+    "421n3 · the reorder checks can see an order and an auto margin (negative control)");
   check(/className="ag-chip ag-chip-idle ag-chip-do ag-step-again"/.test(stepBody),
     "421o · and the re-read is a pill rather than one of the two choices");
   /*
