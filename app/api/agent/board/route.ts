@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { SnapshotUnavailable, boardFrom, loadSnapshot } from "~~/lib/windows/snapshot";
+import { SnapshotUnavailable, boardFrom, loadSnapshot, servedCell } from "~~/lib/windows/snapshot";
 
 export const dynamic = "force-dynamic";
 
@@ -37,9 +37,9 @@ export async function GET() {
   return NextResponse.json(
     {
       days,
-      // Built field by field, so a field added to a window never reaches the board
-      // by being present on the object it was derived from.
-      cells: cells.map(cell => ({ day: cell.day, species: cell.species, onOffer: cell.onOffer })),
+      // Built key by key by a mapping that lives beside the board, so a check can
+      // drive it with a cell carrying more than it should and watch the extra go.
+      cells: cells.map(servedCell),
     },
     { headers: { "Cache-Control": "no-store" } },
   );

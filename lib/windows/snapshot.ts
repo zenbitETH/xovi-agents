@@ -305,7 +305,67 @@ export { BOARD_SPECIES } from "./types";
  * which is the one number the embargo exists to keep. On offer or none says what
  * a person needs to choose a cell and nothing else.
  */
-export type BoardCell = { day: string; species: string; onOffer: boolean };
+/**
+ * A cell, and what an on offer one may carry beyond its state.
+ *
+ * **Never a count and never a sum.** The window files are public, so the
+ * difference between the rows in a file and a number served here is the withheld
+ * set by subtraction, which is the one thing the gate exists to keep. A range of
+ * durations is not that: it is two of the numbers already in the public file and
+ * says nothing about how many lie between them.
+ *
+ * The recording's facts are optional in both directions. A windows file with no
+ * meta sidecar serves a cell with no thumbnail and no length rather than a
+ * refusal, and a cell whose windows come from more than one recording serves the
+ * same way, because `videoId` and its two facts would then be true of part of the
+ * cell and asserted of all of it.
+ */
+export type BoardCell = {
+  day: string;
+  species: string;
+  onOffer: boolean;
+  videoId?: string;
+  thumbnail?: string;
+  recordingSeconds?: number;
+  windowSeconds?: { min: number; max: number };
+};
+
+/**
+ * The cell as the wire carries it, built key by key.
+ *
+ * It lives here rather than in the route because a route module may export only
+ * its handlers, and a mapping nothing can call is a mapping no check can drive.
+ * Spreading the cell instead of naming its fields is the mutation this exists to
+ * catch: it would publish whatever a later field happens to be called, and the
+ * one field that must never reach this wire is a count.
+ */
+export function servedCell(cell: BoardCell): BoardCell {
+  return {
+    day: cell.day,
+    species: cell.species,
+    onOffer: cell.onOffer,
+    ...(cell.videoId === undefined ? {} : { videoId: cell.videoId }),
+    ...(cell.thumbnail === undefined ? {} : { thumbnail: cell.thumbnail }),
+    ...(cell.recordingSeconds === undefined ? {} : { recordingSeconds: cell.recordingSeconds }),
+    ...(cell.windowSeconds === undefined ? {} : { windowSeconds: { min: cell.windowSeconds.min, max: cell.windowSeconds.max } }),
+  };
+}
+
+/**
+ * What one cell's own recording says, where there is exactly one.
+ *
+ * Exported so a check can drive the parts without a board around them.
+ */
+export function cellRecording(windows: BoardWindow[]): Pick<BoardCell, "videoId" | "thumbnail" | "recordingSeconds" | "windowSeconds"> {
+  if (windows.length === 0) return {};
+  const durations = windows.map(w => w.endTime - w.startTime);
+  const windowSeconds = { min: Math.min(...durations), max: Math.max(...durations) };
+  const videos = [...new Set(windows.map(w => w.videoId))];
+  if (videos.length !== 1) return { windowSeconds };
+  const meta = windows.find(w => w.meta !== undefined)?.meta;
+  if (meta === undefined) return { videoId: videos[0], windowSeconds };
+  return { videoId: videos[0], thumbnail: meta.thumbnail, recordingSeconds: meta.durationSeconds, windowSeconds };
+}
 
 /** The windows of one cell, before the gate. */
 export function cellOf(windows: BoardWindow[], day: string, species: string): BoardWindow[] {
@@ -346,7 +406,12 @@ export function boardFrom(windows: BoardWindow[], env?: EnvLike): { days: string
   const cells: BoardCell[] = [];
   for (const day of days) {
     for (const species of BOARD_SPECIES) {
-      cells.push({ day, species, onOffer: cellState(windows, day, species, env).kind === "offer" });
+      const state = cellState(windows, day, species, env);
+      const onOffer = state.kind === "offer";
+      // The recording's facts ride only on a cell that is on offer: a cell that is
+      // empty or unscreened has nothing to sell, and a thumbnail beside it would
+      // be an invitation to something the route will refuse.
+      cells.push({ day, species, onOffer, ...(onOffer ? cellRecording(state.windows) : {}) });
     }
   }
   return { days, cells };

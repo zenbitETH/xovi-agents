@@ -13,7 +13,7 @@ import { setCapForTest } from "../lib/human/cap";
 import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
 import { CREDENTIAL_REFUSED, NO_CREDENTIAL, ROLL_DWELL_MS, SCREENS, identityChips, lineFor, namePill, onboardingFrom, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
-import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
+import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellRecording, cellState, loadSnapshot, servedCell } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
 
 type Check = (ok: boolean, label: string) => void;
@@ -94,16 +94,89 @@ export async function boardChecks(check: Check) {
 
   const served = (await (await boardGET()).json()) as { days: string[]; cells: Record<string, unknown>[] };
   const keys = [...new Set(served.cells.flatMap(c => Object.keys(c)))].sort();
-  check(keys.join(",") === "day,onOffer,species", `271 · a cell carries three fields (${keys.join(",")})`);
   /*
-   * No count, and no field a count could be read out of.
+   * A CLOSED LIST OF FIELDS, AND NOT ONE OF THEM IS A COUNT.
    *
-   * The files are public in this repository, so a count served here is the
-   * embargo drop by subtraction: the rows in the file minus the rows offered is
-   * the number withheld, which is the one number the embargo exists to keep.
+   * This asserted three fields and no digit outside a date, which held while a
+   * cell was a word and a pill. A cell carries its recording's length and the
+   * range of its windows now, so the blunt rule is gone and the two properties
+   * underneath it are checked directly: nothing may be served that is not on the
+   * list, and nothing served may depend on how many windows a cell holds.
+   *
+   * The second is the one that matters. The window files are public, so a count
+   * served here is the embargo drop by subtraction: the rows in a file minus the
+   * rows offered is the number withheld, which is the one number the gate exists
+   * to keep. A range is two of the numbers already in that public file and says
+   * nothing about how many lie between them.
    */
+  const ALLOWED_CELL_KEYS = ["day", "onOffer", "recordingSeconds", "species", "thumbnail", "videoId", "windowSeconds"];
+  const stray = keys.filter(k => !ALLOWED_CELL_KEYS.includes(k));
+  check(stray.length === 0 && keys.includes("day") && keys.includes("species") && keys.includes("onOffer"),
+    `271 · a cell carries the three it must and nothing off the list (${stray.join(", ") || keys.join(",")})`);
   const body = JSON.stringify(served);
-  check(!/\d+/.test(body.replace(/2026-\d\d-\d\d/g, "")), "271a · and no number outside a date reaches the board");
+  check(!/count|total|withheld|dropped|offered/i.test(body), "271a · with no field named for a quantity of windows");
+  /*
+   * Driven rather than read: the same durations and the same recording, twice the
+   * windows. A cell's served facts must come back identical, which no count and
+   * no sum can do.
+   */
+  const one = window("vidA", "mexicanum", "2026-09-03T00:00:00Z", "w1");
+  const two = { ...window("vidA", "mexicanum", "2026-09-03T00:00:00Z", "w2"), startTime: one.startTime, endTime: one.endTime };
+  const three = { ...window("vidA", "mexicanum", "2026-09-03T00:00:00Z", "w3"), startTime: one.startTime, endTime: one.endTime };
+  const asTwo = cellRecording([{ ...one, day: "2026-09-03" }, { ...two, day: "2026-09-03" }] as never);
+  const asFour = cellRecording([one, two, three, { ...one, windowId: "w4" }].map(w => ({ ...w, day: "2026-09-03" })) as never);
+  check(JSON.stringify(asTwo) === JSON.stringify(asFour),
+    `271c · and a cell's facts do not move when the number of windows does (${JSON.stringify(asTwo)} against ${JSON.stringify(asFour)})`);
+  const wider = cellRecording([{ ...one, day: "2026-09-03" }, { ...two, endTime: two.endTime + 9, day: "2026-09-03" }] as never);
+  check(JSON.stringify(wider) !== JSON.stringify(asTwo), "271d · while a different duration does (negative control)");
+  /*
+   * THE WIRE'S OWN MAPPING, DRIVEN WITH MORE THAN IT MAY CARRY.
+   *
+   * Every guard above reads the cells this fixture happens to produce, so none of
+   * them could see the route publishing a field the fixture never has. Driven
+   * with a cell carrying a count, which is the field that must never cross.
+   */
+  const overfull = servedCell({ day: "2026-09-03", species: "mexicanum", onOffer: true, videoId: "vidA", offered: 7, station: "AM 1" } as never);
+  check(!("offered" in overfull) && !("station" in overfull),
+    `271e · the wire drops what is not on its list (${Object.keys(overfull).join(",")})`);
+  check("videoId" in overfull && overfull.day === "2026-09-03", "271f · and keeps what is (negative control)");
+  /*
+   * A cell fed by two recordings claims neither, and a cell with nothing to sell
+   * carries no invitation. Neither case exists in the committed fixtures, so both
+   * are planted.
+   */
+  const split = cellRecording([
+    { ...window("vidA", "mexicanum", "2026-09-03T00:00:00Z", "s1"), day: "2026-09-03" },
+    { ...window("vidB", "mexicanum", "2026-09-03T00:00:00Z", "s2"), day: "2026-09-03" },
+  ] as never);
+  check(split.videoId === undefined && split.thumbnail === undefined && split.recordingSeconds === undefined,
+    `271g · a cell drawing on two recordings names neither (${JSON.stringify(split)})`);
+  check(split.windowSeconds !== undefined, "271h · while the range, which is true of all of them, stays (negative control)");
+  const mixed = boardFrom([
+    { ...window("vidA", "mexicanum", "2026-09-03T00:00:00Z", "o1"), day: "2026-09-03", meta: { durationSeconds: 99, thumbnail: "https://i.ytimg.com/vi/vidA/mqdefault.jpg" } },
+  ] as never);
+  const offered = mixed.cells.filter(c => c.onOffer);
+  const idle = mixed.cells.filter(c => !c.onOffer);
+  check(offered.length > 0 && offered.every(c => c.recordingSeconds === 99), "271i · an on offer cell carries its recording");
+  check(idle.length > 0 && idle.every(c => c.recordingSeconds === undefined && c.thumbnail === undefined && c.videoId === undefined),
+    `271j · and a cell with nothing to sell carries no thumbnail and no length (${idle.length} such cells)`);
+  /*
+   * The cell that separates the two, and without it 271j proves nothing.
+   *
+   * Every cell that is not on offer in the fixture above is EMPTY, so deriving the
+   * facts from the raw file rather than from what the gate leaves changes nothing
+   * and 271j stays green through a mutation it exists to catch. An UNSCREENED cell
+   * has windows and is still not on offer, which is the only shape where the two
+   * readings differ.
+   */
+  const unscreenedBoard = boardFrom(
+    [{ ...window("vidA", "mexicanum", "2026-09-03T00:00:00Z", "u1"), day: "2026-09-03", meta: { durationSeconds: 99, thumbnail: "https://i.ytimg.com/vi/vidA/mqdefault.jpg" } }] as never,
+    { EMBARGOED_ALIASES: "Alfa" },
+  );
+  const held = unscreenedBoard.cells.filter(c => c.day === "2026-09-03" && c.species === "mexicanum");
+  check(held.length === 1 && held[0].onOffer === false, `271k · a cell the gate holds back is not on offer (${JSON.stringify(held[0])})`);
+  check(held[0].videoId === undefined && held[0].thumbnail === undefined && held[0].recordingSeconds === undefined && held[0].windowSeconds === undefined,
+    "271l · and carries none of its recording, though the file behind it has one");
   check(!/station|alias|AM 1|AD\b/.test(body), "271b · nor any station or alias");
 
   /*
