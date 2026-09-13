@@ -12,7 +12,7 @@ import { setRegistryForTest } from "../lib/human/registry";
 import { setCapForTest } from "../lib/human/cap";
 import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
-import { CREDENTIAL_REFUSED, NO_CREDENTIAL, ROLL_DWELL_MS, SCREENS, identityChips, lineFor, namePill, onboardingFrom, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
+import { CREDENTIAL_REFUSED, NO_CREDENTIAL, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, onboardingFrom, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellRecording, cellState, loadSnapshot, servedCell } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
 
@@ -268,7 +268,7 @@ export async function boardChecks(check: Check) {
   check(noPayer.status === 400, `278 · the registration read names a payer or refuses (${noPayer.status})`);
   const unread = await registrationGET(new Request("http://127.0.0.1/api/agent/registration?payer=0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe"));
   const unreadBody = (await unread.json()) as Record<string, unknown>;
-  check(Object.keys(unreadBody).sort().join(",") === "credential,source,state", `278a · and answers with the state, the source and the credential (${Object.keys(unreadBody).sort().join(",")})`);
+  check(Object.keys(unreadBody).sort().join(",") === "agentCredential,credential,source,state", `278a · and answers with the state, the source, the credential and whether the agent's own is issued (${Object.keys(unreadBody).sort().join(",")})`);
   check(["registered", "not-registered", "unread"].includes(String(unreadBody.state)), `278b · which is one of the three states (${unreadBody.state})`);
   check([null, "agentbook", "worldid"].includes(unreadBody.source as never), `278g · and a source that is one of two words or none (${unreadBody.source})`);
   /*
@@ -554,6 +554,39 @@ export async function boardChecks(check: Check) {
   check(/const runInProgress = phase === "signing" \|\| phase === "running";/.test(page),
     "314b · with a run lasting from the signature to its last step");
   check(!/screensFor\(chosen !== null\)/.test(page), "314c · and no longer standing on whether a cell was chosen");
+  /*
+   * And never from the dialog being open, which under the suite is never true, so
+   * a strip reading the dialog's state would have stayed green forever.
+   */
+  // The declaration is not a call site: it matched the same pattern and made four.
+  const callsites = [...page.matchAll(/(?<!function )screensFor\(([^)]*)\)/g)].map(m => m[1]).filter(a => !a.includes(":"));
+  check(callsites.length === 3 && callsites.every(a => a === "runInProgress"),
+    `314d · the three call sites pass the run and nothing else (${callsites.join(" | ") || "none found"})`);
+  const stripRegion = page.slice(page.indexOf('<nav className="ag-rail"'), page.indexOf("</nav>", page.indexOf('<nav className="ag-rail"')));
+  check(stripRegion.length > 0 && !/\.open\b/.test(stripRegion) && !/runDialog\.current/.test(stripRegion),
+    "314e · and no read of the dialog's own state feeds it");
+
+  /*
+   * The credential is a third fact and not a restatement of the second: a person
+   * stands behind the wallet, and Xovi holds a credential for it, are read from
+   * two places and either can be true without the other.
+   */
+  check(credentialPill("issued") === "credential issued by Xovi", "316 · the credential pill says what Xovi holds");
+  check(credentialPill("none") === "no credential issued", "316a · and says so plainly when it holds none");
+  check(!/\byet\b/.test(credentialPill("none")) && !/\byet\b/.test(NO_CREDENTIAL),
+    `316b · with no promise about when in either sentence (${credentialPill("none")})`);
+  check(/credentialPill\(agentCredential\)/.test(page) && /of\("person"\) === "done" &&/.test(page),
+    "316c · drawn on the card beside the registration, once there is one");
+
+  /*
+   * A run that stops before proposing says why, in the run's own sentence.
+   */
+  const unconfigured = lineFor({ step: "not-submitted", detail: "no ingest route is configured on this deployment", reason: "unconfigured" });
+  const noCredential = lineFor({ step: "not-submitted", detail: "this wallet holds no credential, so nothing is proposed", reason: "no-credential" });
+  check(unconfigured.text === "no ingest route is configured on this deployment" && noCredential.text === "this wallet holds no credential, so nothing is proposed",
+    `317 · the stop card carries the reason's own sentence (${noCredential.text})`);
+  check(unconfigured.text !== noCredential.text, "317a · and the two reasons are not one sentence (negative control)");
+  check(noCredential.detail === "no-credential" && noCredential.tone === "stopped", "317b · with the machine's word for it in the detail lane");
 
   /*
    * The one refusal a person can do nothing about, said in words rather than as a
