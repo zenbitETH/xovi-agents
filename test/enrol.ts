@@ -249,8 +249,8 @@ export async function enrolChecks(check: Check) {
   check(row?.nullifierDigest === deriveIdentifier(BigInt(NULLIFIER), ENV), "336g · holding the keyed digest of the nullifier, the derivation the cap already uses");
   check(row?.expiresAt.getTime() === T0.getTime() + 30 * 86_400_000, "336h · and lapsing thirty days after it was made, the period the notice declares");
   check(accepted.headers.get("cache-control") === "private, no-store", "336i · not cacheable");
-  check(Object.keys(acceptedBody).sort().join(",") === "credential,expiresAt,source,state",
-    `351 · the answer carries four named fields and nothing the verifier said (${Object.keys(acceptedBody).sort().join(",")})`);
+  check(Object.keys(acceptedBody).sort().join(",") === "agentCredential,credential,expiresAt,source,state",
+    `351 · the answer carries five named fields and nothing the verifier said (${Object.keys(acceptedBody).sort().join(",")})`);
   const acceptedText = (await accepted.clone().text()) + [...accepted.headers.entries()].map(([k, v]) => `${k}: ${v}`).join("\n");
   check(!acceptedText.includes(NULLIFIER) && !acceptedText.includes(NULLIFIER.slice(2)) && !acceptedText.includes(BigInt(NULLIFIER).toString()),
     "351a · and the nullifier the verifier answered with is in no part of it");
