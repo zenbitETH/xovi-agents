@@ -2,16 +2,20 @@
 
 import { useCallback, useState } from "react";
 import { IDKitRequestWidget, proofOfHuman, type IDKitResult, type RpContext } from "@worldcoin/idkit";
+import { signEnrolment } from "~~/lib/agent/browser";
 
 /**
  * Enrol with World ID, from the page.
  *
- * The person's wallet is the signal. The widget asks World ID for a result bound
- * to the lowercased address, `handleVerify` posts it to this deployment, and the
- * server forwards it to World's verifier, checks the binding and records a keyed
- * digest of the identifier the verifier answers with. This component decides only
- * what to say at each step; nothing here verifies anything and nothing here sees
- * the identifier.
+ * The person's wallet is the signal, and the wallet signs for itself first. The
+ * request route answers a sentence built from the request's nonce; the wallet
+ * signs it, which is what shows the person posting holds the address and not
+ * only names it. The widget then asks World ID for a result bound to the
+ * lowercased address, `handleVerify` posts the result and the signature to this
+ * deployment, and the server recovers the signer, forwards the result to World's
+ * verifier, checks the binding and records a keyed digest of the identifier the
+ * verifier answers with. This component decides only what to say at each step;
+ * nothing here verifies anything and nothing here sees the identifier.
  *
  * FIVE STATES, IN WORDS RATHER THAN A SPINNER: idle, opening, verifying,
  * registered, refused. Refused carries the server's own sentence, since the
@@ -52,6 +56,7 @@ export function WorldIdCard({ payer, onRegistered }: { payer: `0x${string}` | nu
   const [state, setState] = useState<WorldIdState>("idle");
   const [why, setWhy] = useState<string | null>(null);
   const [context, setContext] = useState<RpContext | null>(null);
+  const [signature, setSignature] = useState<`0x${string}` | null>(null);
   const [open, setOpen] = useState(false);
   const config = configured();
 
@@ -61,7 +66,8 @@ export function WorldIdCard({ payer, onRegistered }: { payer: `0x${string}` | nu
     setOpen(false);
   }, []);
 
-  /** Ask this deployment for the signed context, then open the widget with it. */
+  /** Ask this deployment for the signed context, have the wallet sign the
+   *  sentence that came with it, then open the widget with the rest. */
   const begin = useCallback(async () => {
     if (payer === null || !config) return;
     setState("opening");
@@ -85,8 +91,16 @@ export function WorldIdCard({ payer, onRegistered }: { payer: `0x${string}` | nu
       refuse("This deployment refused to open a request.");
       return;
     }
-    const body = (await answer.json()) as RpContext;
-    setContext(body);
+    const { message, ...rpContext } = (await answer.json()) as RpContext & { message: string };
+    let signed: `0x${string}`;
+    try {
+      signed = await signEnrolment(payer, message);
+    } catch {
+      refuse("The wallet did not sign. Nothing was sent.");
+      return;
+    }
+    setSignature(signed);
+    setContext(rpContext);
     setOpen(true);
   }, [payer, config, refuse]);
 
@@ -98,7 +112,7 @@ export function WorldIdCard({ payer, onRegistered }: { payer: `0x${string}` | nu
       const answer = await fetch("/api/agent/registration", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ payer, result }),
+        body: JSON.stringify({ payer, result, signature }),
       });
       if (!answer.ok) {
         const sentence = ((await answer.json().catch(() => ({}))) as { error?: string }).error ?? "This deployment refused the result.";
@@ -106,7 +120,7 @@ export function WorldIdCard({ payer, onRegistered }: { payer: `0x${string}` | nu
         throw new Error(sentence);
       }
     },
-    [payer, refuse],
+    [payer, signature, refuse],
   );
 
   const sentence =
@@ -117,7 +131,7 @@ export function WorldIdCard({ payer, onRegistered }: { payer: `0x${string}` | nu
         : state === "idle"
           ? `Verify with World ID from this page. ${KEEPS_SENTENCE}`
           : state === "opening"
-            ? "Opening World ID."
+            ? "Sign with the wallet, then World ID opens."
             : state === "verifying"
               ? "Checking the result with World's verifier."
               : state === "registered"

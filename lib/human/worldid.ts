@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { hashSignal } from "@worldcoin/idkit/hashing";
 import { signRequest } from "@worldcoin/idkit/signing";
+import { recoverMessageAddress } from "viem";
 import type { EnvLike } from "../agent/pay";
 import { NoDerivationKey, derivationKeyPresent, deriveIdentifier } from "./derive";
 import { type VerificationStore, expiryFrom } from "./verifications";
@@ -55,15 +56,43 @@ export function worldConfigFrom(env: EnvLike = process.env): WorldConfig {
   return { rpId, action, environment };
 }
 
-/** What the widget opens with. Five keys, the widget's names. */
-export type RequestContext = { rp_id: string; nonce: string; created_at: number; expires_at: number; signature: string };
+/**
+ * The sentence the wallet signs, built from the request's nonce.
+ *
+ * A World ID result binds a wallet as its signal, and nothing in that proves the
+ * person posting it holds the wallet: anyone can name any address as the signal
+ * of their own result and enrol somebody else's wallet behind themselves, after
+ * which the owner is refused as another person for thirty days. So the request
+ * carries a signature from the wallet over this sentence, made with the wallet's
+ * ordinary message signing, and the server recovers the signer before anything
+ * is forwarded. The nonce is in the sentence so the signature is good for this
+ * one request: the result's nonce is claimed once, and a signature over it is
+ * spent with it.
+ */
+export const ENROLMENT_MESSAGE_PREFIX = "Xovi Agents enrolment ";
+
+export function enrolmentMessage(nonce: string): string {
+  return `${ENROLMENT_MESSAGE_PREFIX}${nonce}`;
+}
+
+/** What the widget opens with, the widget's five names, and the sentence the
+ *  wallet signs beside them. The card strips `message` before handing the rest
+ *  to the widget. */
+export type RequestContext = { rp_id: string; nonce: string; created_at: number; expires_at: number; signature: string; message: string };
 
 export function requestContext(env: EnvLike = process.env): RequestContext {
   const { rpId, action } = worldConfigFrom(env);
   const key = (env.WORLD_SIGNING_KEY ?? "").trim();
   if (!/^(0x)?[0-9a-fA-F]{64}$/.test(key)) throw new WorldUnconfigured("WORLD_SIGNING_KEY is not a 32 byte hex key");
   const signed = signRequest({ signingKeyHex: key, action, ttl: SIGNATURE_TTL_SECONDS });
-  return { rp_id: rpId, nonce: signed.nonce, created_at: signed.createdAt, expires_at: signed.expiresAt, signature: signed.sig };
+  return {
+    rp_id: rpId,
+    nonce: signed.nonce,
+    created_at: signed.createdAt,
+    expires_at: signed.expiresAt,
+    signature: signed.sig,
+    message: enrolmentMessage(signed.nonce),
+  };
 }
 
 /** The two hashes a result bound to this wallet may carry, both lowercase. */
@@ -137,6 +166,25 @@ export const ANOTHER_WALLET = "This person already stands behind another wallet.
 export const ANOTHER_PERSON = "This wallet is enrolled behind another person until that enrollment lapses.";
 export const ALREADY_USED = "This result was already used. Verify again for a fresh one.";
 export const OTHER_WALLET = "This result is bound to another wallet.";
+export const NOT_SIGNED = "This wallet did not sign this request.";
+
+/**
+ * The verifier's refusal codes this passes through, and no other.
+ *
+ * Two were measured against the staging relying party, `all_verifications_failed`
+ * for a result it could not verify and `app_not_migrated` for a relying party it
+ * does not know; the rest are the ones its documentation names. A code outside
+ * the list is answered with a fixed sentence, so the answer never carries a
+ * string somebody else wrote.
+ */
+export const VERIFIER_CODES = [
+  "all_verifications_failed",
+  "app_not_migrated",
+  "invalid_proof",
+  "verification_failed",
+  "verification_error",
+  "not_registered",
+] as const;
 
 export type Refusal = { ok: false; status: number; error: string };
 export type Enrolled = { ok: true; credential: string; expiresAt: Date };
@@ -156,6 +204,8 @@ export type Enrolled = { ok: true; credential: string; expiresAt: Date };
 export async function verifyEnrollment(input: {
   payer: string;
   result: unknown;
+  /** The wallet's signature over `enrolmentMessage(result.nonce)`. */
+  signature: string;
   store: VerificationStore | null;
   at: Date;
   env?: EnvLike;
@@ -180,6 +230,18 @@ export async function verifyEnrollment(input: {
   if (!shape) return { ok: false, status: 400, error: "that is not a World ID result" };
   if (shape.action !== config.action) return { ok: false, status: 400, error: "the result is for another action" };
   if (shape.environment !== config.environment) return { ok: false, status: 400, error: "the result is from the other environment" };
+
+  // Control of the wallet, before the binding and before any call: the signer of
+  // the sentence built from this result's nonce must be the wallet named. A
+  // signature by any other key, over any other nonce, or not a signature at all,
+  // is the same refusal.
+  let signer: string | null;
+  try {
+    signer = await recoverMessageAddress({ message: enrolmentMessage(shape.nonce), signature: input.signature as `0x${string}` });
+  } catch {
+    signer = null;
+  }
+  if (signer === null || signer.toLowerCase() !== payer) return { ok: false, status: 403, error: NOT_SIGNED };
 
   // The binding. Derived from the address the server holds, never read from the
   // body: a `signal` field in the body, were there one, would not be consulted.
@@ -219,10 +281,11 @@ export async function verifyEnrollment(input: {
     return { ok: false, status: 503, error: "the verifier did not answer" };
   }
   if (!answer.ok || body.success !== true) {
-    // The code word and nothing else. `detail` is the verifier's prose and is
-    // not read, so nothing it might carry can reach a body or a log.
-    const code = typeof body.code === "string" && /^[a-z_]+$/.test(body.code) ? body.code : "refused";
-    return { ok: false, status: 400, error: `the verifier refused: ${code}` };
+    // A known code word and nothing else. `detail` is the verifier's prose and is
+    // not read, and a code outside the list is not repeated, so nothing the
+    // verifier wrote reaches a body or a log.
+    const known = (VERIFIER_CODES as readonly string[]).includes(String(body.code));
+    return { ok: false, status: 400, error: known ? `the verifier refused: ${String(body.code)}` : "the verifier refused" };
   }
 
   const results = Array.isArray(body.results) ? (body.results as Record<string, unknown>[]) : [];
