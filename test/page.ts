@@ -323,7 +323,26 @@ export async function pageChecks(check: Check) {
    * asserted from a file's silence is not an absence measured.
    */
   check(/anchored on Ethereum Sepolia/.test(flatRecord), "238 · the page states that this confirmation is anchored");
-  check(!/not anchored/i.test(ui), "238a · and never the opposite, which is the copy this replaced");
+  /*
+   * Over the copy, not over the prose about the copy.
+   *
+   * This read the whole file, so a comment explaining that the lifecycle's third
+   * stage still reads the public list for a confirmed clip that is not anchored
+   * took it red. A sentence in a comment is not a claim the page makes, and a
+   * check that cannot tell the two apart forbids writing down why the code is
+   * shaped as it is. Comments stripped, and the control below proves the read
+   * still sees the sentence it was written for.
+   */
+  const spoken = (block: string) =>
+    block
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, " ")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/^\s*\/\/.*$/gm, " ");
+  check(!/not anchored/i.test(spoken(ui)), "238a · and never the opposite, which is the copy this replaced");
+  check(/not anchored/i.test(spoken('<p>This confirmation is not anchored.</p>')),
+    "238a2 · while the check still reads a sentence the page says (negative control)");
+  check(!/not anchored/i.test(spoken('{/* a confirmed clip that is not anchored */}')),
+    "238a3 · and a comment saying it is not the page saying it");
   check(/"onchain identifier": ANCHOR_259\.onchainUid/.test(ui), "238b · rendering the onchain identifier from the constant");
   /*
    * Pinned literally, all of them. A check that pins the time alone lets an

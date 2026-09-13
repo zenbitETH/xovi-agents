@@ -1173,8 +1173,39 @@ export async function boardChecks(check: Check) {
   check(confirmedOnly.join(",") === "done,done,done,not seen", `323b · a clip the list carries is confirmed and not yet attested (${confirmedOnly.join(", ")})`);
   const anchoredToo = lifecycleOf({ ...proposedRead, attested: true }, new Set([261]));
   check(anchoredToo.join(",") === "done,done,done,done", `323b2 · and the anchor's own answer is what fills the fourth (${anchoredToo.join(", ")})`);
+  /*
+   * AND THE ANCHOR ANSWERS FOR BOTH OF THE LAST TWO.
+   *
+   * An attestation is of a confirmation: Zenbit anchors the reviewer's own signed
+   * decision, so a clip this deployment has anchored was confirmed by a person
+   * whatever the public list carries. This check said the opposite, and the state
+   * it got wrong is real: the list returns the fifty most recent, so a clip that
+   * falls out of the fifty was drawn as not seen for both stages while Zenbit held
+   * its own record of the confirmation.
+   */
   const attestedAlone = lifecycleOf({ ...proposedRead, attested: true }, new Set<number>());
-  check(attestedAlone[3] === "not seen", `323b3 · which no unconfirmed clip reaches, whatever the anchor says (${attestedAlone.join(", ")})`);
+  check(attestedAlone.join(",") === "done,done,done,done",
+    `323b3 · a clip the chain carries is confirmed and attested however old it is, since the list keeps only fifty (${attestedAlone.join(", ")})`);
+  const attestedUnread = lifecycleOf({ ...proposedRead, attested: true }, null);
+  check(attestedUnread.join(",") === "done,done,done,done",
+    `323b3b · and a list nobody could read takes nothing away from what the chain says (${attestedUnread.join(", ")})`);
+  check(confirmedOnly.join(",") === "done,done,done,not seen",
+    `323b3c · while the list is still the source for a confirmed clip that is not anchored (negative control, ${confirmedOnly.join(", ")})`);
+  /*
+   * And nothing reaches past a stop, whatever the two later sources say.
+   *
+   * The wire cannot produce this today: a mark carries an anchor answer only where
+   * it carries a clip id, and a clip id only where the run proposed. It is held
+   * anyway, because the guard is one line and removing it changed no check: a bar
+   * drawing confirmed and attested under a run that stopped is exactly the chain
+   * that has not happened.
+   */
+  const stoppedYetAnchored = lifecycleOf({ outcome: "declined:duplicate", clipId: null, attested: true }, new Set([261]));
+  check(stoppedYetAnchored.join(",") === "done,stopped,not seen,not seen",
+    `323b3d · a run that stopped reaches nothing past the stop, whatever the chain and the list carry (${stoppedYetAnchored.join(", ")})`);
+  const readYetAnchored = lifecycleOf({ outcome: "read", clipId: null, attested: true }, new Set([261]));
+  check(readYetAnchored.join(",") === "done,not seen,not seen,not seen",
+    `323b3e · and nor does one that only read (negative control, ${readYetAnchored.join(", ")})`);
   const otherClip = lifecycleOf(proposedRead, new Set([260]));
   check(otherClip[2] === "not seen", `323b4 · and the list is matched on this clip rather than on carrying any (${otherClip.join(", ")})`);
 

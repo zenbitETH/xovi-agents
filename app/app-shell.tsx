@@ -484,13 +484,26 @@ export function lifecycleOf(
     "not seen",
   ];
   if (!proposed) return stages;
+  /*
+   * THE ANCHOR STORE IS A SOURCE FOR BOTH OF THE LAST TWO.
+   *
+   * An attestation is of a confirmation: Zenbit anchors the reviewer's own signed
+   * decision, so a clip this deployment has anchored was confirmed by a person
+   * whatever the public list carries. That matters because the list returns the
+   * fifty most recent, and a clip that falls out of the fifty was drawn as not
+   * seen for both stages while Zenbit held its own record of the confirmation.
+   *
+   * The list is still the source for a confirmed clip that is not anchored, which
+   * is every clip between a person deciding and the anchoring run reaching it.
+   */
+  if (read.attested === true) {
+    stages[2] = "done";
+    stages[3] = "done";
+    return stages;
+  }
   // A list nobody could read says nothing, which is not a proposal nobody
   // confirmed, so an unread list leaves the stage where an absent row leaves it.
-  if (confirmed === null || !confirmed.has(read.clipId as number)) return stages;
-  stages[2] = "done";
-  // And the anchor is asked separately. Absent is not false: a store that could
-  // not answer leaves the key off the mark entirely.
-  stages[3] = read.attested === true ? "done" : "not seen";
+  if (confirmed !== null && confirmed.has(read.clipId as number)) stages[2] = "done";
   return stages;
 }
 
