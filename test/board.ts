@@ -6,7 +6,7 @@ import { GET as windowsGET } from "../app/api/agent/windows/route";
 import { GET as registrationGET } from "../app/api/agent/registration/route";
 import { readFileSync } from "node:fs";
 import { setRegistryForTest } from "../lib/human/registry";
-import { setupFrom } from "../app/app-shell";
+import { onboardingFrom } from "../app/app-shell";
 import { BOARD_SPECIES, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
 
@@ -167,7 +167,7 @@ export async function boardChecks(check: Check) {
   check(noPayer.status === 400, `278 · the registration read names a payer or refuses (${noPayer.status})`);
   const unread = await registrationGET(new Request("http://127.0.0.1/api/agent/registration?payer=0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe"));
   const unreadBody = (await unread.json()) as Record<string, unknown>;
-  check(Object.keys(unreadBody).join(",") === "state", `278a · and answers with one field (${Object.keys(unreadBody).join(",")})`);
+  check(Object.keys(unreadBody).sort().join(",") === "allowUnregistered,state", `278a · and answers with the state and the flag (${Object.keys(unreadBody).sort().join(",")})`);
   check(["registered", "not-registered", "unread"].includes(String(unreadBody.state)), `278b · which is one of the three states (${unreadBody.state})`);
   /*
    * The branch that actually holds a nullifier.
@@ -197,10 +197,10 @@ export async function boardChecks(check: Check) {
     "279a · with unread saying nothing about the agent");
   check(!/identifies nobody|verified person|World App/.test(page),
     "279d · and the gate carries no sentence that is the legal lead's or names a third party's product");
-  check(/No path issues one from this page/.test(page), "279b · and the issue action written as a negative rather than drawn as a control");
+  check(/No path\s+issues one from this page/.test(page.replace(/\s+/g, " ")), "279b · and the issue action written as a negative rather than drawn as a control");
   // A rung and not a button: the settings screen has the connect and the board
   // actions and no third that would do nothing.
-  const settingsBlock = page.slice(page.indexOf("function Settings("), page.indexOf("function Board("));
+  const settingsBlock = page.slice(page.indexOf("function Onboarding("), page.indexOf("function Board("));
   /*
    * Settings is a checklist now, so it carries the way to meet each condition.
    * The invariant is not how many, it is that each one acts and that none of them
@@ -259,34 +259,54 @@ export async function boardChecks(check: Check) {
   check(/screen === "run" \? \(/.test(page), "285a · and the run's title block belongs to the run");
 
   /*
-   * The way to the board is closed until the required conditions are met.
+   * The onboarding, and the strip that does not exist until it is done.
    *
-   * The flow ran straight for anyone already set up, and a new person could walk
-   * past all of it to a run that could not work. Driven on the rule itself, which
-   * is pure, so every combination is reachable without a browser.
+   * A new person could walk past every condition to a run that could not work.
+   * Driven on the rule, which is pure, so every combination is reachable without
+   * a browser and the preset case is one of them.
    */
   const ADDR = "0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe";
-  const setup = (over: Partial<Parameters<typeof setupFrom>[0]>) =>
-    setupFrom({ address: ADDR, chain: "0x14a34", registration: "registered", acknowledged: false, name: null, ...over });
+  const flow = (over: Partial<Parameters<typeof onboardingFrom>[0]>) =>
+    onboardingFrom({
+      address: ADDR,
+      chain: "0x14a34",
+      registration: "registered",
+      name: "agent1.xovi.eth",
+      acks: { person: false, name: false },
+      allowUnregistered: false,
+      ...over,
+    });
 
-  check(!setup({ address: null }).canProceed, "286 · no wallet closes the way to the board");
-  check(!setup({ chain: "0x1" }).canProceed, "286a · and so does a wallet on another chain");
-  check(!setup({ chain: null }).canProceed, "286b · and one whose chain did not answer");
-  check(setup({}).canProceed, "286c · while a registered wallet on Base Sepolia goes straight through (negative control)");
+  // The founder's preset wallet: registered and named, all three met on load.
+  check(flow({}).done, "286 · a registered and named wallet passes all three on load");
+  check(!flow({ address: null }).done, "286a · no wallet does not");
+  check(!flow({ chain: "0x1" }).done, "286b · nor a wallet on another chain");
+  check(flow({ chain: "0x1" }).at === "wallet", "286c · which is the step it stops on");
 
-  // Paying without a registration is allowed and is not a blocker; it costs the
-  // allowance, so it is acknowledged once rather than refused.
-  check(!setup({ registration: "not-registered" }).canProceed, "287 · an unregistered wallet is stopped until it acknowledges what that costs");
-  check(setup({ registration: "not-registered", acknowledged: true }).canProceed, "287a · and goes on once it has");
-  check(setup({ registration: "registered", acknowledged: false }).canProceed, "287b · while a registered wallet is never asked (negative control)");
-  // Unread neither meets nor fails: blocking on a chain that did not answer would
-  // strand somebody for an outage.
-  check(setup({ registration: "unread" }).canProceed, "287c · an unread registry does not block");
-  // The name never blocks, because no path issues one from this page.
-  check(setup({ name: null }).canProceed, "288 · no name never blocks");
-  check(setup({ name: "agent1.xovi.eth" }).canProceed, "288a · and having one changes nothing about the way through");
-  const nameCondition = setup({ name: null }).conditions.find(c => c.id === "name");
-  check(nameCondition?.blocks === false, "288b · the name condition is drawn and blocks nothing");
+  /*
+   * The registration step is hard by default, and the softer path is a flag.
+   */
+  check(!flow({ registration: "not-registered" }).done, "287 · an unregistered wallet never reaches the board");
+  check(flow({ registration: "not-registered" }).steps[1].mark === "blocked", "287a · and its step says so rather than offering a way past");
+  check(!flow({ registration: "not-registered", allowUnregistered: true }).done, "287b · with the flag set it is still not done unacknowledged");
+  check(flow({ registration: "not-registered", allowUnregistered: true, acks: { person: true, name: false } }).done,
+    "287c · and done once acknowledged (negative control for the flag)");
+  check(!flow({ registration: "unread" }).done, "287d · an unread registry does not complete the step either");
+
+  /*
+   * The name completes two ways and neither of them records anything.
+   */
+  check(flow({ name: "agent1.xovi.eth" }).done, "288 · a name that resolves to the payer completes the step as issued");
+  check(!flow({ name: null }).done, "288a · and no name does not complete it on its own");
+  check(flow({ name: null, acks: { person: false, name: true } }).done, "288b · but an acknowledgement does");
+  const nameCard = page.slice(page.indexOf('<h3 className="ag-panel-title">A name</h3>'), page.indexOf("function Board("));
+  check(/acknowledged, no name issued/.test(nameCard) && !/requested/.test(nameCard),
+    "288c · and the card says acknowledged and no name issued, never requested");
+
+  // The strip does not exist until the third step is done.
+  check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
+  check(/const onboarded = onboardingFrom\(/.test(page), "289a · and is derived from the reads rather than from a remembered yes");
+  check(!/\{ id: "settings"/.test(page), "289b · settings is no longer a destination, since it is the way in");
 
   if (before === undefined) delete process.env.WINDOWS_SNAPSHOT;
   else process.env.WINDOWS_SNAPSHOT = before;

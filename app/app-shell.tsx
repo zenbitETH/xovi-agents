@@ -21,6 +21,9 @@ import { CONFIRMATION_259 } from "~~/lib/anchor/confirmation-259";
 
 const REPO = "https://github.com/zenbitETH/xovi-agents";
 
+/** The channel the windows are cut from, which the fixtures already name. */
+const CHANNEL = "UCAwjFyErB8f18Ufwj_TUJfA";
+
 /**
  * A head line per screen, the mockup's `shead`: one title and one sub.
  *
@@ -387,7 +390,6 @@ type Screen = "settings" | "board" | "run" | "account" | "record" | "notyet";
  * which is the same rule that keeps a drawn but unbuilt action off this page.
  */
 export const SCREENS: { id: Screen; label: string }[] = [
-  { id: "settings", label: "Settings" },
   { id: "board", label: "Board" },
   { id: "run", label: "Run" },
   { id: "account", label: "Account" },
@@ -831,78 +833,85 @@ function NotYet() {
 }
 
 /**
- * What has to be true before a run, in order.
+ * The three steps a person completes before the page opens.
  *
- * The flow ran straight for anyone whose environment was already set up, and a
- * new person could walk past every one of these to a run that could not work.
- * They are conditions now, and the way to the board is closed until the required
- * ones are met.
+ * In order, one lit at a time, and the strip does not exist until the third is
+ * done. The flow ran straight for anyone already set up and a new person could
+ * walk past all of it to a run that could not work.
  *
- * **Paying without a registration behind the agent is allowed and is not a
- * blocker.** It costs
- * the free allowance and nothing else, so the unregistered state asks for an
- * acknowledgement rather than refusing; the acknowledgement is remembered so it
- * is asked once. Unread neither meets nor fails, because a chain that did not
- * answer is not a fact about the agent and blocking on it would strand somebody
- * for an outage.
+ * **The registration step is hard by default.** A person the registry does not
+ * know sees the onboarding and never the board, which is the founder's call and
+ * is a real cost: it is also what a judge without a registration would meet. The
+ * softer path exists in the code behind `ONBOARDING_ALLOW_UNREGISTERED`, off
+ * unless set, so changing it is a variable and a redeploy rather than a build.
  *
- * **The name never blocks.** No path issues one from this page, so a person who
- * needed it would be stopped for good.
+ * **The name step completes without an issuing path and without lying about it.**
+ * Issued where a name resolves to the payer; otherwise acknowledged, and the card
+ * says acknowledged and no name issued rather than requested, because nothing was
+ * recorded anywhere Zenbit reads. A recorded request is a table and a route and
+ * comes later.
  */
-export type ConditionId = "wallet" | "chain" | "person" | "name";
-export type ConditionMark = "met" | "unmet" | "waiting" | "aside";
-export type Condition = { id: ConditionId; mark: ConditionMark; blocks: boolean };
+export type StepId = "wallet" | "person" | "name";
+export type StepMark = "done" | "todo" | "waiting" | "blocked";
+export type Step = { id: StepId; mark: StepMark };
 
-export function setupFrom(input: {
+export type Acks = { person: boolean; name: boolean };
+
+export function onboardingFrom(input: {
   address: string | null;
   chain: string | null;
   registration: Registration;
-  acknowledged: boolean;
   name: string | null;
-}): { conditions: Condition[]; canProceed: boolean } {
-  const wallet: Condition = { id: "wallet", mark: input.address === null ? "unmet" : "met", blocks: input.address === null };
-  const onChain = input.chain === BASE_SEPOLIA_HEX;
-  const chain: Condition = {
-    id: "chain",
-    mark: input.address === null ? "waiting" : onChain ? "met" : "unmet",
-    blocks: input.address !== null && !onChain,
-  };
-  const person: Condition = {
-    id: "person",
-    mark:
-      input.registration === "registered"
-        ? "met"
-        : input.registration === "not-registered"
-          ? input.acknowledged
-            ? "aside"
-            : "unmet"
-          : "waiting",
-    // Only the unacknowledged unregistered case stops anybody, and it stops them
-    // until they say they understand what it costs, not for good.
-    blocks: input.registration === "not-registered" && !input.acknowledged,
-  };
-  const name: Condition = { id: "name", mark: input.name === null ? "aside" : "met", blocks: false };
-  const conditions = [wallet, chain, person, name];
-  return { conditions, canProceed: !conditions.some(c => c.blocks) };
+  acks: Acks;
+  allowUnregistered: boolean;
+}): { steps: Step[]; done: boolean; at: StepId } {
+  const walletDone = input.address !== null && input.chain === BASE_SEPOLIA_HEX;
+  const wallet: Step = { id: "wallet", mark: walletDone ? "done" : "todo" };
+
+  let person: Step;
+  if (!walletDone) person = { id: "person", mark: "waiting" };
+  else if (input.registration === "registered") person = { id: "person", mark: "done" };
+  else if (input.registration === "reading" || input.registration === "idle") person = { id: "person", mark: "waiting" };
+  else if (input.registration === "unread") person = { id: "person", mark: "todo" };
+  // Hard unless the flag is set. Blocked and todo are drawn differently: one has
+  // something a person can do and the other says why they cannot.
+  else person = { id: "person", mark: input.allowUnregistered ? (input.acks.person ? "done" : "todo") : "blocked" };
+
+  const name: Step =
+    person.mark !== "done"
+      ? { id: "name", mark: "waiting" }
+      : input.name !== null
+        ? { id: "name", mark: "done" }
+        : { id: "name", mark: input.acks.name ? "done" : "todo" };
+
+  const steps = [wallet, person, name];
+  const at = steps.find(step => step.mark !== "done")?.id ?? "name";
+  return { steps, done: steps.every(step => step.mark === "done"), at };
 }
 
-/** Remembered so it is asked once. Wrapped, because a private window and blocked
- *  site data both throw here and neither is a reason to fail. */
-// The key avoids the verb check 177 forbids anywhere in this file, which reads
-// it whole and does not care that a storage key is not copy.
-const ACK_KEY = "xovi-agents:paying-per-read-acknowledged";
+const ACK_PERSON = "xovi-agents:paying-per-read-acknowledged";
+const ACK_NAME = "xovi-agents:no-name-issued-acknowledged";
 
-export function readAck(): boolean {
+/** Remembered per wallet, and re-verified on load rather than trusted: a stored
+ *  yes is a person's answer, never a substitute for the read itself. */
+function ackKey(base: string, address: string | null): string {
+  return `${base}:${(address ?? "none").toLowerCase()}`;
+}
+
+export function readAcks(address: string | null): Acks {
   try {
-    return globalThis.localStorage?.getItem(ACK_KEY) === "yes";
+    return {
+      person: globalThis.localStorage?.getItem(ackKey(ACK_PERSON, address)) === "yes",
+      name: globalThis.localStorage?.getItem(ackKey(ACK_NAME, address)) === "yes",
+    };
   } catch {
-    return false;
+    return { person: false, name: false };
   }
 }
 
-export function writeAck(): void {
+export function writeAck(which: "person" | "name", address: string | null): void {
   try {
-    globalThis.localStorage?.setItem(ACK_KEY, "yes");
+    globalThis.localStorage?.setItem(ackKey(which === "person" ? ACK_PERSON : ACK_NAME, address), "yes");
   } catch {
     // A person who cannot store it is asked again, which is the safe direction.
   }
@@ -975,42 +984,61 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
  * sentences with the negative say the same thing truthfully and go on the sweep
  * with everything else.
  */
-function Settings({
+function Onboarding({
   address,
   chain,
   registration,
   name,
-  acknowledged,
-  onAcknowledge,
+  acks,
+  allowUnregistered,
+  onAck,
   onSwitch,
   onRetry,
-  onBoard,
 }: {
   address: `0x${string}` | null;
   chain: string | null;
   registration: Registration;
   name: string | null;
-  acknowledged: boolean;
-  onAcknowledge: () => void;
+  acks: Acks;
+  allowUnregistered: boolean;
+  onAck: (which: "person" | "name") => void;
   onSwitch: () => void;
   onRetry: () => void;
-  onBoard: () => void;
 }) {
-  const { conditions, canProceed } = setupFrom({ address, chain, registration, acknowledged, name });
-  const mark = (id: ConditionId) => conditions.find(c => c.id === id)?.mark ?? "waiting";
-  const pill = (m: ConditionMark) =>
-    m === "met" ? "ag-chip ag-chip-good" : m === "unmet" ? "ag-chip ag-chip-stopped" : "ag-chip ag-chip-idle";
+  const { steps, at } = onboardingFrom({ address, chain, registration, name, acks, allowUnregistered });
+  const of = (id: StepId) => steps.find(step => step.id === id)?.mark ?? "waiting";
+  const cls = (id: StepId) => (id === at ? "ag-panel ag-step ag-step-at" : of(id) === "done" ? "ag-panel ag-step ag-step-done" : "ag-panel ag-step");
+  const pill = (m: StepMark) =>
+    m === "done" ? "ag-chip ag-chip-good" : m === "blocked" ? "ag-chip ag-chip-stopped" : "ag-chip ag-chip-idle";
 
   return (
     <div className="ag-setup">
-      <div className="ag-cards ag-setup-cards">
-        <div className="ag-panel ag-setup-card">
-          <h3 className="ag-panel-title">The wallet</h3>
+      {/* The context, before the steps: what the windows are spans of.
+          **The one runtime external element on this page.** A plain iframe of the
+          public live stream, no API key, no cookie set by this page, nothing read
+          back from it. It is also the first third party origin the page loads
+          from, which the disclosure's built list records. */}
+      <div className="ag-stream">
+        <iframe
+          className="ag-stream-frame"
+          src={`https://www.youtube.com/embed/live_stream?channel=${CHANNEL}&autoplay=0`}
+          title="The public livestream"
+          loading="lazy"
+          allow="encrypted-media; picture-in-picture"
+          referrerPolicy="strict-origin-when-cross-origin"
+        />
+        <p className="ag-sub">
+          A window is a span of this stream that a machine thinks a person should look at. It is not a claim that an
+          animal was identified or that a behaviour occurred.
+        </p>
+      </div>
+
+      <ol className="ag-cards ag-setup-cards">
+        <li className={cls("wallet")}>
+          <h3 className="ag-panel-title">A wallet on Base Sepolia</h3>
+          <span className={pill(of("wallet"))}>{of("wallet") === "done" ? "connected" : "not yet"}</span>
           {address === null ? (
-            <>
-              <span className={pill(mark("wallet"))}>not connected</span>
-              <p className="ag-sub">Connect a wallet in the header. Nothing below can be read without one.</p>
-            </>
+            <p className="ag-sub">Connect a wallet in the header.</p>
           ) : (
             <>
               <span className="ag-account-face ag-setup-face">
@@ -1019,70 +1047,65 @@ function Settings({
                   {address.slice(0, 6)}…{address.slice(-4)}
                 </span>
               </span>
-              <span className={pill(mark("chain"))}>
-                {mark("chain") === "met" ? "Base Sepolia" : chain === null ? "no chain answered" : "another chain"}
-              </span>
-              {mark("chain") === "unmet" && (
+              {chain !== BASE_SEPOLIA_HEX && (
                 <button type="button" className="ag-rail-item ag-setup-do" onClick={onSwitch}>
                   Switch to Base Sepolia
                 </button>
               )}
             </>
           )}
-        </div>
+        </li>
 
-        <div className="ag-panel ag-setup-card">
-          <h3 className="ag-panel-title">The person behind the agent</h3>
-          <span className={pill(mark("person"))}>
-            {registration === "registered"
-              ? "registered"
-              : registration === "not-registered"
-                ? acknowledged
-                  ? "paying per read"
-                  : "not registered"
-                : registration === "reading"
-                  ? "reading"
-                  : registration === "idle"
-                    ? "waiting for a wallet"
-                    : "unread"}
+        <li className={cls("person")}>
+          <h3 className="ag-panel-title">A person behind the agent</h3>
+          <span className={pill(of("person"))}>
+            {of("person") === "done" ? "registered" : of("person") === "blocked" ? "not registered" : of("person") === "waiting" ? "waiting" : "not yet"}
           </span>
           <p className="ag-sub">{REGISTRATION_LINE[registration]}</p>
-          {registration === "not-registered" && !acknowledged && (
-            <button type="button" className="ag-rail-item ag-setup-do" onClick={onAcknowledge}>
-              Continue paying per read, without the free allowance
-            </button>
+          {registration === "not-registered" && (
+            <>
+              {/* The page's own words, and no product named as a place to go. */}
+              <p className="ag-sub">A registration is made with the World command line tool against AgentBook and then read here.</p>
+              <button type="button" className="ag-rail-item ag-setup-do" onClick={onRetry}>
+                Check again
+              </button>
+              {allowUnregistered && !acks.person && (
+                <button type="button" className="ag-rail-item ag-setup-do" onClick={() => onAck("person")}>
+                  Continue paying per read, without the free allowance
+                </button>
+              )}
+            </>
           )}
           {registration === "unread" && (
             <button type="button" className="ag-rail-item ag-setup-do" onClick={onRetry}>
               Read it again
             </button>
           )}
-        </div>
+        </li>
 
-        <div className="ag-panel ag-setup-card">
-          <h3 className="ag-panel-title">The name</h3>
+        <li className={cls("name")}>
+          <h3 className="ag-panel-title">A name</h3>
+          <span className={pill(of("name"))}>
+            {name !== null ? "issued" : of("name") === "done" ? "acknowledged, no name issued" : of("name") === "waiting" ? "waiting" : "not yet"}
+          </span>
           {name !== null ? (
             <>
               <p className="ag-setup-name">{name}</p>
               <p className="ag-account-address">resolves to this payer</p>
-              <span className="ag-chip ag-chip-idle">issued by Zenbit</span> <span className="ag-chip ag-chip-idle">revocable</span>
             </>
           ) : (
-            <>
-              <span className="ag-chip ag-chip-idle">no name</span>
-              <p className="ag-sub">No name is issued for this payer.</p>
-            </>
+            <p className="ag-sub">
+              A name is issued into a parent Zenbit owns, by hand, and is asked for through this repository. No path
+              issues one from this page.
+            </p>
           )}
-          {/* A rung, and never a blocker: no path issues a name from here, so a
-              person who needed one would be stopped for good. */}
-          <p className="ag-sub ag-panel-note">Zenbit issues a name into a parent it owns. No path issues one from this page.</p>
-        </div>
-      </div>
-
-      <button className="btn xv-action ag-primary" onClick={onBoard} disabled={!canProceed}>
-        See what is on offer
-      </button>
-      {!canProceed && <p className="ag-sub">The cards above say what is still needed.</p>}
+          {name === null && of("name") === "todo" && (
+            <button type="button" className="ag-rail-item ag-setup-do" onClick={() => onAck("name")}>
+              Understood, continue without a name
+            </button>
+          )}
+        </li>
+      </ol>
     </div>
   );
 }
@@ -1573,12 +1596,13 @@ export function AppShell() {
   const [pinned, setPinned] = useState<number | null>(null);
   const [signed, setSigned] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [screen, setScreen] = useState<Screen>("settings");
+  const [screen, setScreen] = useState<Screen>("board");
   const [chosen, setChosen] = useState<Chosen | null>(null);
   const [board, setBoard] = useState<{ days: string[]; cells: { day: string; species: string; onOffer: boolean }[] }>({ days: [], cells: [] });
   const [boardState, setBoardState] = useState<"loading" | "ready" | "unconfigured" | "failed">("loading");
   const [registration, setRegistration] = useState<Registration>("idle");
-  const [acknowledged, setAcknowledged] = useState(false);
+  const [acks, setAcks] = useState<Acks>({ person: false, name: false });
+  const [allowUnregistered, setAllowUnregistered] = useState(false);
   const [readAgain, setReadAgain] = useState(0);
   const [accountTab, setAccountTab] = useState<AccountTab>("overview");
   const [settlements, setSettlements] = useState<Settlement[]>([]);
@@ -1638,7 +1662,7 @@ export function AppShell() {
    */
   // Asked once. Read on mount rather than at render, so the server and the first
   // client render agree about it.
-  useEffect(() => setAcknowledged(readAck()), []);
+  useEffect(() => setAcks(readAcks(address)), [address]);
 
   useEffect(() => {
     let live = true;
@@ -1739,9 +1763,13 @@ export function AppShell() {
     let live = true;
     setRegistration("reading");
     fetch(`/api/agent/registration?payer=${address}`)
-      .then(async r => (r.ok ? ((await r.json()) as { state: Registration }) : { state: "unread" as const }))
+      .then(async r => (r.ok ? ((await r.json()) as { state: Registration; allowUnregistered?: boolean }) : { state: "unread" as const }))
       .then(a => {
-        if (live) setRegistration(a.state);
+        if (!live) return;
+        setRegistration(a.state);
+        // Read off the same answer rather than a public variable, so the flag
+        // stays server side and there is one round trip either way.
+        setAllowUnregistered(("allowUnregistered" in a && a.allowUnregistered) === true);
       })
       .catch(() => {
         if (live) setRegistration("unread");
@@ -1889,6 +1917,10 @@ export function AppShell() {
   // and not a phrase match over its narration.
   const supply = running ? null : supplyFrom(steps);
   const lit = planFrom(challengeRead, signed, steps);
+  // The strip, and everything behind it, does not exist until the third step is
+  // done. Re-derived on every render from the reads themselves, so a remembered
+  // acknowledgement never stands in for a registration that is no longer there.
+  const onboarded = onboardingFrom({ address, chain, registration, name: issuedName, acks, allowUnregistered }).done;
   const at = pinned === null ? Math.max(0, lines.length - 1) : Math.min(pinned, Math.max(0, lines.length - 1));
 
   return (
@@ -1944,6 +1976,7 @@ export function AppShell() {
                   : "Pay for one read, and the agent does the rest."}
               </p>
             )}
+            {onboarded && (
             <nav className="ag-rail" aria-label="Sections" style={{ "--xv-strip-n": screensFor(chosen !== null).length } as React.CSSProperties}>
               {/* The indicator is one element moved with `transform`, so the state
                   travels between items rather than being switched off one and on
@@ -1966,6 +1999,7 @@ export function AppShell() {
                 </button>
               ))}
             </nav>
+            )}
             <p className="ag-key">
               <span>
                 <i className="ag-key-human" aria-hidden="true" />
@@ -1980,20 +2014,20 @@ export function AppShell() {
 
           <div className="ag-app-body">
             <div className="ag-app-scroll">
-              {screen === "settings" ? (
-                <Settings
+              {!onboarded ? (
+                <Onboarding
                   address={address}
                   chain={chain}
                   registration={registration}
                   name={issuedName}
-                  acknowledged={acknowledged}
-                  onAcknowledge={() => {
-                    writeAck();
-                    setAcknowledged(true);
+                  acks={acks}
+                  allowUnregistered={allowUnregistered}
+                  onAck={which => {
+                    writeAck(which, address);
+                    setAcks(readAcks(address));
                   }}
                   onSwitch={() => void onSwitch()}
                   onRetry={() => setReadAgain(n => n + 1)}
-                  onBoard={() => setScreen("board")}
                 />
               ) : screen === "board" ? (
                 <Board

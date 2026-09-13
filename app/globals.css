@@ -1197,6 +1197,24 @@ body:has(.ag-run-dialog[open]) .ag-surface {
    says its own state as a mark and carries the way to meet it, rather than being
    a label over a sentence.
 --------------------------------------------------------------------------- */
+/* The stream, above the steps. 16 by 9 and never taller than a third of the
+   region, so the steps are on screen with it. */
+.ag-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.ag-stream-frame {
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 32vh;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  border-radius: 0.75rem;
+}
+
 .ag-setup {
   display: flex;
   flex-direction: column;
@@ -1208,6 +1226,26 @@ body:has(.ag-run-dialog[open]) .ag-surface {
 .ag-setup-cards {
   width: 100%;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+
+/* One step lit at a time. The others are dim rather than absent, so a person can
+   see what is still ahead of them and what is behind. */
+.ag-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+  opacity: 0.55;
+  transition: opacity 160ms var(--xv-ease-out);
+}
+
+.ag-step-at {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--color-base-content) 34%, transparent);
+}
+
+.ag-step-done {
+  opacity: 0.85;
 }
 
 .ag-setup-card {

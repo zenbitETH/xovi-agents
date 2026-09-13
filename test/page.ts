@@ -615,8 +615,8 @@ export async function pageChecks(check: Check) {
    * a Run to look at. Run present and inert would be a control that does nothing,
    * which is the rule that keeps a drawn but unbuilt action off this page.
    */
-  check(SCREENS.length === 6, `266 · six destinations in the array (${SCREENS.length})`);
-  check(SCREENS[0].id === "settings" && SCREENS[1].id === "board", `266f · beginning with settings then the board (${SCREENS[0].id}, ${SCREENS[1].id})`);
+  check(SCREENS.length === 5, `266 · five destinations in the array (${SCREENS.length})`);
+  check(SCREENS[0].id === "board", `266f · beginning with the board, since the onboarding is the way in and not a destination (${SCREENS[0].id})`);
   check(!screensFor(false).some(d => d.id === "run"), "266g · and Run is absent until a cell is chosen");
   check(screensFor(true).some(d => d.id === "run"), "266h · and present once one is (negative control)");
   check(ACCOUNT_TABS.length === 4, `266a · and four account tabs (${ACCOUNT_TABS.length})`);
