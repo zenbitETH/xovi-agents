@@ -151,9 +151,31 @@ function detailOf(body: unknown, fallback: string): string {
  * sign the path. Measured: a payment signed against one origin settles when it is
  * presented at another. What makes an authorization spendable once is the nonce
  * the token refuses to reuse, not the URL it was fetched from.
+ *
+ * **THE CELL TRAVELS WITH IT, AND IT DID NOT.** This dropped the query, and a check
+ * asserted that it did, so a person who chose one cell on the board signed a
+ * challenge for that cell and the run then read the whole snapshot: measured on the
+ * committed fixtures, nineteen windows over five days for the price of one cell of
+ * five. The board says a person chooses a day and a species to read, and that was
+ * true of the price and false of the read. The day and the species are carried
+ * through now, so the price shown, the challenge signed and the windows read are
+ * one resource.
  */
 export function windowsUrlFor(requestUrl: string): string {
-  return new URL("/api/agent/windows", requestUrl).toString();
+  const asked = new URL(requestUrl);
+  const windows = new URL("/api/agent/windows", requestUrl);
+  for (const key of ["day", "species"]) {
+    const value = asked.searchParams.get(key);
+    if (value !== null) windows.searchParams.set(key, value);
+  }
+  return windows.toString();
+}
+
+/** Whether a request names a cell at all. A run without one is refused rather than
+ *  served the whole snapshot, which is what it used to get. */
+export function namesACell(requestUrl: string): boolean {
+  const asked = new URL(requestUrl);
+  return (asked.searchParams.get("day") ?? "") !== "" && (asked.searchParams.get("species") ?? "") !== "";
 }
 
 /**
@@ -204,6 +226,43 @@ async function credentialToUse(cfg: RunConfig, payer: string | null): Promise<st
   }
   if (environmentCredentialCovers(payer, cfg.ingestKey, cfg.ingestKeyPayer)) return cfg.ingestKey ?? null;
   return null;
+}
+
+/**
+ * What one run came to, read off the steps it yielded.
+ *
+ * Pure, and exported so the board's mark and the row behind it are decided by
+ * something a check can drive without a database or a chain.
+ *
+ * **A run that was never served is not a read**, so it leaves no row: the mark on
+ * the board says this cell was read by your agent, and a payment the route refused
+ * did not read anything. The outcomes are the run's own step names rather than a
+ * second vocabulary invented for the table, so what the board says a run did and
+ * what the run said it did cannot drift; `declined` keeps its kind, because a
+ * refusal and a rejection are different facts to the person who paid.
+ */
+export type RunOutcome = { free: boolean; txHash: string | null; outcome: string; clipId: number | null };
+
+export function runOutcome(steps: RunStep[]): RunOutcome | null {
+  const paid = steps.find(s => s.step === "paid");
+  if (paid === undefined) return null;
+  const free = paid.free;
+  const txHash = free ? null : (paid.transaction ?? null);
+  // A settled read with no transaction is not a settlement this can record, and
+  // the table refuses the pair anyway. Recorded as free would be a lie about money.
+  if (!free && txHash === null) return null;
+
+  const proposed = steps.find(s => s.step === "proposed");
+  if (proposed !== undefined) return { free, txHash, outcome: "proposed", clipId: proposed.id };
+  const declined = steps.find(s => s.step === "declined");
+  if (declined !== undefined) return { free, txHash, outcome: `declined:${declined.kind}`, clipId: null };
+  const spent = steps.find(s => s.step === "cell-spent");
+  if (spent !== undefined) return { free, txHash, outcome: "cell-spent", clipId: null };
+  const nothing = steps.find(s => s.step === "nothing-proposable");
+  if (nothing !== undefined) return { free, txHash, outcome: "nothing-proposable", clipId: null };
+  const unsubmitted = steps.find(s => s.step === "not-submitted");
+  if (unsubmitted !== undefined) return { free, txHash, outcome: "not-submitted", clipId: null };
+  return { free, txHash, outcome: "read", clipId: null };
 }
 
 export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {

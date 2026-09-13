@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { GET as boardGET } from "../app/api/agent/board/route";
 import { GET as windowsGET } from "../app/api/agent/windows/route";
 import { GET as registrationGET } from "../app/api/agent/registration/route";
+import { POST as runPOST } from "../app/api/agent/run/route";
 import { POST as namePOST } from "../app/api/agent/name/route";
 import { setClockForTest } from "../lib/human/clock";
 import { ENROLLMENT_CALLS_PER_MINUTE, ENROLLMENT_WINDOW_MS, enrollmentThrottle } from "../lib/human/throttle";
@@ -14,7 +15,7 @@ import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
 import { CREDENTIAL_REFUSED, NO_CREDENTIAL, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, onboardingFrom, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellRecording, cellState, loadSnapshot, servedCell } from "../lib/windows/snapshot";
-import { NOT_SUBMITTED_SENTENCE, environmentCredentialCovers } from "../lib/agent/run";
+import { NOT_SUBMITTED_SENTENCE, environmentCredentialCovers, namesACell, windowsUrlFor as runWindowsUrlFor } from "../lib/agent/run";
 import { type BoardCellView, cellMetaLine, readableLength, windowsUrlFor } from "../app/app-shell";
 import { resetServerForTest } from "../lib/x402";
 
@@ -759,6 +760,62 @@ export async function boardChecks(check: Check) {
   // meta line's own guard, so dropping it from the thumbnail left the check green.
   check(/\{on && cell\?\.thumbnail !== undefined && \(/.test(boardJsx),
     "319b · drawn only for a cell on offer that has one");
+  /*
+   * WHAT A PAID READ RETURNS, COUNTED.
+   *
+   * The cell reached the challenge and never the read: a person chose one cell,
+   * signed for it, and the run was served the whole snapshot, five days for the
+   * price of one cell. Driven through the same handler the run calls, with the
+   * cell's own count as the measure and the whole snapshot as the control, so a
+   * url that quietly stops carrying the cell is a number that changes here.
+   */
+  const wholeSnapshot = loadSnapshot();
+  const oneCell = cellOf(wholeSnapshot, "2026-09-03", "mexicanum");
+  check(oneCell.length > 0 && oneCell.length < wholeSnapshot.length,
+    `320 · a cell is a part of the snapshot and not all of it (${oneCell.length} of ${wholeSnapshot.length})`);
+  const runUrl = runWindowsUrlFor("http://127.0.0.1/api/agent/run?day=2026-09-03&species=mexicanum");
+  check(runUrl.endsWith("?day=2026-09-03&species=mexicanum"),
+    `320a · the url the run builds carries the cell it was paid for (${runUrl})`);
+  // Past the cell check, which is what says the run asked for that cell. Whether
+  // the payment path then answers 402 or 503 is the facilitator's and is asserted
+  // elsewhere, which is the standard 272c holds this to.
+  const cellAnswer = await windowsGET(new Request(runUrl));
+  check(cellAnswer.status !== 404 && cellAnswer.status !== 400,
+    `320b · and that cell is one the route serves (${cellAnswer.status})`);
+  // The url a run with no cell would have asked for, which is the whole snapshot,
+  // and the route answers it: that is the behaviour the refusal now stands in front
+  // of, kept here as the measure of what was being given away.
+  const snapshotUrl = runWindowsUrlFor("http://127.0.0.1/api/agent/run");
+  check(snapshotUrl === "http://127.0.0.1/api/agent/windows" && !namesACell("http://127.0.0.1/api/agent/run"),
+    `320c · a run naming no cell asks for the whole snapshot, which is why the route refuses one (${snapshotUrl})`);
+  const bodyForCell = JSON.stringify(await cellAnswer.json());
+  check(!/"windowId"/.test(bodyForCell), "320d · and nothing is served before it is paid for (negative control)");
+  // The refusal itself, driven through the route rather than through the rule it
+  // calls: a run that names no cell is turned away instead of being handed the
+  // snapshot, which is what it used to be handed.
+  const cellless = await runPOST(new Request("http://127.0.0.1/api/agent/run", { method: "POST" }));
+  check(cellless.status === 400, `320e · a run naming no cell is refused (${cellless.status})`);
+  const halfCell = await runPOST(new Request("http://127.0.0.1/api/agent/run?day=2026-09-03", { method: "POST" }));
+  check(halfCell.status === 400, `320f · and so is one naming half of one (${halfCell.status})`);
+  const withCell = await runPOST(new Request("http://127.0.0.1/api/agent/run?day=2026-09-03&species=mexicanum", { method: "POST" }));
+  check(withCell.status !== 400, `320g · while a run naming a cell is not (negative control, ${withCell.status})`);
+  await withCell.body?.cancel();
+  /*
+   * And the page's own half, which is the half a browser runs.
+   *
+   * The route refuses a run with no cell and the url builder carries one, and both
+   * are beside the point if the page never sends it: removing the cell from the
+   * post left every check above green, because none of them is the browser.
+   */
+  const postStart = page.indexOf('new URL("/api/agent/run"');
+  const postEnd = page.indexOf("if (!response.body)", postStart);
+  check(postStart > 0 && postEnd > postStart, "320h · the page's run request is found (negative control for the slice)");
+  const runPost = page.slice(postStart, postEnd);
+  check(/searchParams\.set\("day", chosen\.day\)/.test(runPost) && /searchParams\.set\("species", chosen\.species\)/.test(runPost),
+    "320i · and the page sends the chosen cell with the run it pays for");
+  check(/fetch\(runUrl\.toString\(\), \{ method: "POST"/.test(runPost),
+    "320j · posting that url rather than a second one built beside it");
+
   const lookups = [...boardJsx.matchAll(/prices\[([^\]]*)\]/g)].map(m => m[1]);
   check(lookups.length === 1 && lookups[0] === "`${day}|${species}`",
     `319c · with one lookup, so each card shows the price its own cell was quoted (${lookups.join(" | ") || "none"})`);

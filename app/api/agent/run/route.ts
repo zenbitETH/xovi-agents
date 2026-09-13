@@ -1,6 +1,6 @@
 import { GET as windowsRoute } from "../windows/route";
 import { credentialFor, credentialStoreFrom } from "~~/lib/agent/credentials";
-import { DECLINE_SENTENCE, runOnce, windowsUrlFor } from "~~/lib/agent/run";
+import { DECLINE_SENTENCE, namesACell, runOnce, windowsUrlFor } from "~~/lib/agent/run";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +30,21 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: Request) {
   const paymentHeader = request.headers.get("PAYMENT-SIGNATURE") ?? undefined;
+
+  /*
+   * A run is one cell, and a request that names none is refused.
+   *
+   * It used to be served the whole snapshot, which is the defect this route was
+   * fixed for: a person chose a cell, signed a challenge for that cell and read
+   * every day there was. Refusing is the honest floor, since the page never sends
+   * a run without a cell and anything else arriving here is not the product.
+   */
+  if (!namesACell(request.url)) {
+    return new Response(JSON.stringify({ error: "name the day and the species this run reads" }), {
+      status: 400,
+      headers: { "content-type": "application/json", "cache-control": "no-store" },
+    });
+  }
 
   // Same origin, so both halves name the same resource without a second place to
   // configure it. Not a security boundary: see windowsUrlFor.

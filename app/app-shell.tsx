@@ -2272,7 +2272,15 @@ export function AppShell() {
       say({ text: "Authorization signed in your wallet", detail: "nothing has moved yet", tone: "good", actor: "human" });
 
       setPhase("running");
-      const response = await fetch("/api/agent/run", { method: "POST", headers: signed.headers });
+      // The cell travels with the run, as it travels with the challenge. One
+      // resource: what the price was quoted for, what the wallet signed for, and
+      // what the agent reads.
+      const runUrl = new URL("/api/agent/run", window.location.origin);
+      if (chosen !== null) {
+        runUrl.searchParams.set("day", chosen.day);
+        runUrl.searchParams.set("species", chosen.species);
+      }
+      const response = await fetch(runUrl.toString(), { method: "POST", headers: signed.headers });
       if (!response.body) throw new Error("the run returned no stream");
 
       // Read as it arrives. Buffering to the end would render the same lines and
