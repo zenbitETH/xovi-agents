@@ -39,11 +39,23 @@ was demonstrably active, and every one of those clips was captured during openin
 hours by a person watching. So a visitor or an operator is likely rather than
 impossible in that footage, every window carries the full read, and anything
 ambiguous was dropped rather than kept. The clip's own span is excluded from each:
-that moment is a clip already, not a candidate. One file of this kind is committed,
-`windows.v9pFMid2BOs.jsonl`, whose two windows sit at 12:23 by the wall clock on a
-Tuesday, well inside opening hours; the July files join it when they land. Only
-committed files are named here, because a README that lists what is not in the tree
-is a reader's dead end rather than an index.
+that moment is a clip already, not a candidate, and one window of this kind was
+dropped for overlapping it, so its recording produced two and ships one.
+
+Two committed files are of this kind, `windows.v9pFMid2BOs.jsonl` and
+`windows.lTuMxO5KEHU.jsonl`. Only committed files are named here: a README that
+lists what is not in the tree is a reader's dead end rather than an index.
+
+Two recordings were held out, and the reasons are worth keeping. The 24 July
+recording is off the board because every frame carries a media player's control bar
+and its playback position reads 15:40:59 against a recording of 11.9 hours, so the
+footage may be a replay and the day cannot be explained; the validator refuses a
+file from it rather than letting one pass quietly. The 23 July recording is clean
+footage held out for a different reason: the station gate destroyed one of its spans,
+six windows of six, on footage where the camera never left the tank and a quarter of
+the frames do not read. That one is recoverable rather than bad, and the fix is
+measured and waits, because every file here was made by one rule and changing the
+rule tonight would mean the files were not.
 
 What follows is about the first kind.
 
