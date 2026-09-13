@@ -286,6 +286,11 @@ export async function pageChecks(check: Check) {
    */
   const fixture = JSON.parse(readFileSync(join(process.cwd(), "fixtures/confirmation.259.json"), "utf8"));
   const trimmed = readFileSync(join(process.cwd(), "lib/anchor/confirmation-259.ts"), "utf8");
+  // The module is read before it is searched. Both absences below are satisfied by
+  // a file that could not be read, so a path that stopped resolving would have
+  // reported the opaque field gone rather than the module gone.
+  check(trimmed.length > 0 && /CONFIRMATION_259/.test(trimmed),
+    `237a0 · the module is read and is the one meant (negative control, ${trimmed.length} bytes)`);
   check(!/from "[^"]*fixtures\//.test(ui), "237 · the page imports nothing from the fixtures directory");
   // The module may name the fixture in prose, and does, because that is where its
   // values came from. What it may not do is import it or carry the opaque field.

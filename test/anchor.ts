@@ -156,8 +156,17 @@ export async function anchorChecks(check: Check) {
   check(decoded.length === 10 && OBSERVATION_ABI.length === 10,
     "142b · the attested data decodes to exactly the ten frozen fields and no eleventh");
   const asText = Buffer.from(encodeObservation(o).slice(2), "hex").toString("utf8");
+  // The bytes are read before they are searched. An encoding that returned nothing
+  // would satisfy a check for what is not in it, and the search would have proved
+  // only that an empty string contains no station.
+  check(asText.length > 0 && encodeObservation(o).startsWith("0x"),
+    `142c0 · the encoded bytes are there to search (negative control, ${asText.length} characters)`);
   check(!asText.includes("AM 3") && !asText.includes("mexicanum"),
     "142c · and the station and the species are nowhere inside it, decoded rather than assumed");
+  // And the search would find them if they were: the same read over an encoding of
+  // a row whose public fields carry the station finds it.
+  const planted = Buffer.from(encodeObservation({ ...o, clipHash: `0x${Buffer.from("AM 3").toString("hex").padEnd(64, "0")}` } as never).slice(2), "hex").toString("utf8");
+  check(planted.includes("AM 3"), "142c2 · the search can see a station that is inside the bytes (negative control)");
 
   check(JSON.stringify(Object.keys(serialiseSigned(signed) as object)) === JSON.stringify(SIGNED_KEYS),
     "143 · the payload endpoint serves the five keys of the signed object and no sixth");
