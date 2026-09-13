@@ -1191,6 +1191,51 @@ body:has(.ag-run-dialog[open]) .ag-surface {
 }
 
 /* ---------------------------------------------------------------------------
+   Settings as a checklist: one state per card, in order.
+
+   Three cards in a row where there is room and stacked where there is not. Each
+   says its own state as a mark and carries the way to meet it, rather than being
+   a label over a sentence.
+--------------------------------------------------------------------------- */
+.ag-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 0.25rem;
+}
+
+.ag-setup-cards {
+  width: 100%;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+
+.ag-setup-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+/* The header chip's own face, reused, so the wallet reads as one object in both
+   places rather than as an address in prose here and a chip up there. */
+.ag-setup-face {
+  cursor: default;
+}
+
+.ag-setup-do {
+  align-self: flex-start;
+}
+
+.ag-setup-name {
+  margin: 0;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 1.25rem;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------------------
    The board: days across, the three species down.
 
    A grid rather than a list, because what a person is choosing is one of a set of
@@ -1242,7 +1287,11 @@ body:has(.ag-run-dialog[open]) .ag-surface {
 }
 
 .ag-board-cell {
-  padding: 0.5rem 0.375rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.375rem;
+  padding: 0.625rem 0.5rem;
   border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
   border-radius: 0.5rem;
   background-color: color-mix(in srgb, var(--color-base-content) 4%, transparent);
@@ -1264,10 +1313,17 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   opacity: 0.4;
 }
 
-/* The chosen cell is outlined rather than filled with an actor hue: a cell is a
-   choice of what to read and is neither a person nor a machine. */
+/* The species in the display face, so a tile reads as the thing it names before
+   its state is read. */
+.ag-board-name {
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.1;
+}
+
+/* The chosen cell is outlined in the agent hue, which is what will read it. */
 .ag-board-picked {
-  border-color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
+  border-color: var(--color-xv-agent);
   font-weight: 600;
 }
 

@@ -6,6 +6,7 @@ import { GET as windowsGET } from "../app/api/agent/windows/route";
 import { GET as registrationGET } from "../app/api/agent/registration/route";
 import { readFileSync } from "node:fs";
 import { setRegistryForTest } from "../lib/human/registry";
+import { setupFrom } from "../app/app-shell";
 import { BOARD_SPECIES, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
 
@@ -200,8 +201,17 @@ export async function boardChecks(check: Check) {
   // A rung and not a button: the settings screen has the connect and the board
   // actions and no third that would do nothing.
   const settingsBlock = page.slice(page.indexOf("function Settings("), page.indexOf("function Board("));
+  /*
+   * Settings is a checklist now, so it carries the way to meet each condition.
+   * The invariant is not how many, it is that each one acts and that none of them
+   * is Connect wallet, which is the header's and is not repeated.
+   */
   const buttons = (settingsBlock.match(/<button/g) ?? []).length;
-  check(buttons === 1, `279c · settings carries one control and it acts (${buttons})`);
+  check(buttons >= 2, `279c · settings carries the ways to meet its conditions (${buttons})`);
+  check(!/Connect wallet/.test(settingsBlock), "279f · and none of them is the header's connect action");
+  const settingsLabels = [...settingsBlock.matchAll(/<button[\s\S]{0,220}?>\s*([^<>{][^<>]*?)\s*</g)].map(m => m[1].trim());
+  const deciding = settingsLabels.filter(l => /\b(confirm|approve|reject|accept|decide|attest)\w*\b/i.test(l));
+  check(deciding.length === 0, `279g · and not one of them is a decision about a clip (${deciding.join(", ") || "none"})`);
   // One act, one control: Connect wallet is the header's and is not repeated.
   // Comments stripped first, because a comment is not the interface and the note
   // explaining this rule contains the words the rule is about.
@@ -247,6 +257,36 @@ export async function boardChecks(check: Check) {
   const heads = page.slice(page.indexOf("const HEADS"), page.indexOf("const HEADS") + 900);
   check(/settings:/.test(heads) && /board:/.test(heads), "285 · every screen but the run carries its own head line");
   check(/screen === "run" \? \(/.test(page), "285a · and the run's title block belongs to the run");
+
+  /*
+   * The way to the board is closed until the required conditions are met.
+   *
+   * The flow ran straight for anyone already set up, and a new person could walk
+   * past all of it to a run that could not work. Driven on the rule itself, which
+   * is pure, so every combination is reachable without a browser.
+   */
+  const ADDR = "0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe";
+  const setup = (over: Partial<Parameters<typeof setupFrom>[0]>) =>
+    setupFrom({ address: ADDR, chain: "0x14a34", registration: "registered", acknowledged: false, name: null, ...over });
+
+  check(!setup({ address: null }).canProceed, "286 · no wallet closes the way to the board");
+  check(!setup({ chain: "0x1" }).canProceed, "286a · and so does a wallet on another chain");
+  check(!setup({ chain: null }).canProceed, "286b · and one whose chain did not answer");
+  check(setup({}).canProceed, "286c · while a registered wallet on Base Sepolia goes straight through (negative control)");
+
+  // Paying without a registration is allowed and is not a blocker; it costs the
+  // allowance, so it is acknowledged once rather than refused.
+  check(!setup({ registration: "not-registered" }).canProceed, "287 · an unregistered wallet is stopped until it acknowledges what that costs");
+  check(setup({ registration: "not-registered", acknowledged: true }).canProceed, "287a · and goes on once it has");
+  check(setup({ registration: "registered", acknowledged: false }).canProceed, "287b · while a registered wallet is never asked (negative control)");
+  // Unread neither meets nor fails: blocking on a chain that did not answer would
+  // strand somebody for an outage.
+  check(setup({ registration: "unread" }).canProceed, "287c · an unread registry does not block");
+  // The name never blocks, because no path issues one from this page.
+  check(setup({ name: null }).canProceed, "288 · no name never blocks");
+  check(setup({ name: "agent1.xovi.eth" }).canProceed, "288a · and having one changes nothing about the way through");
+  const nameCondition = setup({ name: null }).conditions.find(c => c.id === "name");
+  check(nameCondition?.blocks === false, "288b · the name condition is drawn and blocks nothing");
 
   if (before === undefined) delete process.env.WINDOWS_SNAPSHOT;
   else process.env.WINDOWS_SNAPSHOT = before;

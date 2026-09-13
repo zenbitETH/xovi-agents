@@ -697,7 +697,12 @@ export async function pageChecks(check: Check) {
   check(/transform:\s*none/.test(reduced.slice(0, 600)), "282b · reduced motion and a narrow screen drop the tip");
 
   // Every line is a card, so the log and the stack cannot disagree.
-  check(/lines\.map\(\(line, i\) => \(/.test(ui) && /data-position=/.test(ui), "283 · every line the log holds is a card");
+  // Read the Rolodex block, as 279c reads the Settings one. Off the whole file
+  // the feed's own map satisfied it, so cards built from a slice stayed green.
+  const rolodexBlock = ui.slice(ui.indexOf("function Rolodex("), ui.indexOf("function Settings("));
+  check(/lines\.map\(\(line, i\) => \(/.test(rolodexBlock) && /data-position=/.test(rolodexBlock),
+    "283 · every line the log holds is a card");
+  check(!/lines\.slice/.test(rolodexBlock), "283b · and none of them is dropped before the stack is built");
   check(/onStep\(at - 1\)/.test(ui) && /onStep\(at \+ 1\)/.test(ui), "283a · and every one of them is reachable by stepping");
 
   /*

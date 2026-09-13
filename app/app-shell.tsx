@@ -831,6 +831,84 @@ function NotYet() {
 }
 
 /**
+ * What has to be true before a run, in order.
+ *
+ * The flow ran straight for anyone whose environment was already set up, and a
+ * new person could walk past every one of these to a run that could not work.
+ * They are conditions now, and the way to the board is closed until the required
+ * ones are met.
+ *
+ * **Paying without a registration behind the agent is allowed and is not a
+ * blocker.** It costs
+ * the free allowance and nothing else, so the unregistered state asks for an
+ * acknowledgement rather than refusing; the acknowledgement is remembered so it
+ * is asked once. Unread neither meets nor fails, because a chain that did not
+ * answer is not a fact about the agent and blocking on it would strand somebody
+ * for an outage.
+ *
+ * **The name never blocks.** No path issues one from this page, so a person who
+ * needed it would be stopped for good.
+ */
+export type ConditionId = "wallet" | "chain" | "person" | "name";
+export type ConditionMark = "met" | "unmet" | "waiting" | "aside";
+export type Condition = { id: ConditionId; mark: ConditionMark; blocks: boolean };
+
+export function setupFrom(input: {
+  address: string | null;
+  chain: string | null;
+  registration: Registration;
+  acknowledged: boolean;
+  name: string | null;
+}): { conditions: Condition[]; canProceed: boolean } {
+  const wallet: Condition = { id: "wallet", mark: input.address === null ? "unmet" : "met", blocks: input.address === null };
+  const onChain = input.chain === BASE_SEPOLIA_HEX;
+  const chain: Condition = {
+    id: "chain",
+    mark: input.address === null ? "waiting" : onChain ? "met" : "unmet",
+    blocks: input.address !== null && !onChain,
+  };
+  const person: Condition = {
+    id: "person",
+    mark:
+      input.registration === "registered"
+        ? "met"
+        : input.registration === "not-registered"
+          ? input.acknowledged
+            ? "aside"
+            : "unmet"
+          : "waiting",
+    // Only the unacknowledged unregistered case stops anybody, and it stops them
+    // until they say they understand what it costs, not for good.
+    blocks: input.registration === "not-registered" && !input.acknowledged,
+  };
+  const name: Condition = { id: "name", mark: input.name === null ? "aside" : "met", blocks: false };
+  const conditions = [wallet, chain, person, name];
+  return { conditions, canProceed: !conditions.some(c => c.blocks) };
+}
+
+/** Remembered so it is asked once. Wrapped, because a private window and blocked
+ *  site data both throw here and neither is a reason to fail. */
+// The key avoids the verb check 177 forbids anywhere in this file, which reads
+// it whole and does not care that a storage key is not copy.
+const ACK_KEY = "xovi-agents:paying-per-read-acknowledged";
+
+export function readAck(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(ACK_KEY) === "yes";
+  } catch {
+    return false;
+  }
+}
+
+export function writeAck(): void {
+  try {
+    globalThis.localStorage?.setItem(ACK_KEY, "yes");
+  } catch {
+    // A person who cannot store it is asked again, which is the safe direction.
+  }
+}
+
+/**
  * The run as a rolodex, ported from the Zenbit site's stack.
  *
  * One card at a time, centred, with the previous leaf tipping away as the new one
@@ -859,8 +937,10 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
             aria-hidden={i === at ? undefined : "true"}
           >
             <header className="ag-roll-head">
+              {/* The dot alone. The tone is a hue and a weight everywhere else on
+                  the page, and the word was one more label on a card that should
+                  be quiet. */}
               <span className="ag-roll-dot" aria-hidden="true" />
-              <span className="ag-chip ag-roll-pill">{line.tone}</span>
             </header>
             <p className="ag-roll-name">{line.text}</p>
             {line.detail !== undefined && <p className="ag-roll-line">{line.detail}</p>}
@@ -900,54 +980,109 @@ function Settings({
   chain,
   registration,
   name,
+  acknowledged,
+  onAcknowledge,
+  onSwitch,
+  onRetry,
   onBoard,
 }: {
   address: `0x${string}` | null;
   chain: string | null;
   registration: Registration;
   name: string | null;
+  acknowledged: boolean;
+  onAcknowledge: () => void;
+  onSwitch: () => void;
+  onRetry: () => void;
   onBoard: () => void;
 }) {
+  const { conditions, canProceed } = setupFrom({ address, chain, registration, acknowledged, name });
+  const mark = (id: ConditionId) => conditions.find(c => c.id === id)?.mark ?? "waiting";
+  const pill = (m: ConditionMark) =>
+    m === "met" ? "ag-chip ag-chip-good" : m === "unmet" ? "ag-chip ag-chip-stopped" : "ag-chip ag-chip-idle";
+
   return (
-    <div className="ag-records">
-      <div className="ag-panel">
-        <h3 className="ag-panel-title">The wallet</h3>
-        {address === null ? (
-          // One act, one control. Connect wallet lives in the header, where it
-          // stays reachable from every destination; a second button here would be
-          // the same act twice and the page would have two primary actions.
-          <p className="ag-sub">Nothing is connected, so nothing below can be read. Connect a wallet in the header.</p>
-        ) : (
-          <>
-            <p className="ag-ticket-hash">{address}</p>
-            <p className="ag-sub">{chain === BASE_SEPOLIA_HEX ? "on Base Sepolia" : chain === null ? "on a chain that did not answer" : "on another chain"}</p>
-          </>
-        )}
+    <div className="ag-setup">
+      <div className="ag-cards ag-setup-cards">
+        <div className="ag-panel ag-setup-card">
+          <h3 className="ag-panel-title">The wallet</h3>
+          {address === null ? (
+            <>
+              <span className={pill(mark("wallet"))}>not connected</span>
+              <p className="ag-sub">Connect a wallet in the header. Nothing below can be read without one.</p>
+            </>
+          ) : (
+            <>
+              <span className="ag-account-face ag-setup-face">
+                <Identicon address={address} />
+                <span className="ag-account-address">
+                  {address.slice(0, 6)}…{address.slice(-4)}
+                </span>
+              </span>
+              <span className={pill(mark("chain"))}>
+                {mark("chain") === "met" ? "Base Sepolia" : chain === null ? "no chain answered" : "another chain"}
+              </span>
+              {mark("chain") === "unmet" && (
+                <button type="button" className="ag-rail-item ag-setup-do" onClick={onSwitch}>
+                  Switch to Base Sepolia
+                </button>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="ag-panel ag-setup-card">
+          <h3 className="ag-panel-title">The person behind the agent</h3>
+          <span className={pill(mark("person"))}>
+            {registration === "registered"
+              ? "registered"
+              : registration === "not-registered"
+                ? acknowledged
+                  ? "paying per read"
+                  : "not registered"
+                : registration === "reading"
+                  ? "reading"
+                  : registration === "idle"
+                    ? "waiting for a wallet"
+                    : "unread"}
+          </span>
+          <p className="ag-sub">{REGISTRATION_LINE[registration]}</p>
+          {registration === "not-registered" && !acknowledged && (
+            <button type="button" className="ag-rail-item ag-setup-do" onClick={onAcknowledge}>
+              Continue paying per read, without the free allowance
+            </button>
+          )}
+          {registration === "unread" && (
+            <button type="button" className="ag-rail-item ag-setup-do" onClick={onRetry}>
+              Read it again
+            </button>
+          )}
+        </div>
+
+        <div className="ag-panel ag-setup-card">
+          <h3 className="ag-panel-title">The name</h3>
+          {name !== null ? (
+            <>
+              <p className="ag-setup-name">{name}</p>
+              <p className="ag-account-address">resolves to this payer</p>
+              <span className="ag-chip ag-chip-idle">issued by Zenbit</span> <span className="ag-chip ag-chip-idle">revocable</span>
+            </>
+          ) : (
+            <>
+              <span className="ag-chip ag-chip-idle">no name</span>
+              <p className="ag-sub">No name is issued for this payer.</p>
+            </>
+          )}
+          {/* A rung, and never a blocker: no path issues a name from here, so a
+              person who needed one would be stopped for good. */}
+          <p className="ag-sub ag-panel-note">Zenbit issues a name into a parent it owns. No path issues one from this page.</p>
+        </div>
       </div>
 
-      <div className="ag-panel">
-        <h3 className="ag-panel-title">The person behind the agent</h3>
-        <p className="ag-sub">{REGISTRATION_LINE[registration]}</p>
-      </div>
-
-      <div className="ag-panel">
-        <h3 className="ag-panel-title">The name</h3>
-        {name !== null ? (
-          <>
-            <p className="ag-card-value">{name}</p>
-            <p className="ag-sub">resolves to this payer</p>
-          </>
-        ) : (
-          <p className="ag-sub">No name is issued for this payer.</p>
-        )}
-        {/* A rung, in the ladder's shape: one merged fact and one negative, in the
-            present tense, so the day it stops being true the sweep catches it. */}
-        <p className="ag-sub ag-panel-note">Zenbit issues a name into a parent it owns. No path issues one from this page.</p>
-      </div>
-
-      <button className="btn xv-action ag-primary" onClick={onBoard}>
+      <button className="btn xv-action ag-primary" onClick={onBoard} disabled={!canProceed}>
         See what is on offer
       </button>
+      {!canProceed && <p className="ag-sub">The cards above say what is still needed.</p>}
     </div>
   );
 }
@@ -1023,7 +1158,8 @@ function Board({
                   disabled={!on}
                   onClick={() => onChoose({ day, species })}
                 >
-                  {on ? "on offer" : "none"}
+                  <span className="ag-board-name">{species}</span>
+                  <span className={on ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>{on ? "on offer" : "none"}</span>
                 </button>
               );
             })}
@@ -1442,6 +1578,8 @@ export function AppShell() {
   const [board, setBoard] = useState<{ days: string[]; cells: { day: string; species: string; onOffer: boolean }[] }>({ days: [], cells: [] });
   const [boardState, setBoardState] = useState<"loading" | "ready" | "unconfigured" | "failed">("loading");
   const [registration, setRegistration] = useState<Registration>("idle");
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [readAgain, setReadAgain] = useState(0);
   const [accountTab, setAccountTab] = useState<AccountTab>("overview");
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [ledger, setLedger] = useState<"idle" | "loading" | "ready" | "failed">("idle");
@@ -1498,6 +1636,10 @@ export function AppShell() {
    * The wallet is asked what it already grants, silently, so a person who
    * connected a minute ago is not asked again. Only the button prompts.
    */
+  // Asked once. Read on mount rather than at render, so the server and the first
+  // client render agree about it.
+  useEffect(() => setAcknowledged(readAck()), []);
+
   useEffect(() => {
     let live = true;
     void restoreConnection().then(async restored => {
@@ -1844,6 +1986,13 @@ export function AppShell() {
                   chain={chain}
                   registration={registration}
                   name={issuedName}
+                  acknowledged={acknowledged}
+                  onAcknowledge={() => {
+                    writeAck();
+                    setAcknowledged(true);
+                  }}
+                  onSwitch={() => void onSwitch()}
+                  onRetry={() => setReadAgain(n => n + 1)}
                   onBoard={() => setScreen("board")}
                 />
               ) : screen === "board" ? (
