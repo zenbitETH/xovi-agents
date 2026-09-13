@@ -13,7 +13,7 @@ import { capFrom, setCapForTest, standingBehind, takeFreeRead } from "../lib/hum
 import { ensureCredential } from "../lib/agent/credentials";
 import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
-import { CREDENTIAL_REFUSED, PROCESS, newestRecording, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
+import { CREDENTIAL_REFUSED, PROCESS, clearSkipped, readSkipped, writeSkipped, newestRecording, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { NOT_SUBMITTED_SENTENCE } from "../lib/agent/run";
 import { resetServerForTest } from "../lib/x402";
@@ -870,7 +870,19 @@ export async function boardChecks(check: Check) {
    * to read one. Both guards survive the card's removal.
    */
   check(/await ensureBaseSepolia\(\);/.test(page), "288 · the chain is ensured before the payment is signed");
-  check(/Wrong chain, switch/.test(page) || /ensureBaseSepolia/.test(page.slice(page.indexOf("function AccountChip("), page.indexOf("function Mark("))),
+  /*
+   * Over the chip's own source, which this check could not read before.
+   *
+   * Its slice ran from AccountChip to "function Mark(", and the first function
+   * whose name began that way was MarkReceipt, four hundred lines above the
+   * chip: the slice was empty every time and the sentence was found on the page
+   * at large by the disjunct beside it. The marks are gone, so the anchor now
+   * lands on the brand mark below the chip, and the check reads the region it
+   * names. A control proves the slice is not empty again.
+   */
+  const chipRegion = page.slice(page.indexOf("function AccountChip("), page.indexOf("function Mark()"));
+  check(chipRegion.length > 0 && chipRegion.length < page.length, `288a0 · the chip's own source is found (negative control for the slice, ${chipRegion.length} characters)`);
+  check(/Wrong chain, switch/.test(chipRegion) && /onClick=\{onSwitch\}/.test(chipRegion),
     "288a · and the header's chip warns and offers the switch");
   check(!/const walletDone/.test(page), "288b · with no card left restating what the chip says");
 
@@ -881,7 +893,10 @@ export async function boardChecks(check: Check) {
     "288c · a wallet's refusal is remembered in the browser alone");
   const skipRegion = page.slice(page.indexOf("const SKIPPED ="), page.indexOf("export function identityChips"));
   check(skipRegion.length > 0 && !/fetch\(|body:|headers:/.test(skipRegion), "288c2 · and no request carries it");
-  check((skipRegion.match(/try \{/g) ?? []).length >= 2, "288c3 · with both halves guarded, since a browser may refuse storage");
+  const skipReaders = skipRegion.match(/globalThis\.localStorage\?\./g) ?? [];
+  check(skipReaders.length === 3, `288c3 · read, written and cleared, and nothing else touches the key (${skipReaders.length})`);
+  check((skipRegion.match(/try \{/g) ?? []).length === skipReaders.length,
+    `288c4 · each of the three guarded, since a browser may refuse storage (${(skipRegion.match(/try \{/g) ?? []).length})`);
 
   /*
    * WHAT DECLINING COSTS, MEASURED RATHER THAN PROMISED.
@@ -913,8 +928,106 @@ export async function boardChecks(check: Check) {
   setCapForTest(null);
   setRegistryForTest(undefined);
 
+  /*
+   * A DECLINE IS A DECISION, NOT A DOOR CLOSING.
+   *
+   * Driven as the sequence the ruling names rather than as three separate facts:
+   * one wallet declines, enrols from the account, and reaches the free read it
+   * had been refused. Each leg runs through the mechanism that decides it, the
+   * browser's own storage for the refusal and the cap for the allowance, and the
+   * same wallet carries through all three, so a leg that passed by accident on a
+   * fresh address cannot.
+   *
+   * `localStorage` is stood up here because node has none, which is also why
+   * every read of it in the page is guarded: without this the two halves would
+   * silently do nothing and the sequence would prove nothing.
+   */
+  const RETURNING = "0x3333333333333333333333333333333333333334";
+  const priorStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const cells = new Map<string, string>();
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (k: string) => cells.get(k) ?? null,
+      setItem: (k: string, v: string) => void cells.set(k, v),
+      removeItem: (k: string) => void cells.delete(k),
+    },
+  });
+
+  writeSkipped(RETURNING);
+  check(readSkipped(RETURNING), "318 · a wallet's decline is remembered for that wallet");
+  check(!readSkipped(DECLINED), "318a · and for no other (negative control)");
+  check(enrolmentState({ address: RETURNING, registration: "not-registered", skipped: true }) === "skipped",
+    "318b · so the page draws it as a wallet that went on without");
+
+  const returningTable = fakeVerifications();
+  const returningAt = new Date("2026-09-13T01:00:00Z");
+  const returningEnv = { HUMAN_ID_KEY: "k".repeat(40) } as never;
+  setClockForTest(() => returningAt);
+  setRegistryForTest(async () => 0n);
+  setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: returningTable, freePerDay: 2 });
+  check((await takeFreeRead(RETURNING, returningEnv, returningAt)) === false, "318c · and the allowance is closed to it, which is what declining costs");
+
+  // It enrols, from the account. This is the row the page's own route writes.
+  returningTable.rows.set(RETURNING.toLowerCase(), {
+    payer: RETURNING.toLowerCase(),
+    action: "enrol-agent",
+    nullifierDigest: "b".repeat(64),
+    credential: "proof_of_human",
+    verifiedAt: returningAt,
+    expiresAt: new Date(returningAt.getTime() + 86_400_000),
+  });
+  const nowStanding = await standingBehind(RETURNING, capFrom(), returningEnv, returningAt);
+  check(nowStanding !== null, `319 · once it enrols, somebody stands behind it (${JSON.stringify(nowStanding)})`);
+  clearSkipped(RETURNING);
+  check(!readSkipped(RETURNING), "319a · the decline is forgotten, so it is remembered only until the wallet enrols");
+  check(enrolmentState({ address: RETURNING, registration: "registered", skipped: true }) === "enrolled",
+    "319b · and a registration outranks a stored refusal even before the browser catches up");
+  check((await takeFreeRead(RETURNING, returningEnv, returningAt)) === true, "319c · so it reaches the free read it was refused");
+  /*
+   * And the page runs that clear, rather than the check having been the only
+   * caller. Read over the two effects that own the stored refusal, since
+   * `clearSkipped` appears in its own declaration as well.
+   */
+  const skipEffectsAt = page.indexOf("useEffect(() => setSkipped(readSkipped(address))");
+  const skipEffects = skipEffectsAt === -1 ? "" : page.slice(skipEffectsAt, skipEffectsAt + 700);
+  check(skipEffects.length > 0, "319d · the effects that own the refusal are found (negative control for the read)");
+  check(/registration !== "registered"/.test(skipEffects) && /clearSkipped\(address\)/.test(skipEffects) && /setSkipped\(false\)/.test(skipEffects),
+    "319e · and the page clears it on the registration answering registered, not only this check");
+  setCapForTest(null);
+  setClockForTest(undefined);
+  setRegistryForTest(undefined);
+  if (priorStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
+  else Object.defineProperty(globalThis, "localStorage", priorStorage);
+
+  /*
+   * The way back is drawn where having declined costs something, and twice.
+   *
+   * The account, where the allowance is counted, and the name dialog, where a
+   * request has nothing to stand on. Not on the board: there it would be the
+   * step the person declined, asked again on the surface they declined it to
+   * reach, and each site is behind the declined state so a wallet still being
+   * asked on the enrolment step is not asked a second time beside it.
+   */
+  const wayBackSites = (page.match(/<WayBack /g) ?? []).length;
+  const guardedSites = (page.match(/enrolment === "skipped" && <WayBack /g) ?? []).length;
+  check(wayBackSites === 2, `320 · the way back is drawn in two places (${wayBackSites})`);
+  check(guardedSites === wayBackSites, `320a · each behind the declined state and not one behind anything looser (${guardedSites})`);
+  // The account's own body, not the first IdentityChips on the page: the header
+  // draws the same chips above every screen, and anchoring on them found that one.
+  const accountAt = page.indexOf('className="ag-account-body"');
+  check(accountAt > 0 && /<WayBack /.test(page.slice(accountAt, accountAt + 500)), "320b · one of them in the account, under the chips it explains");
+  const nameDialogAt = page.indexOf('className="ag-run-dialog ag-name-dialog"');
+  check(nameDialogAt > 0 && /<WayBack /.test(page.slice(nameDialogAt, nameDialogAt + 800)), "320c · and one in the name dialog, where the request is refused for want of it");
+  const wayBackBody = page.slice(page.indexOf("function WayBack("), page.indexOf("function Board("));
+  check(wayBackBody.length > 0 && /<WorldIdCard payer=\{address\} onRegistered=\{onRegistered\} \/>/.test(wayBackBody),
+    "320d · and it draws the enrolment's own card rather than a second implementation of the widget");
+  const widgets = (page.match(/<WorldIdCard /g) ?? []).length;
+  check(widgets === 2, `320e · which the file holds twice, on the enrolment step and in this one component (${widgets})`);
+
   check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
-  check(/const onboarded = opensTheBoard\(enrolmentState\(/.test(page),
+  check(/const enrolment = enrolmentState\(\{ address, registration, skipped \}\);/.test(page) &&
+    /const onboarded = opensTheBoard\(enrolment\);/.test(page),
     "289a · and is derived from the reads rather than from a remembered yes");
   check(!/\{ id: "settings"/.test(page), "289b · settings is no longer a destination, since it is the way in");
 

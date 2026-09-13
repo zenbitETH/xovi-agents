@@ -982,6 +982,23 @@ export function writeSkipped(address: string | null): void {
 }
 
 /**
+ * Forget that this wallet declined, which happens the moment it enrols.
+ *
+ * A decline is remembered so the step is not put in front of somebody who
+ * already answered it, and that reason expires the second the answer changes. A
+ * wallet carrying both a registration and a stored refusal would be carried past
+ * the step by the refusal on the day its registration lapses, which is the one
+ * day it should be asked again.
+ */
+export function clearSkipped(address: string | null): void {
+  try {
+    globalThis.localStorage?.removeItem(skipKey(address));
+  } catch {
+    // As above: the browser refusing storage is not this page's to report.
+  }
+}
+
+/**
  * Who this agent is, as the two facts the page can stand behind.
  *
  * Drawn on every render from the two routes, never remembered, so a verification
@@ -1307,6 +1324,34 @@ function Enrol({
           )}
         </article>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The way back, for a wallet that went on without World ID.
+ *
+ * A decline is a decision and not a door closing: the same browser has to be
+ * able to reverse it without disconnecting the wallet or clearing storage. It is
+ * drawn in the two places where having declined costs something a person can
+ * see, the account where the allowance is counted and the name dialog where a
+ * request has nothing to stand on, and nowhere else. Not on the board, where it
+ * would be the step they just declined, asked again on the surface they declined
+ * it to reach.
+ */
+function WayBack({ address, onRegistered }: { address: `0x${string}` | null; onRegistered: () => void }) {
+  return (
+    <div className="ag-roll-stage ag-enrol-stage">
+      <article className="ag-roll-card ag-actor-human" data-position="current">
+        <h3 className="ag-panel-title">Verify with World ID</h3>
+        <span className="ag-chip ag-chip-idle">went on without it</span>
+        <p className="ag-sub">
+          Every read settles, there is no free allowance, no name is issued, and a run stops before proposing, because a
+          credential is minted for a wallet somebody stands behind.
+        </p>
+        <p className="ag-sub">World ID asserts that one person stands behind this wallet.</p>
+        <WorldIdCard payer={address} onRegistered={onRegistered} />
+      </article>
     </div>
   );
 }
@@ -2034,6 +2079,15 @@ export function AppShell() {
   }, []);
 
   useEffect(() => setSkipped(readSkipped(address)), [address]);
+  /* Remembered only until it enrols. The stored refusal is the record of a
+     decision this wallet has now reversed, and leaving it behind would carry a
+     wallet whose registration later lapses past the step it should be asked
+     again. */
+  useEffect(() => {
+    if (registration !== "registered") return;
+    clearSkipped(address);
+    setSkipped(false);
+  }, [registration, address]);
 
   useEffect(() => {
     if (address === null) {
@@ -2279,7 +2333,8 @@ export function AppShell() {
   // Connected and either enrolled or skipped. Re-derived on every render from the
   // read itself, so a remembered refusal never stands in for a registration that
   // is no longer there, and a registration that arrives opens the board at once.
-  const onboarded = opensTheBoard(enrolmentState({ address, registration, skipped }));
+  const enrolment = enrolmentState({ address, registration, skipped });
+  const onboarded = opensTheBoard(enrolment);
   const last = Math.max(0, lines.length - 1);
   // The person's hand wins over the wheel: while a card is pinned the dwell stops
   // advancing and the pager alone moves it.
@@ -2404,6 +2459,7 @@ export function AppShell() {
                   <div className="ag-identity">
                     <IdentityChips chips={identity} onName={() => nameDialog.current?.showModal()} />
                   </div>
+                  {enrolment === "skipped" && <WayBack address={address} onRegistered={() => setReadAgain(n => n + 1)} />}
                   <nav className="ag-tabs" aria-label="Account" style={{ "--xv-strip-n": ACCOUNT_TABS.length } as React.CSSProperties}>
                     <span
                       className="ag-tabs-indicator"
@@ -2476,6 +2532,7 @@ export function AppShell() {
               <button className="btn xv-action-outline ag-setup-do">Close</button>
             </form>
           </div>
+          {enrolment === "skipped" && <WayBack address={address} onRegistered={() => setReadAgain(n => n + 1)} />}
           <div className="ag-roll-stage ag-enrol-stage">
             <NameCard
               state={nameState}
