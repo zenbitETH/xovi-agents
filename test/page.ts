@@ -319,13 +319,43 @@ export async function pageChecks(check: Check) {
   check(/anchored on Ethereum Sepolia/.test(flatRecord), "238 · the page states that this confirmation is anchored");
   check(!/not anchored/i.test(ui), "238a · and never the opposite, which is the copy this replaced");
   check(/\{ANCHOR_259\.onchainUid\}/.test(ui), "238b · rendering the onchain identifier from the constant");
-  check(/^0x[0-9a-f]{64}$/.test(ANCHOR_259.onchainUid) && ANCHOR_259.attestedAt === 1789110516,
-    "238e · which is the value read from the chain, with the time getAttestation returns");
+  /*
+   * Pinned literally, all of them. A check that pins the time alone lets an
+   * identifier, an attester or a transaction hash drift by a digit and stay
+   * green, which the reviewer measured on 2026-09-12. These values were read
+   * from EAS 0xC2679fBD3ee79CBE1Ed3a5ED5E5C0a5e4E7D5E815e on chain 11155111
+   * with getAttestation, getTimestamp and the two receipts on 2026-09-12.
+   */
+  const CHAIN_READ_2026_09_12 = {
+    chainId: 11155111,
+    onchainUid: "0xf3e3edf3c8bf0051bc2d70848592846b0604f89bd0b9439c4ba06bccf0232044",
+    attester: "0x51F1D0074793E7Fa336f538299ad7D3e439e2b09",
+    attestedAt: 1789110516,
+    attestTx: "0xd86c2902aaf8cb0cebf529e4171f64bdd1b4235aa6f5e2eb419c1e044fca5538",
+    offchainUid: "0x3252123f3ac9e0521296847836c61f757c939e54b8892743fdf2f9f068b7a775",
+    timestampedAt: 1789110504,
+    timestampTx: "0x236b7c7a944d7e2354da9e9f80a2cfa97c8e7ea70ef1d65cceed3f7502fadfb3",
+  } as const;
+  check(
+    ANCHOR_259.chainId === CHAIN_READ_2026_09_12.chainId &&
+      ANCHOR_259.onchainUid === CHAIN_READ_2026_09_12.onchainUid &&
+      ANCHOR_259.attester === CHAIN_READ_2026_09_12.attester &&
+      ANCHOR_259.attestedAt === CHAIN_READ_2026_09_12.attestedAt &&
+      ANCHOR_259.attestTx === CHAIN_READ_2026_09_12.attestTx,
+    "238e · the onchain identifier, attester, time and transaction equal what getAttestation and the receipt returned from EAS on 11155111 on 2026-09-12",
+  );
+  check(
+    ANCHOR_259.offchainUid === CHAIN_READ_2026_09_12.offchainUid &&
+      ANCHOR_259.timestampedAt === CHAIN_READ_2026_09_12.timestampedAt &&
+      ANCHOR_259.timestampTx === CHAIN_READ_2026_09_12.timestampTx,
+    "238d · and the offchain identifier, its getTimestamp time and its transaction likewise",
+  );
   check(/\{ANCHOR_259\.offchainUid\}/.test(ui) && /\{ANCHOR_259\.timestampedAt\}/.test(ui),
     "238f · and the offchain identifier with the time getTimestamp returns");
   check(String(ANCHOR_259.offchainUid) !== String(ANCHOR_259.onchainUid) && ANCHOR_259.timestampedAt === 1789110504,
     "238g · the two identifiers share nothing, which is why each has its own call");
   check(/sepolia\.etherscan\.io\/tx\/\$\{ANCHOR_259\.attestTx\}/.test(ui), "238c · and linking the transaction that carries it");
+  check(/sepolia\.etherscan\.io\/tx\/\$\{ANCHOR_259\.timestampTx\}/.test(ui), "238h · and the timestamp's own transaction beside the offchain identifier, never the attestation's");
 
   /*
    * An empty proposals section must not read as "you proposed nothing".
