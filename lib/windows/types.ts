@@ -1,3 +1,11 @@
+/** The three species the board draws, in the order it draws them. Andersoni is
+ *  here because its absence is a fact worth showing, not because a stream exists.
+ *
+ *  It lives in this module rather than beside the loader because the page renders
+ *  it, and the loader reaches for the filesystem: importing that into a client
+ *  component pulls `fs` into the browser bundle, which is what the build said. */
+export const BOARD_SPECIES = ["mexicanum", "dumerilii", "andersoni"] as const;
+
 /**
  * The candidate window, v1, as agreed with the producer and frozen in
  * docs/spec/02-candidate-windows.md.

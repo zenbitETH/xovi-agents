@@ -1,4 +1,5 @@
 import type { HTTPPaymentStatus } from "@x402/core/client";
+import { MAX_PER_PAYMENT } from "./spend";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { privateKeyToAccount } from "viem/accounts";
@@ -35,7 +36,7 @@ function readConfig(env: EnvLike) {
     // default is not reached, but the cap is set explicitly anyway: the price comes
     // from the server in the challenge, and a client that will pay whatever it is
     // told is one typo away from paying it.
-    maxAmountPerPayment: env.AGENT_MAX_PER_PAYMENT ?? "$0.05",
+    maxAmountPerPayment: env.AGENT_MAX_PER_PAYMENT ?? MAX_PER_PAYMENT,
   };
 }
 

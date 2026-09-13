@@ -52,7 +52,17 @@ export const UNREGISTERED = 0n;
  *  claiming it. */
 export type HumanRegistry = (agent: `0x${string}`) => Promise<bigint>;
 
+let injectedRegistry: HumanRegistry | undefined;
+
+/** A seam, the one the name route already has, for the same reason: the branch
+ *  that matters is the one that holds a nullifier, and without a registry to
+ *  answer it is the branch no check can reach. */
+export function setRegistryForTest(registry: HumanRegistry | undefined) {
+  injectedRegistry = registry;
+}
+
 export function registryFrom(env: EnvLike = process.env): HumanRegistry {
+  if (injectedRegistry) return injectedRegistry;
   const address = (env.AGENTBOOK_ADDRESS ?? AGENTBOOK_ADDRESS_WORLDCHAIN) as `0x${string}`;
   const client = createPublicClient({
     chain: worldchain,

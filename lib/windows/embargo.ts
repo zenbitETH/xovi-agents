@@ -50,7 +50,9 @@ export function dropsForEmbargo(w: CandidateWindow, embargoed: Set<string>): boo
   return false;
 }
 
-export function applyEmbargo(windows: CandidateWindow[], env?: EnvLike) {
+// Generic, so what goes in comes out: the board's windows carry a day and a cast
+// would have thrown that away at the one boundary that must not lose it.
+export function applyEmbargo<T extends CandidateWindow>(windows: T[], env?: EnvLike) {
   const embargoed = embargoedAliases(env);
   const kept = windows.filter(w => !dropsForEmbargo(w, embargoed));
   return { kept, dropped: windows.length - kept.length };
