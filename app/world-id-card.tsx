@@ -129,7 +129,10 @@ export function WorldIdCard({ payer, onRegistered }: { payer: `0x${string}` | nu
       : !config
         ? "Enrollment is not configured on this deployment."
         : state === "idle"
-          ? `Verify with World ID from this page. ${KEEPS_SENTENCE}`
+          ? // Nothing. The title above says what this is, and what Zenbit keeps is
+            // in the details modal beside the buttons: an explanation standing in
+            // the step was the step explaining itself before anybody asked.
+            ""
           : state === "opening"
             ? "Sign with the wallet, then World ID opens."
             : state === "verifying"
@@ -140,12 +143,12 @@ export function WorldIdCard({ payer, onRegistered }: { payer: `0x${string}` | nu
 
   return (
     <>
-      <p className="ag-sub">{sentence}</p>
+      {sentence !== "" && <p className="ag-sub">{sentence}</p>}
 
       {/* ONE control, only where it can do something: a wallet, a configured
           deployment, and a state a person can act from. */}
       {payer !== null && config && (state === "idle" || state === "refused") && (
-        <button type="button" className="btn xv-action ag-setup-do" onClick={() => void begin()}>
+        <button type="button" className="btn xv-action ag-primary ag-step-do" onClick={() => void begin()}>
           {state === "refused" ? "Try again with World ID" : "Verify with World ID"}
         </button>
       )}

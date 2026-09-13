@@ -21,7 +21,7 @@ import { BOARD_SPECIES } from "~~/lib/windows/types";
 import { recoverConfirmer } from "~~/lib/anchor/confirmation";
 import { decisionCode } from "~~/lib/anchor/schema";
 import { ANCHOR_259, CONFIRMATION_259 } from "~~/lib/anchor/confirmation-259";
-import { WorldIdCard } from "./world-id-card";
+import { KEEPS_SENTENCE, WorldIdCard } from "./world-id-card";
 import { NameCard } from "./name-card";
 
 const REPO = "https://github.com/zenbitETH/xovi-agents";
@@ -1449,35 +1449,6 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
   );
 }
 
-/**
- * The newest recording on offer, read off the board rather than from anywhere new.
- *
- * The home embeds a recording rather than the live channel, because the channel's
- * live embed draws a dead player whenever the museum is not broadcasting, and a
- * page whose first element is broken says something about the rest of it. The
- * newest day on offer is the closest thing to live that is certainly playable.
- *
- * The id is already a served field on a cell, so nothing new crosses the wire and
- * nothing new enters the tree for this.
- *
- * **A day can carry more than one recording, and one of them is drawn.** The days
- * are cut per species, so 2026-09-09 holds two on the snapshot this deployment
- * serves. The tie goes to the first cell in the board's own row order, which is
- * the first species in `BOARD_SPECIES` that has a recording that day: the reduce
- * below takes a strictly later day, so the earliest cell of the newest day
- * survives every comparison. That is a rule rather than an accident and the
- * caption says "a recording of that day" rather than "the recording", because the
- * home shows one of two and naming it as the day's own would be a claim the board
- * contradicts one screen later.
- */
-export function newestRecording(cells: { day: string; onOffer: boolean; videoId?: string }[]): { day: string; videoId: string } | null {
-  const playable = cells.filter(c => c.onOffer && c.videoId !== undefined && c.day !== "");
-  if (playable.length === 0) return null;
-  // Strictly later, so a tie keeps the earlier cell: the first species in the
-  // board's row order that has one. `>=` here would silently take the last.
-  const newest = playable.reduce((a, b) => (b.day > a.day ? b : a));
-  return { day: newest.day, videoId: newest.videoId as string };
-}
 
 /**
  * What happens here, at the highest level, for somebody who has just arrived.
@@ -1505,47 +1476,30 @@ export const PROCESS: { title: string; line: string }[] = [
 ];
 
 /**
- * The default home, before a wallet is connected.
+ * The root, before a wallet is connected.
  *
- * The onboarding's own cards are not here: they are about a wallet and there is
- * none yet, and a checklist a person cannot act on is a wall with steps drawn on
- * it. What is here is a recording that plays and five cards saying what this is.
+ * Three things: the mark, where it was built, and the way in. It carried a
+ * recording of the museum's own stream and five cards describing the process,
+ * and the founder read that as a page explaining itself to somebody who had not
+ * asked yet. The five cards said what the surfaces behind the button already
+ * say, and the recording was the only third party this page loaded at rest.
+ *
+ * **The same mark the header draws**, the component rather than a second copy of
+ * its paths, sized by the stylesheet. Nothing here reaches an origin Zenbit does
+ * not serve, which is what `DISCLOSURE.md` now states of the page at rest.
  */
-function Home({ newest }: { newest: { day: string; videoId: string } | null }) {
+function Home({ onConnect, connecting }: { onConnect: () => void; connecting: boolean }) {
   return (
     <div className="ag-home">
-      {newest !== null && (
-        <div className="ag-stream">
-          <iframe
-            className="ag-stream-frame"
-            src={`https://www.youtube-nocookie.com/embed/${newest.videoId}`}
-            title={`A recording of ${newest.day}`}
-            loading="lazy"
-            allow="encrypted-media; picture-in-picture"
-            referrerPolicy="strict-origin-when-cross-origin"
-          />
-          <p className="ag-sub">
-            A recording of {newest.day}, from the museum's own stream. The windows on offer are spans of recordings
-            like this one that a machine thinks a person should look at. The clips a person has confirmed are public:{" "}
-            <a className="ag-link" href="https://xovi.axolodao.org/galeria">
-              the gallery
-            </a>
-            .
-          </p>
-        </div>
-      )}
-
-      <ol className="ag-process">
-        {PROCESS.map((step, i) => (
-          <li key={step.title} className="ag-process-card">
-            <span className="ag-process-n" aria-hidden="true">
-              {i + 1}
-            </span>
-            <h3 className="ag-process-title">{step.title}</h3>
-            <p className="ag-sub">{step.line}</p>
-          </li>
-        ))}
-      </ol>
+      <span className="ag-home-brand">
+        <Mark />
+        <span className="ag-wordmark">xovi</span>
+        <span className="ag-wordmark-sub">agents</span>
+      </span>
+      <p className="ag-home-built">Built at ETH Online 2026</p>
+      <button className="btn xv-action ag-primary ag-home-do" onClick={onConnect} disabled={connecting}>
+        {connecting ? "Connecting" : "Connect wallet"}
+      </button>
     </div>
   );
 }
@@ -1553,17 +1507,18 @@ function Home({ newest }: { newest: { day: string; videoId: string } | null }) {
 /**
  * The one step between a connected wallet and the board.
  *
- * Drawn as the run is drawn: a line of states beside one card, so the two moments
- * a person spends here look like one page rather than two. Three nodes, because a
- * person wants to know where they are and what follows, and only the middle one
- * asks anything of them.
+ * **One step, and it is optional.** A person who declines goes on, pays for every
+ * read, earns no allowance and gets no name, and their run stops before
+ * proposing. That is a worse deal and an honest one, and it is theirs to take,
+ * which is why the decline's own label carries the short form of the cost rather
+ * than leaving it to prose beside the button.
  *
- * **The card offers and does not require.** A person who declines goes on, pays for
- * every read, earns no allowance and gets no name, and their run stops before
- * proposing. The wallet card is gone: the header's chip already draws the address,
- * the chain and the switch, and a card restating it was a step that completed
- * itself. The name card is gone from here too: issuing is Zenbit's own work and
- * holding somebody at it was the founder's finding.
+ * Not a card. It was one roll card in a stage sized for the run's wheel, which
+ * put a step that asks one question inside a frame built to hold a moving one.
+ * The step is the space: a title, the two ways out of it, and two quiet controls
+ * in the corners. Every explanatory sentence, the keeps sentence among them, is
+ * behind See details, so what a person reads first is the question and the
+ * choice.
  */
 function Enrol({
   address,
@@ -1580,52 +1535,65 @@ function Enrol({
   onRetry: () => void;
   onSkip: () => void;
 }) {
-  const nodes = [
-    { label: "A wallet", state: "done" as const },
-    { label: "A person behind it", state: "at" as const },
-    { label: "The board", state: "ahead" as const },
-  ];
+  const details = useRef<HTMLDialogElement | null>(null);
+  const undecided = registration === "not-registered" || registration === "unread";
   return (
-    <div className="ag-roll ag-enrol">
-      <nav className="ag-steps" aria-label="Before the board">
-        <span className="ag-steps-spine" aria-hidden="true" />
-        {nodes.map(node => (
-          <span key={node.label} className="ag-steps-item" data-state={node.state} aria-current={node.state === "at" ? "step" : undefined}>
-            <span className="ag-steps-dot" aria-hidden="true" />
-            <span className="ag-steps-label">{node.label}</span>
-          </span>
-        ))}
-      </nav>
+    <div className="ag-step">
+      <h2 className="ag-step-title">Verify a person is behind the agent</h2>
+      <span className={registration === "registered" ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>
+        {registrationPill(registration === "registered" ? "done" : "todo", source)}
+      </span>
 
-      <div className="ag-roll-stage ag-enrol-stage">
-        <article className="ag-roll-card ag-actor-human">
-          <h3 className="ag-panel-title">A person behind the agent</h3>
-          <span className={registration === "registered" ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>
-            {registrationPill(registration === "registered" ? "done" : "todo", source)}
-          </span>
+      <div className="ag-step-do-row">
+        {/* A step already done draws no control for doing it: a registered wallet
+            is told its state and asked for nothing. */}
+        {registration !== "registered" && <WorldIdCard payer={address} onRegistered={onRetry} />}
+        {undecided && (
+          <button type="button" className="btn xv-action-outline ag-step-do" onClick={onSkip}>
+            Skip World ID, pay every read
+          </button>
+        )}
+      </div>
+
+      <div className="ag-step-corners">
+        {/* Bottom left, and a text control rather than a button: it opens a
+            reading, it does not take the step anywhere. */}
+        <button type="button" className="ag-step-details" onClick={() => details.current?.showModal()}>
+          See details
+        </button>
+        {/* Bottom right, and small: re-reading is a thing a person does when an
+            answer did not arrive, not one of the two choices. */}
+        {undecided && (
+          <button type="button" className="ag-chip ag-chip-idle ag-chip-do ag-step-again" onClick={onRetry}>
+            {registration === "unread" ? "Read it again" : "Check again"}
+          </button>
+        )}
+      </div>
+
+      <dialog ref={details} className="ag-run-dialog ag-step-modal" tabIndex={-1} aria-labelledby="step-details-head">
+        <div className="ag-run-dialog-head">
+          <h2 id="step-details-head" className="ag-run-thesis">
+            What this step is, and what it costs to skip it
+          </h2>
+        </div>
+        <div className="ag-run-dialog-body">
+          <p className="ag-sub">World ID asserts that one person stands behind this wallet.</p>
+          <p className="ag-sub">{KEEPS_SENTENCE}</p>
           <p className="ag-sub">{registrationLine(registration, source)}</p>
           {credential !== null && <p className="ag-account-address">World ID credential: {credential}</p>}
-          <p className="ag-sub">World ID asserts that one person stands behind this wallet.</p>
-          {/* A step already done draws no control for doing it: a registered wallet
-              is told its state and asked for nothing. */}
-          {registration !== "registered" && <WorldIdCard payer={address} onRegistered={onRetry} />}
-          {(registration === "not-registered" || registration === "unread") && (
-            <>
-              <button type="button" className="btn xv-action-outline ag-setup-do" onClick={onRetry}>
-                {registration === "unread" ? "Read it again" : "Check again"}
-              </button>
-              {/* The worse deal, stated rather than hidden behind a smaller word. */}
-              <button type="button" className="btn xv-action-outline ag-setup-do" onClick={onSkip}>
-                Go on without World ID
-              </button>
-              <p className="ag-sub">
-                Without it every read settles, there is no free allowance, no name is issued, and a run stops before
-                proposing, because a credential is minted for a wallet somebody stands behind.
-              </p>
-            </>
-          )}
-        </article>
-      </div>
+          <p className="ag-sub">
+            Skipping is allowed and costs this: every read settles, there is no free allowance, no name is issued, and a
+            run stops before proposing, because a credential is minted for a wallet somebody stands behind.
+          </p>
+        </div>
+        <div className="ag-run-dialog-foot">
+          <form method="dialog">
+            <button type="submit" className="btn xv-action ag-run-close ag-run-close-ready">
+              Close
+            </button>
+          </form>
+        </div>
+      </dialog>
     </div>
   );
 }
@@ -2852,11 +2820,11 @@ export function AppShell() {
             <span className="ag-wordmark-sub">agents</span>
           </a>
           <div className="ag-header-right">
-            {address === null ? (
-              <button className="btn xv-action ag-primary" onClick={onConnect} disabled={phase === "connecting"}>
-                {phase === "connecting" ? "Connecting" : "Connect wallet"}
-              </button>
-            ) : (
+            {/* Nothing here before a wallet connects. The root is the mark, the
+                line and the way in, and a second Connect wallet in the header
+                would be the same action twice on a screen that holds three
+                things. Check 279e requires exactly one of it on the page. */}
+            {address === null ? null : (
               <>
                 <StatusChip phase={phase} why={stoppedWhy} />
                 {/* Who the agent is, on every destination and not only on the cards
@@ -2927,7 +2895,7 @@ export function AppShell() {
                 // The default home. The onboarding's cards are about a wallet and
                 // there is none yet, so they are not drawn: a checklist nobody can
                 // act on is a wall with steps painted on it.
-                <Home newest={newestRecording(board.cells)} />
+                <Home onConnect={() => void onConnect()} connecting={phase === "connecting"} />
               ) : !onboarded ? (
                 <Enrol
                   address={address}
