@@ -54,4 +54,11 @@ export const ANCHOR_259 = {
   attester: "0x51F1D0074793E7Fa336f538299ad7D3e439e2b09",
   attestedAt: 1789110516,
   attestTx: "0xd86c2902aaf8cb0cebf529e4171f64bdd1b4235aa6f5e2eb419c1e044fca5538",
+  // The offchain identifier, which keys the payload endpoint and shares nothing
+  // with the one above. `getTimestamp` returns 1789110504 for it, and
+  // `getAttestation` returns the empty struct, which is the page's own claim
+  // about the wrong call beside the wrong identifier, confirmed by making it.
+  offchainUid: "0x3252123f3ac9e0521296847836c61f757c939e54b8892743fdf2f9f068b7a775",
+  timestampedAt: 1789110504,
+  timestampTx: "0x236b7c7a944d7e2354da9e9f80a2cfa97c8e7ea70ef1d65cceed3f7502fadfb3",
 } as const;

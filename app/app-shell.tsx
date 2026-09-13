@@ -1333,16 +1333,27 @@ function Records() {
               <dt>attested at</dt>
               <dd className="ag-ticket-hash">{ANCHOR_259.attestedAt}</dd>
             </div>
+            <div>
+              <dt>offchain identifier</dt>
+              <dd className="ag-ticket-hash">{ANCHOR_259.offchainUid}</dd>
+            </div>
+            <div>
+              <dt>timestamped at</dt>
+              <dd className="ag-ticket-hash">{ANCHOR_259.timestampedAt}</dd>
+            </div>
           </dl>
           <a className="ag-link ag-ticket-link" href={`https://sepolia.etherscan.io/tx/${ANCHOR_259.attestTx}`}>
             Read the attestation transaction
+          </a>
+          <a className="ag-link ag-ticket-link" href={`https://sepolia.etherscan.io/tx/${ANCHOR_259.timestampTx}`}>
+            Read the timestamp transaction
           </a>
           <p className="ag-sub">
             An anchored confirmation carries two identifiers that share nothing. This is the onchain one, which a query
             returns and which getAttestation answers with the schema, the attester and the encoded fields. The offchain
             one keys the payload endpoint and its time is read with getTimestamp, which answers with a time and no
             fields; getAttestation asked for an offchain identifier returns an empty struct, which is a badge with no
-            check behind it. This page does not print the offchain identifier, because it does not hold its value.
+            check behind it. Both are named above, each linked to the transaction that carries it.
           </p>
         </section>
       </section>

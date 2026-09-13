@@ -321,6 +321,10 @@ export async function pageChecks(check: Check) {
   check(/\{ANCHOR_259\.onchainUid\}/.test(ui), "238b · rendering the onchain identifier from the constant");
   check(/^0x[0-9a-f]{64}$/.test(ANCHOR_259.onchainUid) && ANCHOR_259.attestedAt === 1789110516,
     "238e · which is the value read from the chain, with the time getAttestation returns");
+  check(/\{ANCHOR_259\.offchainUid\}/.test(ui) && /\{ANCHOR_259\.timestampedAt\}/.test(ui),
+    "238f · and the offchain identifier with the time getTimestamp returns");
+  check(String(ANCHOR_259.offchainUid) !== String(ANCHOR_259.onchainUid) && ANCHOR_259.timestampedAt === 1789110504,
+    "238g · the two identifiers share nothing, which is why each has its own call");
   check(/sepolia\.etherscan\.io\/tx\/\$\{ANCHOR_259\.attestTx\}/.test(ui), "238c · and linking the transaction that carries it");
 
   /*
