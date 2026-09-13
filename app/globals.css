@@ -564,9 +564,11 @@ body::after {
   opacity: 0.7;
 }
 
+/* One step down the page's own scale, which steps by 0.0625rem: every card and
+   section description is 0.75rem and the headings above them do not move. */
 .ag-sub {
   font-family: var(--font-sans), system-ui, sans-serif;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   opacity: 0.7;
   margin: 0;
 }
@@ -1492,6 +1494,41 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   flex-wrap: wrap;
   gap: 0.375rem;
   margin-bottom: 0.75rem;
+}
+
+/* The default home: a recording that plays and the five cards saying what this is. */
+.ag-home {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* One kind of card, filling the width, stacking on a phone. The order is the
+   point, so the cards are numbered and the number is drawn quietly. */
+.ag-process {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ag-process-card {
+  position: relative;
+  padding: 0.875rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  border-radius: 0.75rem;
+  background-color: color-mix(in srgb, var(--color-base-content) 4%, transparent);
+}
+
+.ag-process-n {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--color-xv-gold);
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1;
 }
 
 .ag-setup-do {

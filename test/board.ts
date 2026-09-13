@@ -12,7 +12,7 @@ import { setRegistryForTest } from "../lib/human/registry";
 import { setCapForTest } from "../lib/human/cap";
 import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
-import { CREDENTIAL_REFUSED, NO_CREDENTIAL, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, onboardingFrom, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
+import { CREDENTIAL_REFUSED, newestRecording, NO_CREDENTIAL, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, onboardingFrom, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
 
@@ -495,6 +495,60 @@ export async function boardChecks(check: Check) {
   check(/data-state=\{i < at \? "done" : i === at \? "at" : "ahead"\}/.test(roll),
     "324c · the three states are the wheel's own arithmetic and not a second count");
   check(/aria-current=\{i === at \? "step" : undefined\}/.test(roll), "324d · with the one being read named to a screen reader");
+
+  /*
+   * THE DEFAULT HOME, BEFORE A WALLET.
+   *
+   * The onboarding's cards are about a wallet, and a checklist a person cannot act
+   * on is a wall with steps painted on it, so at rest the page carries a recording
+   * that plays and five cards saying what this is. The live channel is gone: its
+   * embed draws a dead player whenever the museum is not broadcasting, and a page
+   * whose first element is broken says something about the rest of it.
+   */
+  const homeStart = page.indexOf("function Home(");
+  const homeEnd = page.indexOf("function Onboarding(");
+  check(homeStart > 0 && homeEnd > homeStart, "325 · the home is found (negative control for the slice)");
+  const home = page.slice(homeStart, homeEnd);
+  /*
+   * The condition tied to the element rather than found somewhere on the page.
+   *
+   * `address === null` occurs more than once, so a first version matched another
+   * branch entirely and stayed green while the home was rendered by nothing.
+   */
+  const homeAt = page.indexOf("<Home newest={newestRecording(board.cells)} />");
+  check(homeAt > 0, "325a0 · the home is rendered (negative control for the read)");
+  check(/address === null \? \($/.test(page.slice(Math.max(0, homeAt - 400), homeAt).replace(/[\s\S]*?(address === null \? \()/, "$1").split("\n")[0]) ||
+    /address === null \? \(/.test(page.slice(Math.max(0, homeAt - 400), homeAt)),
+    "325a · drawn when no wallet is connected, and its recording read off the board");
+  check(!/live_stream/.test(page), "325b · with the live channel embedded nowhere");
+  check(/youtube-nocookie\.com\/embed\/\$\{newest\.videoId\}/.test(home), "325c · and the recording on the host that sets no cookie");
+  const newest = newestRecording([
+    { day: "2026-09-04", onOffer: true, videoId: "older" },
+    { day: "2026-09-09", onOffer: true, videoId: "newest" },
+    { day: "2026-09-12", onOffer: false, videoId: "notOnOffer" },
+  ]);
+  check(newest?.videoId === "newest" && newest.day === "2026-09-09", `325d · the newest recording on offer is the one embedded (${JSON.stringify(newest)})`);
+  check(newestRecording([{ day: "2026-09-04", onOffer: true }]) === null,
+    "325e · and a board that serves no recording embeds none rather than guessing one");
+  const cards = (home.match(/ag-process-card/g) ?? []).length;
+  // The array itself, not the file around it: counting `title:` across the page
+  // found nine, none of them these, and reading to the next function swept in a
+  // comment whose own prose used the words this refuses.
+  const processArray = /const PROCESS: \{ title: string; line: string \}\[\] = \[([\s\S]*?)\n\];/.exec(page)?.[1] ?? "";
+  check(processArray.length > 0, "325f0 · the process array is found (negative control for the read)");
+  const titles = (processArray.match(/title: "/g) ?? []).length;
+  check(titles >= 3 && titles <= 5, `325f · the process is three to five cards (${titles})`);
+  check(cards === 1 && /PROCESS\.map/.test(home), "325g · drawn from one card of one kind");
+  /*
+   * No state on any of them, meaning no state of the person reading: these cards
+   * know nothing about a wallet. A cell being on offer is the board's own
+   * vocabulary rather than a state of anybody, so it is not among these.
+   */
+  const stateWords = processArray.match(/\b(not yet|waiting|done|registered|issued|requested|skipped|enrolled)\b/gi) ?? [];
+  check(stateWords.length === 0, `325h · and says nothing about the reader's state (${stateWords.join(", ") || "none"})`);
+  check(/\bnot yet\b/i.test("a card saying not yet"), "325i · the state check can see one (negative control)");
+  const subRule = /\.ag-sub\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/font-size:\s*0\.75rem/.test(subRule), `325j · the descriptions are one step down the page's own scale (${/font-size:[^;]*/.exec(subRule)?.[0] ?? "none"})`);
   /*
    * Three rows, so a neighbour cannot sit on the state being read.
    *
@@ -685,8 +739,19 @@ export async function boardChecks(check: Check) {
   // Over a copy with the comments stripped, for the reason 279e strips them: the
   // note explaining where the action lives names the action.
   const renderedPage = page.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-  const payControls = (renderedPage.match(/"Pay and run"/g) ?? []).length;
-  check(payControls === 1, `284f · and exists exactly once on the page (${payControls})`);
+  /*
+   * One CONTROL, counted as a control rather than as a string.
+   *
+   * The home's process card names the step the button performs, which is the same
+   * name on purpose: an action keeps its name through the flow, and a card that
+   * called it something else would teach a person two words for one thing. What
+   * must be unique is the thing that acts, so this counts the label inside a
+   * button rather than every occurrence of the words.
+   */
+  const payControls = (renderedPage.match(/<button[\s\S]{0,400}?>[^<]*Pay and run/g) ?? []).length;
+  check(payControls === 1, `284f · and exists exactly once as a control (${payControls})`);
+  check((renderedPage.match(/Pay and run/g) ?? []).length > payControls,
+    "284f2 · while the step it performs is named elsewhere without being a second one (negative control)");
   // The blur is on the page. The stylesheet's rule against backdrop-filter and
   // the check that holds it are untouched.
   check(/body:has\(\.ag-run-dialog\[open\]\)\s+\.ag-surface\s*\{[^}]*filter:\s*blur\([^)]+\)[^}]*\}/.test(css),

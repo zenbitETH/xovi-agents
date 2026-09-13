@@ -24,9 +24,6 @@ import { NameCard } from "./name-card";
 
 const REPO = "https://github.com/zenbitETH/xovi-agents";
 
-/** The channel the windows are cut from, which the fixtures already name. */
-const CHANNEL = "UCAwjFyErB8f18Ufwj_TUJfA";
-
 /**
  * A head line per screen, the mockup's `shead`: one title and one sub.
  *
@@ -1146,6 +1143,85 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
   );
 }
 
+/**
+ * The newest recording on offer, read off the board rather than from anywhere new.
+ *
+ * The home embeds a recording rather than the live channel, because the channel's
+ * live embed draws a dead player whenever the museum is not broadcasting, and a
+ * page whose first element is broken says something about the rest of it. The
+ * newest day on offer is the closest thing to live that is certainly playable.
+ *
+ * The id is already a served field on a cell, so nothing new crosses the wire and
+ * nothing new enters the tree for this.
+ */
+export function newestRecording(cells: { day: string; onOffer: boolean; videoId?: string }[]): { day: string; videoId: string } | null {
+  const playable = cells.filter(c => c.onOffer && c.videoId !== undefined && c.day !== "");
+  if (playable.length === 0) return null;
+  const newest = playable.reduce((a, b) => (b.day > a.day ? b : a));
+  return { day: newest.day, videoId: newest.videoId as string };
+}
+
+/**
+ * What happens here, at the highest level, for somebody who has just arrived.
+ *
+ * Numbered because the order is the point: each step is only available once the
+ * one before it has happened. No state on any of them, since none of these cards
+ * knows anything about the person reading it.
+ */
+const PROCESS: { title: string; line: string }[] = [
+  { title: "Connect a wallet", line: "On Base Sepolia, which is where the payment settles." },
+  { title: "Verify with World ID", line: "Optional. It earns the free reads of the day and a name under xovi.eth." },
+  { title: "Choose a day and a species", line: "A board of what is on offer, cut from recordings of the museum's own stream." },
+  { title: "Pay and run", line: "The agent reads the windows it was paid for and proposes one clip." },
+  { title: "A person decides", line: "Somebody confirms or rejects the proposal, signs it, and the record follows." },
+];
+
+/**
+ * The default home, before a wallet is connected.
+ *
+ * The onboarding's own cards are not here: they are about a wallet and there is
+ * none yet, and a checklist a person cannot act on is a wall with steps drawn on
+ * it. What is here is a recording that plays and five cards saying what this is.
+ */
+function Home({ newest }: { newest: { day: string; videoId: string } | null }) {
+  return (
+    <div className="ag-home">
+      {newest !== null && (
+        <div className="ag-stream">
+          <iframe
+            className="ag-stream-frame"
+            src={`https://www.youtube-nocookie.com/embed/${newest.videoId}`}
+            title={`The recording of ${newest.day}`}
+            loading="lazy"
+            allow="encrypted-media; picture-in-picture"
+            referrerPolicy="strict-origin-when-cross-origin"
+          />
+          <p className="ag-sub">
+            The recording of {newest.day}, from the museum's own stream. The windows on offer are spans of recordings
+            like this one that a machine thinks a person should look at. The clips a person has confirmed are public:{" "}
+            <a className="ag-link" href="https://xovi.axolodao.org/galeria">
+              the gallery
+            </a>
+            .
+          </p>
+        </div>
+      )}
+
+      <ol className="ag-process">
+        {PROCESS.map((step, i) => (
+          <li key={step.title} className="ag-process-card">
+            <span className="ag-process-n" aria-hidden="true">
+              {i + 1}
+            </span>
+            <h3 className="ag-panel-title">{step.title}</h3>
+            <p className="ag-sub">{step.line}</p>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function Onboarding({
   address,
   chain,
@@ -1184,30 +1260,6 @@ function Onboarding({
 
   return (
     <div className="ag-setup">
-      {/* The context, before the steps: what the windows are spans of.
-          **The one runtime external element on this page.** A plain iframe of the
-          public live stream, no API key, no cookie set by this page, nothing read
-          back from it. It is also the first third party origin the page loads
-          from, which the disclosure's built list records. */}
-      <div className="ag-stream">
-        <iframe
-          className="ag-stream-frame"
-          src={`https://www.youtube-nocookie.com/embed/live_stream?channel=${CHANNEL}&autoplay=0`}
-          title="The public livestream"
-          loading="lazy"
-          allow="encrypted-media; picture-in-picture"
-          referrerPolicy="strict-origin-when-cross-origin"
-        />
-        <p className="ag-sub">
-          A window is a span of this stream that a machine thinks a person should look at. It is not a claim that an
-          animal was identified or that a behaviour occurred. The clips a person has confirmed are public:{" "}
-          <a className="ag-link" href="https://xovi.axolodao.org/galeria">
-            the gallery
-          </a>
-          .
-        </p>
-      </div>
-
       <ol className="ag-cards ag-setup-cards">
         <li className={cls("wallet")}>
           <h3 className="ag-panel-title">A wallet on Base Sepolia</h3>
@@ -1800,7 +1852,12 @@ export function AppShell() {
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>("board");
   const [chosen, setChosen] = useState<Chosen | null>(null);
-  const [board, setBoard] = useState<{ days: string[]; cells: { day: string; species: string; onOffer: boolean }[] }>({ days: [], cells: [] });
+  /** `videoId` rides on a cell only where the board serves it, which is what the
+   *  home's recording is read from; without it the home carries the cards alone. */
+  const [board, setBoard] = useState<{ days: string[]; cells: { day: string; species: string; onOffer: boolean; videoId?: string }[] }>({
+    days: [],
+    cells: [],
+  });
   const [boardState, setBoardState] = useState<"loading" | "ready" | "unconfigured" | "failed">("loading");
   const [registration, setRegistration] = useState<Registration>("reading");
   /** Which source answered, and what it carried. Null until an answer names one. */
@@ -1977,7 +2034,7 @@ export function AppShell() {
       .then(async r => {
         if (r.status === 503) return "unconfigured" as const;
         if (!r.ok) throw new Error(String(r.status));
-        return (await r.json()) as { days: string[]; cells: { day: string; species: string; onOffer: boolean }[] };
+        return (await r.json()) as { days: string[]; cells: { day: string; species: string; onOffer: boolean; videoId?: string }[] };
       })
       .then(answer => {
         if (!live) return;
@@ -2332,7 +2389,12 @@ export function AppShell() {
 
           <div className="ag-app-body">
             <div className="ag-app-scroll">
-              {!onboarded ? (
+              {address === null ? (
+                // The default home. The onboarding's cards are about a wallet and
+                // there is none yet, so they are not drawn: a checklist nobody can
+                // act on is a wall with steps painted on it.
+                <Home newest={newestRecording(board.cells)} />
+              ) : !onboarded ? (
                 <Onboarding
                   address={address}
                   chain={chain}
