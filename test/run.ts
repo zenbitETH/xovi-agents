@@ -34,15 +34,36 @@ import { mcpChecks } from "./mcp";
 import { pageChecks } from "./page";
 import { agentRunChecks } from "./agent-run";
 import { boardChecks } from "./board";
+import { credentialChecks } from "./credential";
+import { enrolChecks } from "./enrol";
+import { ensChecks } from "./ens";
+import { verificationChecks } from "./verifications";
 import { nameChecks } from "./name";
+import { namesChecks } from "./names";
 import { proposalsChecks } from "./proposals";
 import { receiptsChecks } from "./receipts";
 
 let n = 0;
 let bad = 0;
+/**
+ * Every id this run printed, so two checks cannot quietly share one.
+ *
+ * Two branches merged holding the same free range and the suite stayed green:
+ * twenty seven ids were printed twice, every one of them passing, and a finding
+ * cited by number pointed at two different properties. Counted at runtime rather
+ * than read from the files, because the ids that collide are the ones that run,
+ * and two arms of one try and its catch may share a number since only one of them
+ * ever prints.
+ */
+/** Named apart from the two locals inside `main` that are also called `seen`: the
+ *  first version was shadowed by one of them and counted responses, which the type
+ *  checker caught and a reading of the file would not have. */
+const idsSeen = new Map<string, number>();
 const check = (ok: boolean, label: string) => {
   n++;
   if (!ok) bad++;
+  const id = /^([0-9]+[a-z0-9]*)\s·/.exec(label)?.[1];
+  if (id) idsSeen.set(id, (idsSeen.get(id) ?? 0) + 1);
   console.log(`    ${ok ? "ok  " : "FAIL"} ${label}`);
 };
 
@@ -590,7 +611,7 @@ async function main() {
   // calls, and only a counter can hold it.
   let asked = 0;
   const counting = { ...store, recordReceipt: async () => { asked++; return true; } };
-  setCapForTest({ registry: null as never, store: counting as never, freePerDay: 0 });
+  setCapForTest({ registry: null as never, store: counting as never, verifications: null, freePerDay: 0 });
   const refusal = await capturingWarn(() => recordSettlement(fabricated));
   check(asked === 0, "100c · and recordSettlement never reaches the store with it");
   check(refusal.warned.length === 1 && /ledger guard/.test(refusal.warned[0]) && refusal.warned[0].includes(FABRICATED_TX),
@@ -648,6 +669,7 @@ async function main() {
   setCapForTest({
     registry: fakeRegistry({ [payerA.address]: HUMAN_A, [payerB.address]: HUMAN_A }).read,
     store: capStore,
+    verifications: null,
     freePerDay: 2,
   });
 
@@ -755,9 +777,31 @@ async function main() {
   await receiptsChecks(check);
   await proposalsChecks(check);
   await nameChecks(check);
+  await namesChecks(check);
   await boardChecks(check);
+  await verificationChecks(check);
+  await enrolChecks(check);
+  await credentialChecks(check);
+  await ensChecks(check);
 
   await pageChecks(check);
+
+  const shared = [...idsSeen.entries()].filter(([, times]) => times > 1).map(([id, times]) => `${id} ${times} times`);
+  check(shared.length === 0, `354 · no two checks in this run share an id (${shared.join(", ") || "none shared"})`);
+  /*
+   * And every check carried one, which is the half 354 cannot see.
+   *
+   * 354 reads the ids it could parse, so a label with no id at its front escapes
+   * the count and the comparison both, and the run would look clean because the
+   * thing that could collide was never counted. Reconciling the total against the
+   * number of checks closes that, and it is reported as a sum rather than as a
+   * bare count of distinct ids: the first version printed `740 distinct` beside
+   * 741 checks, which is the map read one check before its own id lands in it,
+   * and a number nobody can reconcile invites the reading that two ids repeat
+   * when none does.
+   */
+  const counted = [...idsSeen.values()].reduce((total, times) => total + times, 0);
+  check(counted === n, `354a · and every check carried one (${counted} ids over ${n} checks)`);
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;

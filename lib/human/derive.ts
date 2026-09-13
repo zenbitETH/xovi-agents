@@ -21,12 +21,18 @@ import type { EnvLike } from "../agent/pay";
  */
 export class NoDerivationKey extends Error {}
 
+/** One rule for what counts as a key, so a caller that wants to refuse BEFORE
+ *  spending something (a verification, say) asks the same question the
+ *  derivation asks rather than a copy of it. */
+export function derivationKeyPresent(env: EnvLike = process.env): boolean {
+  return (env.HUMAN_ID_KEY ?? "").trim().length >= 32;
+}
+
 export function deriveIdentifier(identifier: bigint, env: EnvLike = process.env): string {
-  const key = (env.HUMAN_ID_KEY ?? "").trim();
-  if (key.length < 32) {
+  if (!derivationKeyPresent(env)) {
     throw new NoDerivationKey("HUMAN_ID_KEY is missing or shorter than 32 characters");
   }
-  return createHmac("sha256", key).update(identifier.toString()).digest("hex");
+  return createHmac("sha256", (env.HUMAN_ID_KEY ?? "").trim()).update(identifier.toString()).digest("hex");
 }
 
 /** Exported so a check can assert the derivation is stable and key dependent

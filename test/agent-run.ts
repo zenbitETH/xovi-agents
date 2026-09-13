@@ -10,6 +10,8 @@ import { startFakeIngest } from "./ingest";
 type Check = (ok: boolean, label: string) => void;
 
 const KEY = `0x${"ab".repeat(32)}` as const;
+/** The wallet the environment's credential belongs to: the one that signs here. */
+const KEY_PAYER = privateKeyToAccount(KEY).address;
 const PAY_TO = "0x000000000000000000000000000000000000dEaD";
 
 /** The handler, called in process, which is how the route itself calls it. */
@@ -77,6 +79,7 @@ export async function agentRunChecks(check: Check) {
       windowsFetch,
       ingestUrl: ingest.url,
       ingestKey: "k-test",
+      ingestKeyPayer: KEY_PAYER,
       ingestFetch: fetch,
     }),
   );
@@ -137,6 +140,7 @@ export async function agentRunChecks(check: Check) {
       windowsFetch,
       ingestUrl: ingest.url,
       ingestKey: "k-test",
+      ingestKeyPayer: KEY_PAYER,
       ingestFetch: fetch,
     }),
   );
@@ -173,7 +177,7 @@ export async function agentRunChecks(check: Check) {
   arrange("fixtures/windows.synthetic.jsonl");
   ingest.outcome = "duplicate";
   const headerWalk = await signAt(WINDOWS);
-  const walked = await collect(runOnce({ windowsUrl: WINDOWS, paymentHeader: headerWalk, windowsFetch, ingestUrl: ingest.url, ingestKey: "k-test" }));
+  const walked = await collect(runOnce({ windowsUrl: WINDOWS, paymentHeader: headerWalk, windowsFetch, ingestUrl: ingest.url, ingestKey: "k-test", ingestKeyPayer: KEY_PAYER }));
   const offered = walked.filter(s => s.step === "proposing").length;
   const refused = walked.filter(s => s.step === "declined" && s.kind === "duplicate").length;
   check(offered === 3 && refused === 3, `275 · every window in the cell is offered before the cell is called spent (${offered} offered, ${refused} refused)`);
@@ -183,7 +187,7 @@ export async function agentRunChecks(check: Check) {
   arrange("fixtures/windows.synthetic.jsonl");
   ingest.outcome = "created";
   const headerOne = await signAt(WINDOWS);
-  const proposedOnce = await collect(runOnce({ windowsUrl: WINDOWS, paymentHeader: headerOne, windowsFetch, ingestUrl: ingest.url, ingestKey: "k-test" }));
+  const proposedOnce = await collect(runOnce({ windowsUrl: WINDOWS, paymentHeader: headerOne, windowsFetch, ingestUrl: ingest.url, ingestKey: "k-test", ingestKeyPayer: KEY_PAYER }));
   check(proposedOnce.filter(s => s.step === "proposed").length === 1, "276 · a run proposes at most once");
   check(ingest.hits === 1, `276a · and stops asking after it does (${ingest.hits}, negative control for the walk)`);
   check(!names(proposedOnce).includes("cell-spent"), "276b · a cell with something new in it is never called spent");

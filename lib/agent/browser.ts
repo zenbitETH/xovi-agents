@@ -195,6 +195,20 @@ export function walletSigner(address: `0x${string}`) {
   };
 }
 
+/**
+ * A plain message signed by the wallet, for the enrollment.
+ *
+ * The same injected provider and the same viem client the payment signer uses;
+ * `signMessage` is `personal_sign` underneath, so the server recovers the signer
+ * with viem's `recoverMessageAddress` over the same text. Nothing about the
+ * payment path changes: this signs a sentence, never typed data and never a
+ * transaction.
+ */
+export async function signEnrolment(address: `0x${string}`, message: string): Promise<`0x${string}`> {
+  const wallet = createWalletClient({ chain: baseSepolia, transport: custom(injected()) });
+  return wallet.signMessage({ account: address, message });
+}
+
 export type SignedPayment = {
   headers: Record<string, string>;
   /** What the server will charge, as it stated it. */

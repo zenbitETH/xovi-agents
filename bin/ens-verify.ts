@@ -192,7 +192,8 @@ async function main() {
   try {
     const url = await resolveWindowsEndpoint({ ...process.env, AGENT_ENS_NAME: name });
     console.log(`\n  ${WINDOWS_RECORD_KEY} resolves to ${url}`);
-    console.log(`  verified. AGENT_ENS_NAME may be set to ${name} and the deployment refreshed.\n`);
+    console.log(`  verified. AGENT_ENS_NAME may be set to ${name} in the environment where the agent`);
+    console.log(`  is run. Nothing deployed reads it: the route builds its windows url from the request.\n`);
   } catch (err) {
     console.error(`\n  REFUSED: ${err instanceof Error ? err.message : err}\n`);
     process.exitCode = 1;

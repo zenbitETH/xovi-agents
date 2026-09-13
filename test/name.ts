@@ -97,13 +97,25 @@ export async function nameChecks(check: Check) {
   process.env.AGENT_ENS_RPC_URL = good.url;
 
   setNameResolverForTest(async () => "0xeCB4C1245665e8A1F43826355aaB0Dd6bF336e05");
-  const somebodyElse = (await (await ask(`?payer=${PAYER}`)).json()) as { address: string | null; matches: boolean };
-  check(somebodyElse.address !== null, "251 · a name that resolves is reported as resolving");
+  const somebodyElse = (await (await ask(`?payer=${PAYER}`)).json()) as { address: string | null; name: string | null; matches: boolean };
+  /*
+   * A WALLET WITH NO CLAIM ON THE NAME IS TOLD NOTHING ABOUT IT.
+   *
+   * This asserted the opposite until 2026-09-13: the configured name is the
+   * fallback for a wallet with no row, so the route answered every stranger with
+   * the name a deployment claims and the wallet it resolves to, beside
+   * `matches: false`. Neither value is a secret and it was still this route
+   * publishing them to somebody with no part in either.
+   */
+  check(somebodyElse.address === null && somebodyElse.name === null,
+    `251 · a name resolving to somebody else is not served to the wallet asking (${somebodyElse.name}, ${somebodyElse.address})`);
   check(somebodyElse.matches === false, "251a · and does not match a payer it does not name");
 
   setNameResolverForTest(async () => PAYER);
-  const mine = (await (await ask(`?payer=${PAYER}`)).json()) as { matches: boolean };
-  check(mine.matches === true, "251b · while the payer it does name matches (negative control)");
+  const owner = (await (await ask(`?payer=${PAYER}`)).json()) as { address: string | null; name: string | null; matches: boolean };
+  check(owner.matches === true, "251b · while the payer it does name matches (negative control)");
+  check(owner.name !== null && owner.address !== null,
+    "251e · and that payer is served the name and the address it resolves to (negative control)");
 
   setNameResolverForTest(async () => "0x0000000000000000000000000000000000000000");
   const zero = (await (await ask(`?payer=${PAYER}`)).json()) as { address: string | null; matches: boolean };

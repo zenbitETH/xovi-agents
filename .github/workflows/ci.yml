@@ -57,3 +57,22 @@ jobs:
       # "Failed to patch ESLint because the calling module was not recognized" on
       # ESLint 9. Adding that dependency tree to a repository about to go public,
       # days before it is judged, buys less than tsc already gives.
+
+  # The offchain resolver under contracts/, on its own job so the checks above stay
+  # what they were: no toolchain they do not need. Submodules are the three pinned
+  # dependencies in foundry.lock, and the toolchain is pinned to a release as the
+  # actions are pinned to commits.
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        with:
+          version: v1.5.1
+
+      - name: Contract tests
+        run: forge test -vv
+        working-directory: contracts

@@ -1,7 +1,8 @@
 import type { EnvLike } from "../agent/pay";
 import { deriveIdentifier } from "./derive";
-import { type HumanRegistry, humanBehind, registryFrom } from "./registry";
+import { type HumanRegistry, UNREGISTERED, humanBehind, registryFrom } from "./registry";
 import { FabricatedReceipt, type HumanStore, type Receipt, assertNotFabricated, freeReadsPerDay, storeFrom, utcDay } from "./store";
+import { type Standing, type VerificationStore, verificationStoreFrom } from "./verifications";
 
 /**
  * The allowance, and the one thing that makes it safe.
@@ -20,6 +21,10 @@ export const RETENTION_DAYS = 30;
 export type Cap = {
   registry: HumanRegistry;
   store: HumanStore | null;
+  /** The second source of a person behind a wallet: enrollments made from the
+   *  page. Null when there is no database, in which case AgentBook is the only
+   *  source, which is what this was before the enrollment existed. */
+  verifications: VerificationStore | null;
   freePerDay: number;
 };
 
@@ -34,7 +39,83 @@ export function setCapForTest(cap: Cap | null): void {
 
 export function capFrom(env: EnvLike = process.env): Cap {
   if (override) return override;
-  return { registry: registryFrom(env), store: storeFrom(env), freePerDay: freeReadsPerDay(env) };
+  return { registry: registryFrom(env), store: storeFrom(env), verifications: verificationStoreFrom(env), freePerDay: freeReadsPerDay(env) };
+}
+
+/**
+ * Who stands behind a wallet, from either source, as the digest the counter is
+ * keyed on.
+ *
+ * AgentBook first and the table second, and a wallet in both answers AgentBook.
+ * The two sources hold different values for one person: AgentBook keeps the
+ * nullifier of the registration tool's own action, and the table keeps a digest
+ * of the nullifier World scopes to this relying party and action, so the two
+ * cannot be joined and a person holding both a registration and an enrollment
+ * holds two digests. That is a limit of the identifiers rather than of this code,
+ * and it is why the table refuses a second wallet per person on its own key.
+ *
+ * For the AgentBook source the digest is derived here; for the table it is the
+ * stored value, read back and never derived again, since the derivation already
+ * happened when the row was written and doing it twice would be two places to
+ * get it wrong.
+ */
+export type StandingBehind = { digest: string; source: "agentbook" | "worldid"; credential: string | null };
+
+export async function standingBehind(payer: string, cap: Cap, env: EnvLike, at: Date): Promise<StandingBehind | null> {
+  const identifier = await humanBehind(payer as `0x${string}`, cap.registry);
+  if (identifier !== null) return { digest: deriveIdentifier(identifier, env), source: "agentbook", credential: null };
+  if (!cap.verifications) return null;
+  const standing = await tableStanding(cap.verifications, payer, at);
+  return standing ? { digest: standing.nullifierDigest, source: "worldid", credential: standing.credential } : null;
+}
+
+/**
+ * The table, asked. Lapsed rows are deleted before the read, every time the
+ * table is consulted and not only when a row is found: a wallet whose enrollment
+ * lapsed and who reads again is the request that must delete its own row, or the
+ * declared thirty days hold only while somebody else keeps enrolling. It runs
+ * here rather than in the callers so the AgentBook path, which never reaches the
+ * table, never writes to it either.
+ */
+async function tableStanding(table: VerificationStore, payer: string, at: Date): Promise<Standing | null> {
+  await table.forgetExpired(at);
+  return table.standingOf(payer.toLowerCase(), at);
+}
+
+/**
+ * What the registration route answers, in three states and with the source named.
+ *
+ * Unread is kept apart from not registered, as before: it is an answer about a
+ * read and not about the wallet. It is answered only when NO source could say
+ * yes and at least one could not be asked; a table that holds a row answers
+ * registered whatever the chain did, because the row is the fact.
+ */
+export type Registration = {
+  state: "registered" | "not-registered" | "unread";
+  source: "agentbook" | "worldid" | null;
+  credential: string | null;
+};
+
+export async function registrationOf(payer: string, cap: Cap, at: Date): Promise<Registration> {
+  let onChain: bigint | "unread";
+  try {
+    onChain = await cap.registry(payer as `0x${string}`);
+  } catch {
+    onChain = "unread";
+  }
+  if (onChain !== "unread" && onChain !== UNREGISTERED) return { state: "registered", source: "agentbook", credential: null };
+
+  let inTable: Standing | null | "unread" = null;
+  if (cap.verifications) {
+    try {
+      inTable = await tableStanding(cap.verifications, payer, at);
+    } catch {
+      inTable = "unread";
+    }
+  }
+  if (inTable !== null && inTable !== "unread") return { state: "registered", source: "worldid", credential: inTable.credential };
+  if (onChain === "unread" || inTable === "unread") return { state: "unread", source: null, credential: null };
+  return { state: "not-registered", source: null, credential: null };
 }
 
 /** The authorization the client signed. Its shape is the exact scheme's, read from
@@ -65,19 +146,23 @@ export async function takeFreeRead(payer: string, env: EnvLike = process.env, no
   const cap = capFrom(env);
   if (!cap.store) return false;
   try {
-    const identifier = await humanBehind(payer as `0x${string}`, cap.registry);
-    if (identifier === null) return false;
-    // Never the raw nullifier. What is stored is a keyed derivation of it, so a
+    // Never the raw nullifier. What is keyed on is a keyed derivation of it, so a
     // copy of that table on its own cannot be matched against on chain
     // registrations. A missing key throws and lands in the catch below, which
     // settles: no key, no allowance, same direction as every other failure here.
-    const stored = deriveIdentifier(identifier, env);
+    // The allowance is the configured number for either source: version 4 of
+    // World ID offers no credential below proof of human, so there is no lower
+    // tier to give fewer reads to.
+    const standing = await standingBehind(payer, cap, env, now);
+    if (standing === null) return false;
+    const stored = standing.digest;
 
     // Retention runs before the take rather than after it, and on the request path
     // rather than on a schedule. Before, so a request that takes nothing still
     // purges; on the request path, so the declared period does not depend on a cron
     // somebody can switch off without anyone noticing. A day with no reads at all
-    // purges on the next read there is.
+    // purges on the next read there is. Lapsed enrollments are purged the same
+    // way, inside `standingBehind`, whenever the table is asked.
     await cap.store.forgetOlderThan(RETENTION_DAYS, now);
 
     // One call, because the comparison and the increment must not be separable.

@@ -22,11 +22,14 @@
     "subgraph:build": "graph build subgraph/subgraph.yaml --output-dir subgraph/build",
     "mcp:probe": "tsx bin/mcp-http-probe.ts",
     "local": "tsx bin/local.ts",
-    "ens:verify": "tsx --env-file=.env.local bin/ens-verify.ts"
+    "ens:verify": "tsx --env-file-if-exists=.env.local bin/ens-verify.ts",
+    "ens:fixture": "tsx test/ens-fixture.ts --write",
+    "contracts:test": "forge test --root contracts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
     "@neondatabase/serverless": "1.0.2",
+    "@worldcoin/idkit": "4.2.3",
     "@x402/core": "2.25.0",
     "@x402/evm": "2.25.0",
     "@x402/mcp": "2.25.0",

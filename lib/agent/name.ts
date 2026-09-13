@@ -14,6 +14,12 @@ export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
  * that resolves, to a wallet that is not the one asking. Under a wildcard parent
  * that is not an exotic failure, it is what every subname of the parent does for
  * every wallet but one.
+ *
+ * The real lookup behind this seam is `getEnsAddress` on a client with CCIP Read
+ * on, which is viem's default. Once `xovi.eth`'s resolver is the offchain one under
+ * `contracts/`, that lookup follows the `OffchainLookup` to the gateway route and
+ * verifies its answer on chain before returning, so the chain's answer and the
+ * gateway's become one path and the route's `source` reads `chain`.
  */
 export type NameResolver = (name: string) => Promise<string | null>;
 

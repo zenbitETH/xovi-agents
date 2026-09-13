@@ -19,11 +19,10 @@ import { BOARD_SPECIES } from "~~/lib/windows/types";
 import { recoverConfirmer } from "~~/lib/anchor/confirmation";
 import { decisionCode } from "~~/lib/anchor/schema";
 import { ANCHOR_259, CONFIRMATION_259 } from "~~/lib/anchor/confirmation-259";
+import { WorldIdCard } from "./world-id-card";
+import { NameCard } from "./name-card";
 
 const REPO = "https://github.com/zenbitETH/xovi-agents";
-
-/** The channel the windows are cut from, which the fixtures already name. */
-const CHANNEL = "UCAwjFyErB8f18Ufwj_TUJfA";
 
 /**
  * A head line per screen, the mockup's `shead`: one title and one sub.
@@ -32,11 +31,10 @@ const CHANNEL = "UCAwjFyErB8f18Ufwj_TUJfA";
  * including the ones where no run is possible, which reads as the page being one
  * screen with things swapped underneath it.
  */
-const HEADS: Record<string, { title: string; sub: string }> = {
+const HEADS: Record<Screen, { title: string; sub: string }> = {
   board: { title: "On offer", sub: "A day and a species to read. The agent chooses the window and forms the proposal." },
   account: { title: "Account", sub: "What this wallet settled, proposed, and can check." },
   record: { title: "Record", sub: "A confirmation, and the check a stranger can run beside it." },
-  notyet: { title: "Not yet", sub: "What this repository does not do, each with the thing that would have to change." },
 };
 
 // The clip confirmation schema on Ethereum Sepolia, README under "Subgraph and
@@ -128,6 +126,12 @@ export type Line = {
   object?: Drawn;
 };
 
+/** The status Xovi answers when the credential does not cover the submitter. */
+export const CREDENTIAL_REFUSED = 403;
+
+/** What that means, for the person who paid. It makes no promise about when. */
+export const NO_CREDENTIAL = "The read was paid and served; Xovi holds no credential for this agent, so it cannot propose.";
+
 export function lineFor(step: RunStep): Line {
   switch (step.step) {
     case "presenting":
@@ -207,6 +211,25 @@ export function lineFor(step: RunStep): Line {
         object: { kind: "clip", id: step.id, status: step.status },
       };
     case "declined":
+      /*
+       * The one refusal a person can do nothing about, said in words.
+       *
+       * Xovi's ingest credential belongs to one agent, so a proposal whose
+       * submitter is another wallet is refused with a 403, and the page said only
+       * *declined: refused*, which tells a person nothing and reads as their
+       * mistake. It is said for that status and for no other: `refused` is the
+       * catch all for every status that is not a duplicate or a throttle, so
+       * naming the credential under all of them would explain a 400 or a 500 with
+       * a cause nobody measured.
+       */
+      if (step.kind === "refused" && step.status === CREDENTIAL_REFUSED) {
+        return {
+          text: NO_CREDENTIAL,
+          detail: `HTTP ${step.status}`,
+          actor: "agent",
+          tone: "stopped",
+        };
+      }
       return {
         text: `The proposal was declined: ${step.kind}`,
         detail: step.status === undefined ? step.detail : `${step.detail} (HTTP ${step.status})`,
@@ -219,7 +242,11 @@ export function lineFor(step: RunStep): Line {
         tone: step.kind === "duplicate" ? "supply" : "stopped",
       };
     case "not-submitted":
-      return { text: "Stopped before submitting", detail: step.detail, tone: "stopped", actor: "agent" };
+      // The run knew before it tried, so the person reads why rather than that it
+      // stopped. The sentence is the run's own, taken from the step rather than
+      // looked up again here, so the two cannot drift; the machine's word for the
+      // reason goes in the detail lane.
+      return { text: step.detail, detail: step.reason, tone: "stopped", actor: "agent" };
     case "done":
       return { text: "Run finished", tone: "good", actor: "system" };
   }
@@ -302,47 +329,6 @@ export function planFrom(challengeRead: boolean, signed: boolean, steps: RunStep
   ];
 }
 
-/** The marks on the tiles. `currentColor` throughout, so the hue is a class and
- *  never a literal: the agent hue is declared once as a token and check 212b
- *  holds it there. Width and height on the element, as check 216 requires. */
-function MarkReceipt() {
-  return (
-    <svg className="ag-verb-mark ag-mark-agent" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M4.5 2.5h11v15l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-1 .7z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-      />
-      <path d="M7.5 7h5M7.5 10.5h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function MarkSignature() {
-  return (
-    <svg className="ag-verb-mark ag-mark-human" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M2.5 13.5c3 0 3.5-8 5.5-8s1.5 8 3.5 8 2-4 3-4 1.2 1.6 3 1.6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-      <path d="M2.5 17h15" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.45" />
-    </svg>
-  );
-}
-
-function MarkEquality() {
-  return (
-    <svg className="ag-verb-mark ag-mark-system" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-      <path d="M4 8h12M4 12h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 type Phase = "idle" | "connecting" | "ready" | "signing" | "running" | "finished";
 
 const PHASE_LABEL: Record<Phase, string> = {
@@ -379,7 +365,27 @@ type Settlement = {
  *
  * A destination is added the day it is built, so no item opens on nothing.
  */
-type Screen = "settings" | "board" | "run" | "account" | "record" | "notyet";
+type Screen = "board" | "account" | "record";
+
+/**
+ * A destination in the strip, which is the four screens and the run.
+ *
+ * The run is not a screen and never was one: `openRun` shows a dialog over
+ * whatever is behind it, and nothing sets a run screen. While the two were one
+ * type the body carried an arm for a state it could not be in, and that arm was
+ * where the page's rest state lived: a plan nobody could reach and a fold that
+ * explained the product above it. Splitting the two makes the body's arms
+ * exhaustive, so `exhausted` below stops compiling the day a fifth screen is
+ * added without a surface.
+ */
+type Destination = Screen | "run";
+
+/** The branch no screen takes. It exists to be uninhabitable: give it anything
+ *  but `never` and the type checker refuses the file. */
+function exhausted(screen: never): null {
+  void screen;
+  return null;
+}
 
 /**
  * The destinations, and the flow through the first three.
@@ -389,23 +395,37 @@ type Screen = "settings" | "board" | "run" | "account" | "record" | "notyet";
  * present and inert, because a control that does nothing is a control that lies,
  * which is the same rule that keeps a drawn but unbuilt action off this page.
  */
-export const SCREENS: { id: Screen; label: string }[] = [
+export const SCREENS: { id: Destination; label: string }[] = [
   { id: "board", label: "Board" },
   { id: "run", label: "Run" },
   { id: "account", label: "Account" },
   { id: "record", label: "Record" },
-  { id: "notyet", label: "Not yet" },
 ];
 
-export function screensFor(cellChosen: boolean): { id: Screen; label: string }[] {
-  return SCREENS.filter(s => s.id !== "run" || cellChosen);
+/**
+ * The destinations, and Run is only there while there is a run.
+ *
+ * It used to appear as soon as a cell was chosen and stay for good, so a finished
+ * run left a destination in the strip that reopened a dialog about something
+ * already over. A run lasts from Pay and run to its last step; after that the
+ * header chip carries how it ended, and the receipts in Account are where a
+ * finished run is read. A new Pay and run brings the tab back.
+ */
+export function screensFor(runInProgress: boolean): { id: Destination; label: string }[] {
+  return SCREENS.filter(s => s.id !== "run" || runInProgress);
 }
 
 /** A cell of the board, as the page holds it once a person picks one. */
 export type Chosen = { day: string; species: string };
 
 /**
- * What AgentBook says, in three states.
+ * Whether a person stands behind this agent, in three states.
+ *
+ * **Two sources answer one question.** AgentBook holds registrations made outside
+ * this page, and a World ID verification made in this page holds its own. The
+ * route names which one answered, because `registered` without a source is two
+ * different facts wearing one word, and a reader who wants to check the claim has
+ * to know which of them to go and read.
  *
  * Unread is an answer about the read and not about the agent, so it is not drawn
  * as not registered: telling somebody to register when they already have is the
@@ -413,17 +433,62 @@ export type Chosen = { day: string; species: string };
  */
 export type Registration = "registered" | "not-registered" | "unread" | "reading" | "idle";
 
-const REGISTRATION_LINE: Record<Registration, string> = {
-  idle: "Connect a wallet and this reads AgentBook for it.",
-  reading: "Reading AgentBook.",
-  // The page's own words. The English badge sentences belong to the legal lead
-  // and are not hers to have quoted here before her word; and no merged text
-  // says how a registration is made, so the negative stands alone rather than
-  // naming somebody else's product as the place to go.
-  registered: "AgentBook holds a registration behind this agent.",
-  "not-registered": "AgentBook holds no registration behind this agent. Registering is not done here.",
-  unread: "AgentBook did not answer, so this says nothing about whether a person is behind this agent.",
-};
+/**
+ * Which source answered, or nobody.
+ *
+ * **Null is not a third source.** It is the route not naming one, and the page
+ * then says registered and credits nobody rather than picking a source it was not
+ * told about. A positive drawn from a non answer is the defect this page already
+ * carried once, on the chain badge that read Base Sepolia when no chain had
+ * answered at all.
+ */
+export type RegistrationSource = "agentbook" | "worldid";
+
+/** Whether this wallet holds the credential its own proposals travel under. */
+export type AgentCredential = "issued" | "none";
+
+/**
+ * The pill beside the registration, in the referential voice.
+ *
+ * It says what Xovi holds and not what the person is. `yet` is left out for the
+ * same reason it left the stop card: the sentence describes the present, and
+ * whether a credential arrives later is not this pill's to promise.
+ */
+export function credentialPill(credential: AgentCredential): string {
+  return credential === "issued" ? "credential issued by Xovi" : "no credential issued";
+}
+
+/** What the card says for each state, and it names a source only where it was told one. */
+export function registrationLine(state: Registration, source: RegistrationSource | null): string {
+  switch (state) {
+    case "idle":
+      return "Connect a wallet and this reads whether a person stands behind it.";
+    case "reading":
+      return "Reading whether a person stands behind this wallet.";
+    case "registered":
+      return source === "agentbook"
+        ? "AgentBook holds a registration behind this agent."
+        : source === "worldid"
+          ? "This wallet was verified with World ID in this page."
+          : "A registration stands behind this agent.";
+    case "not-registered":
+      // The two sentences that stood here are gone. One told a person registering
+      // was not done here, which stopped being true the moment this page could do
+      // it; the other sent them to a third party's command line tool, which was a
+      // statement about somebody else's product that this page cannot stand behind.
+      return "No registration stands behind this agent.";
+    case "unread":
+      return "The registry did not answer, so this says nothing about whether a person is behind this agent.";
+  }
+}
+
+/** The pill, which credits a source or none, and never a source it was not given. */
+export function registrationPill(mark: StepMark, source: RegistrationSource | null): string {
+  if (mark === "done") {
+    return source === "agentbook" ? "registered in AgentBook" : source === "worldid" ? "registered by World ID" : "registered";
+  }
+  return mark === "waiting" ? "waiting" : "not yet";
+}
 
 type AccountTab = "overview" | "receipts" | "proposals" | "names";
 
@@ -758,164 +823,146 @@ function Proposals({ submitter }: { submitter: string | null }) {
 }
 
 /**
- * Where this goes, written so that it cannot be read as a promise.
+ * What stands between a connected wallet and the board.
  *
- * **Each rung is two present tense sentences, one merged fact and one negative**,
- * and the unlock is the negative rather than a condition. That is the whole
- * device: *unlocks when*, *will*, *soon* and *coming* are promises, and a promise
- * about an unbuilt feature is the thing the disclosure rules refuse. Written as a
- * negative, the day it stops being true the absence sweep's own question, has this
- * already happened, catches it.
+ * **One step, and it is optional.** It was three, and two of them were wrong. The
+ * wallet card restated what the header's own chip already says, and the name card
+ * held a person at a step Zenbit performs: a wallet that had enrolled and not asked
+ * for a name landed on a checklist instead of the board, which is the founder's
+ * finding. The name is offered from the header and from the account, never
+ * required, and the chain is guarded where it is used, at the signature and on the
+ * chip, rather than by a card that asks somebody to read it.
  *
- * No figure, tier, share or token appears on any rung, and no rung names a
- * detection, morphometric, correlation or hypothesis capability. Unnumbered,
- * because the unlocks are independent and an order would assert one that is not
- * real.
- *
- * Copied verbatim from section 4.2 of the redesign proposal, brain `dd056d3`, so
- * a reader can diff these strings against it by bytes. The backticks are the
- * source's and are rendered rather than stripped, which is what keeps that diff
- * meaningful.
- *
- * The look rung's merged fact, that a human signs the decision, is true where
- * migration `0027` runs. The Xovi builder measured that on the deployment this
- * page reads, through the signature served on the confirmation this repository
- * carries, rather than from the branch that holds the file.
+ * A person who declines World ID may go on: they pay for every read, earn no
+ * allowance and get no name, and their run stops before proposing, because a
+ * credential is minted only for a wallet somebody stands behind. That is a worse
+ * deal and an honest one, and it is theirs to take.
  */
-const RUNGS: { rung: string; sentences: string }[] = [
-  { rung: "a name", sentences: "`agent1.xovi.eth` resolves to the agent's payer. No other name is issued." },
-  { rung: "the money", sentences: "Receipts land in a ledger. No rule routes any of it onward." },
-  { rung: "the look", sentences: "A human confirms or rejects every proposal and signs the decision. No institution has paid for one." },
-  { rung: "the query", sentences: "The anchor joins the confirmation. No key but Zenbit's has queried it." },
-  { rung: "a mainnet", sentences: "Every payment here settles on Base Sepolia. Nothing here writes to a mainnet; one read is on one." },
-  { rung: "a second producer", sentences: "One colony produces every record. No second producer exists." },
-];
+export type Enrolment = "reading" | "needed" | "enrolled" | "skipped";
 
-export { RUNGS };
+/** How a pill reads a thing that is done, not done, or waiting on something else.
+ *  What is left of the three step machinery: the pills outlived the checklist. */
+export type StepMark = "done" | "todo" | "waiting";
 
-/** Renders the source's backticks as code, so a rung can be stored byte for byte
- *  as the proposal writes it and still read properly on a screen. */
-function Ticked({ text }: { text: string }) {
+/** What the name route answers, and the card's three states are its three. */
+export type NameState = "none" | "requested" | "issued";
+
+export function enrolmentState(input: { address: string | null; registration: Registration; skipped: boolean }): Enrolment {
+  // No wallet is not a step: that is the home, and the home says what this is.
+  if (input.address === null) return "reading";
+  if (input.registration === "registered") return "enrolled";
+  if (input.skipped) return "skipped";
+  // An answer that has not arrived is not a demand. Drawing the step while the
+  // registry is still being read asks a returning wallet to enrol every time.
+  if (input.registration === "reading" || input.registration === "idle") return "reading";
+  return "needed";
+}
+
+/** Connected and either enrolled or skipped, and nothing else. */
+export function opensTheBoard(state: Enrolment): boolean {
+  return state === "enrolled" || state === "skipped";
+}
+
+/**
+ * That a person declined, remembered for that wallet and nowhere else.
+ *
+ * The browser alone: no request carries it, because it is a preference about this
+ * page and not a fact about the wallet, and a server that knew it would be
+ * remembering a refusal. A reload offers the step again only for a wallet that has
+ * not answered, which is the difference between asking once and nagging.
+ */
+const SKIPPED = "xovi-agents:enrolment-skipped";
+
+function skipKey(address: string | null): string {
+  return `${SKIPPED}:${(address ?? "none").toLowerCase()}`;
+}
+
+export function readSkipped(address: string | null): boolean {
+  try {
+    return globalThis.localStorage?.getItem(skipKey(address)) === "yes";
+  } catch {
+    // A browser that refuses storage offers the step again, which is the safe
+    // direction: it costs a person one click and claims nothing about them.
+    return false;
+  }
+}
+
+export function writeSkipped(address: string | null): void {
+  try {
+    globalThis.localStorage?.setItem(skipKey(address), "yes");
+  } catch {
+    // Nothing to do about it, and nothing to say about it to a server.
+  }
+}
+
+/**
+ * Forget that this wallet declined, which happens the moment it enrols.
+ *
+ * A decline is remembered so the step is not put in front of somebody who
+ * already answered it, and that reason expires the second the answer changes. A
+ * wallet carrying both a registration and a stored refusal would be carried past
+ * the step by the refusal on the day its registration lapses, which is the one
+ * day it should be asked again.
+ */
+export function clearSkipped(address: string | null): void {
+  try {
+    globalThis.localStorage?.removeItem(skipKey(address));
+  } catch {
+    // As above: the browser refusing storage is not this page's to report.
+  }
+}
+
+/**
+ * Who this agent is, as the two facts the page can stand behind.
+ *
+ * Drawn on every render from the two routes, never remembered, so a verification
+ * that lapses or a name that stops resolving takes its chip with it. Null where
+ * there is nothing true to say: a wallet with no name gets no name chip rather
+ * than an empty one, and an unregistered wallet gets no pill rather than one
+ * saying no.
+ */
+export function identityChips(input: {
+  registration: Registration;
+  source: RegistrationSource | null;
+  agentCredential: AgentCredential;
+  nameState: NameState;
+  name: string | null;
+}): { name: string | null; registration: string | null; credential: string | null } {
+  return {
+    name: input.nameState !== "none" && input.name !== null ? `${input.name} · ${input.nameState}` : null,
+    registration: input.registration === "registered" ? registrationPill("done", input.source) : null,
+    // Drawn beside the registration rather than on the enrolment card, which is
+    // shown only to a wallet that has neither, so a pill there would have read the
+    // same words every time it was seen.
+    credential: input.registration === "registered" ? credentialPill(input.agentCredential) : null,
+  };
+}
+
+function IdentityChips({ chips, onName }: { chips: { name: string | null; registration: string | null; credential: string | null }; onName: () => void }) {
   return (
     <>
-      {text.split("`").map((part, i) =>
-        i % 2 === 1 ? (
-          <code key={i} className="ag-ticket-hash">
-            {part}
-          </code>
-        ) : (
-          <span key={i}>{part}</span>
-        ),
+      {chips.registration !== null && <span className="ag-chip ag-chip-good">{chips.registration}</span>}
+      {chips.credential !== null && <span className="ag-chip ag-chip-idle">{chips.credential}</span>}
+      {/* The name is offered here rather than required before the board. A wallet
+          with one is told; a wallet without one is offered the request and may
+          ignore it for as long as it likes. */}
+      {chips.name !== null ? (
+        <span className="ag-chip ag-chip-idle">{chips.name}</span>
+      ) : (
+        <button type="button" className="ag-chip ag-chip-idle ag-chip-do" onClick={onName}>
+          no name · get one
+        </button>
       )}
     </>
   );
 }
 
-function NotYet() {
-  return (
-    <div className="ag-records">
-      <p className="xv-desc ag-empty">
-        What the working surface above does not do. Each of these is two statements: something this repository already
-        does, and something it does not. The second is what would have to stop being true.
-      </p>
-      <ul className="ag-chain ag-rungs">
-        {RUNGS.map(r => (
-          <li key={r.rung} className="ag-chain-link">
-            <span className="ag-panel-title">{r.rung}</span>
-            <span className="ag-sub">
-              <Ticked text={r.sentences} />
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
+/** The pill for the name card. Waiting is about the step before it, never about the name. */
+export function namePill(state: NameState, mark: StepMark): string {
+  if (mark === "waiting") return "waiting";
+  return state === "issued" ? "issued" : state === "requested" ? "requested" : "not yet";
 }
 
-/**
- * The three steps a person completes before the page opens.
- *
- * In order, one lit at a time, and the strip does not exist until the third is
- * done. The flow ran straight for anyone already set up and a new person could
- * walk past all of it to a run that could not work.
- *
- * **The registration step is hard by default.** A person the registry does not
- * know sees the onboarding and never the board, which is the founder's call and
- * is a real cost: it is also what a judge without a registration would meet. The
- * softer path exists in the code behind `ONBOARDING_ALLOW_UNREGISTERED`, off
- * unless set, so changing it is a variable and a redeploy rather than a build.
- *
- * **The name step completes without an issuing path and without lying about it.**
- * Issued where a name resolves to the payer; otherwise acknowledged, and the card
- * says acknowledged and no name issued rather than requested, because nothing was
- * recorded anywhere Zenbit reads. A recorded request is a table and a route and
- * comes later.
- */
-export type StepId = "wallet" | "person" | "name";
-export type StepMark = "done" | "todo" | "waiting" | "blocked";
-export type Step = { id: StepId; mark: StepMark };
-
-export type Acks = { person: boolean; name: boolean };
-
-export function onboardingFrom(input: {
-  address: string | null;
-  chain: string | null;
-  registration: Registration;
-  name: string | null;
-  acks: Acks;
-  allowUnregistered: boolean;
-}): { steps: Step[]; done: boolean; at: StepId } {
-  const walletDone = input.address !== null && input.chain === BASE_SEPOLIA_HEX;
-  const wallet: Step = { id: "wallet", mark: walletDone ? "done" : "todo" };
-
-  let person: Step;
-  if (!walletDone) person = { id: "person", mark: "waiting" };
-  else if (input.registration === "registered") person = { id: "person", mark: "done" };
-  else if (input.registration === "reading" || input.registration === "idle") person = { id: "person", mark: "waiting" };
-  else if (input.registration === "unread") person = { id: "person", mark: "todo" };
-  // Hard unless the flag is set. Blocked and todo are drawn differently: one has
-  // something a person can do and the other says why they cannot.
-  else person = { id: "person", mark: input.allowUnregistered ? (input.acks.person ? "done" : "todo") : "blocked" };
-
-  const name: Step =
-    person.mark !== "done"
-      ? { id: "name", mark: "waiting" }
-      : input.name !== null
-        ? { id: "name", mark: "done" }
-        : { id: "name", mark: input.acks.name ? "done" : "todo" };
-
-  const steps = [wallet, person, name];
-  const at = steps.find(step => step.mark !== "done")?.id ?? "name";
-  return { steps, done: steps.every(step => step.mark === "done"), at };
-}
-
-const ACK_PERSON = "xovi-agents:paying-per-read-acknowledged";
-const ACK_NAME = "xovi-agents:no-name-issued-acknowledged";
-
-/** Remembered per wallet, and re-verified on load rather than trusted: a stored
- *  yes is a person's answer, never a substitute for the read itself. */
-function ackKey(base: string, address: string | null): string {
-  return `${base}:${(address ?? "none").toLowerCase()}`;
-}
-
-export function readAcks(address: string | null): Acks {
-  try {
-    return {
-      person: globalThis.localStorage?.getItem(ackKey(ACK_PERSON, address)) === "yes",
-      name: globalThis.localStorage?.getItem(ackKey(ACK_NAME, address)) === "yes",
-    };
-  } catch {
-    return { person: false, name: false };
-  }
-}
-
-export function writeAck(which: "person" | "name", address: string | null): void {
-  try {
-    globalThis.localStorage?.setItem(ackKey(which === "person" ? ACK_PERSON : ACK_NAME, address), "yes");
-  } catch {
-    // A person who cannot store it is asked again, which is the safe direction.
-  }
-}
 
 /**
  * The run as a rolodex, ported from the Zenbit site's stack.
@@ -933,182 +980,295 @@ export function writeAck(which: "person" | "name", address: string | null): void
  * site's own rule at its narrow breakpoint, for the reason it gives: partial
  * opacity on text being read is a contrast loss and not a flourish.
  */
+/**
+ * Where each card sits on the wheel.
+ *
+ * Four slots and only three are drawn. The card being read is level and at full
+ * opacity, its two neighbours are faded and tipped away above and below so the
+ * sequence reads as a wheel rather than as a swap, and everything else is away.
+ * Only the neighbours: every other card faded would be a stack of ghosts behind a
+ * sentence somebody is trying to read.
+ *
+ * At the first state nothing is above and at the last nothing is below, which
+ * falls out of the arithmetic rather than being special cased.
+ */
+export type RollPosition = "current" | "previous" | "next" | "away";
+
+export function rollPosition(index: number, at: number): RollPosition {
+  if (index === at) return "current";
+  if (index === at - 1) return "previous";
+  if (index === at + 1) return "next";
+  return "away";
+}
+
+/** How long each state holds the middle before the wheel turns. Steps arrive in a
+ *  burst, so without a dwell most of them are never seen; the log behind the
+ *  disclosure keeps arriving live either way, and the pager overrides it. */
+export const ROLL_DWELL_MS = 900;
+
 function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to: number) => void }) {
   if (lines.length === 0) return null;
   return (
     <div className="ag-roll">
-      <div className="ag-roll-stage">
+      {/* The line of states. The spine, the node, the label that appears on the one
+          being read and the 300ms transitions are the site's section rail, copied
+          from `components/nav/rail.css`. **The mark is not ported and is new**: that
+          checkout carries no checkmark on any branch, so a state already read is
+          drawn here in two strokes rather than taken from somewhere it does not
+          exist. It replaces a Back, n of N, Forward pager, which said where a person
+          was in a number and gave them no way to see what the run had done. */}
+      <nav className="ag-steps" aria-label="The run's states">
+        <span className="ag-steps-spine" aria-hidden="true" />
         {lines.map((line, i) => (
-          <article
+          <button
             key={i}
-            className={`ag-roll-card ag-tone-${line.tone} ag-actor-${line.actor}`}
-            data-position={i === at ? "current" : i < at ? "behind" : "next"}
-            aria-hidden={i === at ? undefined : "true"}
+            type="button"
+            className="ag-steps-item"
+            data-state={i < at ? "done" : i === at ? "at" : "ahead"}
+            aria-current={i === at ? "step" : undefined}
+            onClick={() => onStep(i)}
           >
-            <header className="ag-roll-head">
-              {/* The dot alone. The tone is a hue and a weight everywhere else on
-                  the page, and the word was one more label on a card that should
-                  be quiet. */}
-              <span className="ag-roll-dot" aria-hidden="true" />
-            </header>
-            <p className="ag-roll-name">{line.text}</p>
-            {line.detail !== undefined && <p className="ag-roll-line">{line.detail}</p>}
-            {line.object !== undefined && <Drawing object={line.object} />}
-          </article>
+            <span className="ag-steps-dot" aria-hidden="true" />
+            <span className="ag-steps-label">{line.text}</span>
+          </button>
         ))}
-      </div>
-      <div className="ag-roll-controls">
-        <button type="button" className="ag-rail-item" onClick={() => onStep(at - 1)} disabled={at === 0}>
-          Back
-        </button>
-        <span className="ag-sub">
-          {at + 1} of {lines.length}
-        </span>
-        <button type="button" className="ag-rail-item" onClick={() => onStep(at + 1)} disabled={at >= lines.length - 1}>
-          Forward
-        </button>
+      </nav>
+
+      <div className="ag-roll-stage">
+        {lines.map((line, i) => {
+          const position = rollPosition(i, at);
+          const current = position === "current";
+          if (position === "away") return null;
+          return (
+            <article
+              key={i}
+              className={`ag-roll-card ag-tone-${line.tone} ag-actor-${line.actor}`}
+              data-position={position}
+              // The neighbours are scenery: read by nobody's screen reader and
+              // reachable by nobody's keyboard, so a link inside one cannot be
+              // tabbed into behind the card in front of it.
+              aria-hidden={current ? undefined : "true"}
+              inert={!current}
+            >
+              {current ? (
+                <>
+                  <header className="ag-roll-head">
+                    {/* The dot alone. The tone is a hue and a weight everywhere
+                        else on the page, and the word was one more label on a card
+                        that should be quiet. */}
+                    <span className="ag-roll-dot" aria-hidden="true" />
+                  </header>
+                  <p className="ag-roll-name">{line.text}</p>
+                  {line.detail !== undefined && <p className="ag-roll-line">{line.detail}</p>}
+                  {line.object !== undefined && <Drawing object={line.object} />}
+                </>
+              ) : (
+                // A neighbour is a title and nothing else. Drawn whole, they
+                // overlapped the state being read and competed with it for the
+                // sentence a person is actually on.
+                <p className="ag-roll-title">{line.text}</p>
+              )}
+            </article>
+          );
+        })}
       </div>
     </div>
   );
 }
 
 /**
- * Settings: what has to be true before a run means anything.
+ * The newest recording on offer, read off the board rather than from anywhere new.
  *
- * The wallet, what AgentBook says about it, and whether a name is issued to it.
- * Each is a card that states its own answer rather than a checklist that grades
- * the person.
+ * The home embeds a recording rather than the live channel, because the channel's
+ * live embed draws a dead player whenever the museum is not broadcasting, and a
+ * page whose first element is broken says something about the rest of it. The
+ * newest day on offer is the closest thing to live that is certainly playable.
  *
- * **The issue action is a rung, not a button.** No issuing path exists, and a
- * control drawn and marked design is a control that lies; two present tense
- * sentences with the negative say the same thing truthfully and go on the sweep
- * with everything else.
+ * The id is already a served field on a cell, so nothing new crosses the wire and
+ * nothing new enters the tree for this.
  */
-function Onboarding({
+export function newestRecording(cells: { day: string; onOffer: boolean; videoId?: string }[]): { day: string; videoId: string } | null {
+  const playable = cells.filter(c => c.onOffer && c.videoId !== undefined && c.day !== "");
+  if (playable.length === 0) return null;
+  const newest = playable.reduce((a, b) => (b.day > a.day ? b : a));
+  return { day: newest.day, videoId: newest.videoId as string };
+}
+
+/**
+ * What happens here, at the highest level, for somebody who has just arrived.
+ *
+ * Numbered because the order is the point: each step is only available once the
+ * one before it has happened. No state on any of them, since none of these cards
+ * knows anything about the person reading it.
+ */
+export const PROCESS: { title: string; line: string }[] = [
+  { title: "Connect a wallet", line: "On Base Sepolia, which is where the payment settles." },
+  // A name is issued by Zenbit on request, not conferred by registering, so the
+  // card says what registering opens rather than what it hands over.
+  { title: "Verify with World ID", line: "Optional. It earns the free reads of the day and lets a person ask for a name under xovi.eth." },
+  { title: "Choose a day and a species", line: "A board of what is on offer, cut from recordings of the museum's own stream." },
+  // The condition the fold used to carry, and it is the wallet's rather than the
+  // deployment's. The deployment holds an ingest target and mints a credential for
+  // a wallet when it enrols, which `DISCLOSURE.md` has stated since `d614a37`, so
+  // "where a credential is configured" named a condition that is met here and read
+  // as though it were not. What is still true of a particular run is that the
+  // credential belongs to a wallet somebody stands behind. The remaining stop, a
+  // wallet whose mint did not answer, is the run's own sentence at the moment it
+  // happens rather than a third clause on a card nobody has acted on yet.
+  { title: "Pay and run", line: "The agent reads the windows it was paid for and stops. For a wallet somebody stands behind, it proposes one clip." },
+  { title: "A person decides", line: "Somebody confirms or rejects the proposal, signs it, and the record follows." },
+];
+
+/**
+ * The default home, before a wallet is connected.
+ *
+ * The onboarding's own cards are not here: they are about a wallet and there is
+ * none yet, and a checklist a person cannot act on is a wall with steps drawn on
+ * it. What is here is a recording that plays and five cards saying what this is.
+ */
+function Home({ newest }: { newest: { day: string; videoId: string } | null }) {
+  return (
+    <div className="ag-home">
+      {newest !== null && (
+        <div className="ag-stream">
+          <iframe
+            className="ag-stream-frame"
+            src={`https://www.youtube-nocookie.com/embed/${newest.videoId}`}
+            title={`The recording of ${newest.day}`}
+            loading="lazy"
+            allow="encrypted-media; picture-in-picture"
+            referrerPolicy="strict-origin-when-cross-origin"
+          />
+          <p className="ag-sub">
+            The recording of {newest.day}, from the museum's own stream. The windows on offer are spans of recordings
+            like this one that a machine thinks a person should look at. The clips a person has confirmed are public:{" "}
+            <a className="ag-link" href="https://xovi.axolodao.org/galeria">
+              the gallery
+            </a>
+            .
+          </p>
+        </div>
+      )}
+
+      <ol className="ag-process">
+        {PROCESS.map((step, i) => (
+          <li key={step.title} className="ag-process-card">
+            <span className="ag-process-n" aria-hidden="true">
+              {i + 1}
+            </span>
+            <h3 className="ag-panel-title">{step.title}</h3>
+            <p className="ag-sub">{step.line}</p>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/**
+ * The one step between a connected wallet and the board.
+ *
+ * Drawn as the run is drawn: a line of states beside one card, so the two moments
+ * a person spends here look like one page rather than two. Three nodes, because a
+ * person wants to know where they are and what follows, and only the middle one
+ * asks anything of them.
+ *
+ * **The card offers and does not require.** A person who declines goes on, pays for
+ * every read, earns no allowance and gets no name, and their run stops before
+ * proposing. The wallet card is gone: the header's chip already draws the address,
+ * the chain and the switch, and a card restating it was a step that completed
+ * itself. The name card is gone from here too: issuing is Zenbit's own work and
+ * holding somebody at it was the founder's finding.
+ */
+function Enrol({
   address,
-  chain,
   registration,
-  name,
-  acks,
-  allowUnregistered,
-  onAck,
-  onSwitch,
+  source,
+  credential,
   onRetry,
+  onSkip,
 }: {
   address: `0x${string}` | null;
-  chain: string | null;
   registration: Registration;
-  name: string | null;
-  acks: Acks;
-  allowUnregistered: boolean;
-  onAck: (which: "person" | "name") => void;
-  onSwitch: () => void;
+  source: RegistrationSource | null;
+  credential: string | null;
   onRetry: () => void;
+  onSkip: () => void;
 }) {
-  const { steps, at } = onboardingFrom({ address, chain, registration, name, acks, allowUnregistered });
-  const of = (id: StepId) => steps.find(step => step.id === id)?.mark ?? "waiting";
-  const cls = (id: StepId) => (id === at ? "ag-panel ag-step ag-step-at" : of(id) === "done" ? "ag-panel ag-step ag-step-done" : "ag-panel ag-step");
-  const pill = (m: StepMark) =>
-    m === "done" ? "ag-chip ag-chip-good" : m === "blocked" ? "ag-chip ag-chip-stopped" : "ag-chip ag-chip-idle";
-
+  const nodes = [
+    { label: "A wallet", state: "done" as const },
+    { label: "A person behind it", state: "at" as const },
+    { label: "The board", state: "ahead" as const },
+  ];
   return (
-    <div className="ag-setup">
-      {/* The context, before the steps: what the windows are spans of.
-          **The one runtime external element on this page.** A plain iframe of the
-          public live stream, no API key, no cookie set by this page, nothing read
-          back from it. It is also the first third party origin the page loads
-          from, which the disclosure's built list records. */}
-      <div className="ag-stream">
-        <iframe
-          className="ag-stream-frame"
-          src={`https://www.youtube-nocookie.com/embed/live_stream?channel=${CHANNEL}&autoplay=0`}
-          title="The public livestream"
-          loading="lazy"
-          allow="encrypted-media; picture-in-picture"
-          referrerPolicy="strict-origin-when-cross-origin"
-        />
-        <p className="ag-sub">
-          A window is a span of this stream that a machine thinks a person should look at. It is not a claim that an
-          animal was identified or that a behaviour occurred. The clips a person has confirmed are public:{" "}
-          <a className="ag-link" href="https://xovi.axolodao.org/galeria">
-            the gallery
-          </a>
-          .
-        </p>
-      </div>
+    <div className="ag-roll ag-enrol">
+      <nav className="ag-steps" aria-label="Before the board">
+        <span className="ag-steps-spine" aria-hidden="true" />
+        {nodes.map(node => (
+          <span key={node.label} className="ag-steps-item" data-state={node.state} aria-current={node.state === "at" ? "step" : undefined}>
+            <span className="ag-steps-dot" aria-hidden="true" />
+            <span className="ag-steps-label">{node.label}</span>
+          </span>
+        ))}
+      </nav>
 
-      <ol className="ag-cards ag-setup-cards">
-        <li className={cls("wallet")}>
-          <h3 className="ag-panel-title">A wallet on Base Sepolia</h3>
-          <span className={pill(of("wallet"))}>{of("wallet") === "done" ? "connected" : "not yet"}</span>
-          {address === null ? (
-            <p className="ag-sub">Connect a wallet in the header.</p>
-          ) : (
-            <>
-              <span className="ag-account-face ag-setup-face">
-                <Identicon address={address} />
-                <span className="ag-account-address">
-                  {address.slice(0, 6)}…{address.slice(-4)}
-                </span>
-              </span>
-              {chain !== BASE_SEPOLIA_HEX && (
-                <button type="button" className="ag-rail-item ag-setup-do" onClick={onSwitch}>
-                  Switch to Base Sepolia
-                </button>
-              )}
-            </>
-          )}
-        </li>
-
-        <li className={cls("person")}>
+      <div className="ag-roll-stage ag-enrol-stage">
+        <article className="ag-roll-card ag-actor-human" data-position="current">
           <h3 className="ag-panel-title">A person behind the agent</h3>
-          <span className={pill(of("person"))}>
-            {of("person") === "done" ? "registered" : of("person") === "blocked" ? "not registered" : of("person") === "waiting" ? "waiting" : "not yet"}
+          <span className={registration === "registered" ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>
+            {registrationPill(registration === "registered" ? "done" : "todo", source)}
           </span>
-          <p className="ag-sub">{REGISTRATION_LINE[registration]}</p>
-          {registration === "not-registered" && (
+          <p className="ag-sub">{registrationLine(registration, source)}</p>
+          {credential !== null && <p className="ag-account-address">World ID credential: {credential}</p>}
+          <p className="ag-sub">World ID asserts that one person stands behind this wallet.</p>
+          {/* A step already done draws no control for doing it: a registered wallet
+              is told its state and asked for nothing. */}
+          {registration !== "registered" && <WorldIdCard payer={address} onRegistered={onRetry} />}
+          {(registration === "not-registered" || registration === "unread") && (
             <>
-              {/* The page's own words, and no product named as a place to go. */}
-              <p className="ag-sub">A registration is made with the World command line tool against AgentBook and then read here.</p>
-              <button type="button" className="ag-rail-item ag-setup-do" onClick={onRetry}>
-                Check again
+              <button type="button" className="btn xv-action-outline ag-setup-do" onClick={onRetry}>
+                {registration === "unread" ? "Read it again" : "Check again"}
               </button>
-              {allowUnregistered && !acks.person && (
-                <button type="button" className="ag-rail-item ag-setup-do" onClick={() => onAck("person")}>
-                  Continue paying per read, without the free allowance
-                </button>
-              )}
+              {/* The worse deal, stated rather than hidden behind a smaller word. */}
+              <button type="button" className="btn xv-action-outline ag-setup-do" onClick={onSkip}>
+                Go on without World ID
+              </button>
+              <p className="ag-sub">
+                Without it every read settles, there is no free allowance, no name is issued, and a run stops before
+                proposing, because a credential is minted for a wallet somebody stands behind.
+              </p>
             </>
           )}
-          {registration === "unread" && (
-            <button type="button" className="ag-rail-item ag-setup-do" onClick={onRetry}>
-              Read it again
-            </button>
-          )}
-        </li>
+        </article>
+      </div>
+    </div>
+  );
+}
 
-        <li className={cls("name")}>
-          <h3 className="ag-panel-title">A name</h3>
-          <span className={pill(of("name"))}>
-            {name !== null ? "issued" : of("name") === "done" ? "acknowledged, no name issued" : of("name") === "waiting" ? "waiting" : "not yet"}
-          </span>
-          {name !== null ? (
-            <>
-              <p className="ag-setup-name">{name}</p>
-              <p className="ag-account-address">resolves to this payer</p>
-            </>
-          ) : (
-            <p className="ag-sub">
-              A name is issued into a parent Zenbit owns, by hand. No path issues one from this page.
-            </p>
-          )}
-          {name === null && of("name") === "todo" && (
-            <button type="button" className="ag-rail-item ag-setup-do" onClick={() => onAck("name")}>
-              Understood, continue without a name
-            </button>
-          )}
-        </li>
-      </ol>
+/**
+ * The way back, for a wallet that went on without World ID.
+ *
+ * A decline is a decision and not a door closing: the same browser has to be
+ * able to reverse it without disconnecting the wallet or clearing storage. It is
+ * drawn in the two places where having declined costs something a person can
+ * see, the account where the allowance is counted and the name dialog where a
+ * request has nothing to stand on, and nowhere else. Not on the board, where it
+ * would be the step they just declined, asked again on the surface they declined
+ * it to reach.
+ */
+function WayBack({ address, onRegistered }: { address: `0x${string}` | null; onRegistered: () => void }) {
+  return (
+    <div className="ag-roll-stage ag-enrol-stage">
+      <article className="ag-roll-card ag-actor-human" data-position="current">
+        <h3 className="ag-panel-title">Verify with World ID</h3>
+        <span className="ag-chip ag-chip-idle">went on without it</span>
+        <p className="ag-sub">
+          Every read settles, there is no free allowance, no name is issued, and a run stops before proposing, because a
+          credential is minted for a wallet somebody stands behind.
+        </p>
+        <p className="ag-sub">World ID asserts that one person stands behind this wallet.</p>
+        <WorldIdCard payer={address} onRegistered={onRegistered} />
+      </article>
     </div>
   );
 }
@@ -1224,20 +1384,62 @@ export const RECORD = {
   verifierChainId: CONFIRMATION_259.verifierChainId,
 };
 
+/** Which object of the record a reader is looking at. */
+type RecordTab = "clip" | "confirmation" | "attestation" | "anchor";
+
 const ASSERTED = {
   verifiedAt: CONFIRMATION_259.verifiedAt,
   submitter: CONFIRMATION_259.submitter,
 };
 
-/** The four links, from the moment to the thing anybody can look up. */
-const CHAIN = [
-  { name: "the clip", says: "a span of public footage, proposed by an agent and given an identifier" },
-  { name: "the confirmation", says: "a person decided, and signed the decision with their own key" },
-  { name: "the offchain attestation", says: "the decision and the seven fields, under one identifier, emitting no event" },
-  { name: "the onchain anchor", says: "a time fixed for that identifier, and an attestation of the same schema an indexer can find" },
+/**
+ * The four links, from the moment to the thing anybody can look up, and the
+ * record's four tabs.
+ *
+ * One object at a time. The record was a stack: a paragraph, the four links as a
+ * list, seven fields, two more, a check and five anchor values, in one column, so
+ * a reader asking what the attestation is read everything before and after it to
+ * find out. Each link is now a tab and its sentence is that tab's first line, so
+ * the four cannot drift apart from the four panels and no panel can appear
+ * without saying what its object is.
+ *
+ * The seven and the two keep their own headings under the confirmation, because
+ * the difference between what a stranger can check and what Zenbit asserts is the
+ * whole point of listing them at all.
+ */
+export const CHAIN: { id: RecordTab; label: string; name: string; says: string }[] = [
+  { id: "clip", label: "Clip", name: "the clip", says: "A span of public footage, proposed by an agent and given an identifier." },
+  { id: "confirmation", label: "Confirmation", name: "the confirmation", says: "A person decided, and signed the decision with their own key." },
+  {
+    id: "attestation",
+    label: "Attestation",
+    name: "the offchain attestation",
+    says: "The decision and the seven fields, under one identifier, emitting no event.",
+  },
+  {
+    id: "anchor",
+    label: "Anchor",
+    name: "the onchain anchor",
+    says: "A time fixed for that identifier, and an attestation of the same schema an indexer can find.",
+  },
 ];
 
+/** A list of values, drawn the same way wherever the record shows one. */
+function Fields({ of }: { of: Record<string, string | number> }) {
+  return (
+    <dl className="ag-facts">
+      {Object.entries(of).map(([key, value]) => (
+        <div key={key}>
+          <dt>{key}</dt>
+          <dd className="ag-ticket-hash">{String(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function Records() {
+  const [tab, setTab] = useState<RecordTab>("clip");
   const [recovered, setRecovered] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -1259,104 +1461,112 @@ function Records() {
   }, []);
 
   const matches = recovered !== null && recovered.toLowerCase() === RECORD.verifier.toLowerCase();
+  const link = CHAIN.find(l => l.id === tab) ?? CHAIN[0];
 
   return (
     <div className="ag-records">
+      {/* Above the tabs, because it is true of all four and a reader who opens
+          the record on any of them has to read it once. */}
       <p className="xv-desc ag-empty">
-        <strong>This confirmation is anchored on Ethereum Sepolia.</strong> It is the confirmation this repository
-        carries for clip {RECORD.clipId}, and it asserts existence and time and who confirmed. It is not a claim about
-        whether the clip shows what anyone says it shows.
+        <strong>This confirmation is anchored on Ethereum Sepolia.</strong> It is the one this repository carries for
+        clip {RECORD.clipId}, and it asserts existence and time and who confirmed. It is not a claim about whether the
+        clip shows what anyone says it shows.
       </p>
 
-      <ol className="ag-chain">
-        {CHAIN.map(link => (
-          <li key={link.name} className="ag-chain-link">
-            <span className="ag-card-value">{link.name}</span>
-            <span className="ag-sub">{link.says}</span>
-          </li>
+      <nav className="ag-tabs" aria-label="The record" style={{ "--xv-strip-n": CHAIN.length } as React.CSSProperties}>
+        <span
+          className="ag-tabs-indicator"
+          aria-hidden="true"
+          style={{ transform: `translateX(${CHAIN.findIndex(l => l.id === tab) * 100}%)` }}
+        />
+        {CHAIN.map(l => (
+          <button
+            key={l.id}
+            type="button"
+            className={l.id === tab ? "ag-tab ag-tab-on" : "ag-tab"}
+            aria-current={l.id === tab ? "true" : undefined}
+            onClick={() => setTab(l.id)}
+          >
+            {l.label}
+          </button>
         ))}
-      </ol>
+      </nav>
 
-      <section className="ag-month">
-        <h3 className="ag-panel-title">Seven fields, checkable without the operator</h3>
-        <dl className="ag-facts">
-          {Object.entries(RECORD).map(([key, value]) => (
-            <div key={key}>
-              <dt>{key}</dt>
-              <dd className="ag-ticket-hash">{String(value)}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
+      {/* The link's own sentence, which is what the tab is about. */}
+      <p className="ag-sub">{link.says}</p>
 
-      <section className="ag-month">
-        <h3 className="ag-panel-title">Two fields Zenbit asserts, which no reviewer signed</h3>
-        <dl className="ag-facts">
-          {Object.entries(ASSERTED).map(([key, value]) => (
-            <div key={key}>
-              <dt>{key}</dt>
-              <dd className="ag-ticket-hash">{String(value)}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      <section className="ag-month">
-        <h3 className="ag-panel-title">The check</h3>
-        <p className="xv-desc ag-empty">
-          Rebuild the nine line message from the seven fields, recover the address that signed it, and compare it for
-          equality with the verifier the record names. Recovery on its own establishes nothing: a wrong message
-          recovers a different, perfectly well formed address rather than failing, so the comparison is the check.
-        </p>
-        <button className="btn xv-action" onClick={runCheck} disabled={checking}>
-          {checking ? "Recovering" : "Recover the signer"}
-        </button>
-        {failed && <p className="xv-desc ag-error">The signature would not parse, so no address was recovered.</p>}
-        {recovered !== null && (
-          <div className="ag-ticket ag-ticket-row">
-            <span className="ag-ticket-hash">{recovered}</span>
-            <span className="ag-sub">{matches ? "equal to the verifier the record names" : "not the verifier the record names"}</span>
-          </div>
-        )}
+      {tab === "clip" ? (
         <section className="ag-month">
-          <h3 className="ag-panel-title">The anchor</h3>
-          <dl className="ag-facts">
-            <div>
-              <dt>onchain identifier</dt>
-              <dd className="ag-ticket-hash">{ANCHOR_259.onchainUid}</dd>
-            </div>
-            <div>
-              <dt>attester</dt>
-              <dd className="ag-ticket-hash">{ANCHOR_259.attester}</dd>
-            </div>
-            <div>
-              <dt>attested at</dt>
-              <dd className="ag-ticket-hash">{ANCHOR_259.attestedAt}</dd>
-            </div>
-            <div>
-              <dt>offchain identifier</dt>
-              <dd className="ag-ticket-hash">{ANCHOR_259.offchainUid}</dd>
-            </div>
-            <div>
-              <dt>timestamped at</dt>
-              <dd className="ag-ticket-hash">{ANCHOR_259.timestampedAt}</dd>
-            </div>
-          </dl>
-          <a className="ag-link ag-ticket-link" href={`https://sepolia.etherscan.io/tx/${ANCHOR_259.attestTx}`}>
-            Read the attestation transaction
-          </a>
+          <Fields of={{ clipId: RECORD.clipId, clipHash: RECORD.clipHash }} />
+          <p className="ag-sub">
+            The identifier and the digest of the span. Both are among the seven the confirmation signs, which is how a
+            decision is bound to one clip and not to another.
+          </p>
+        </section>
+      ) : tab === "confirmation" ? (
+        <>
+          <section className="ag-month">
+            <h3 className="ag-panel-title">Seven fields, checkable without the operator</h3>
+            <Fields of={RECORD} />
+          </section>
+
+          <section className="ag-month">
+            <h3 className="ag-panel-title">Two fields Zenbit asserts, which no reviewer signed</h3>
+            <Fields of={ASSERTED} />
+          </section>
+
+          <section className="ag-month">
+            <h3 className="ag-panel-title">The check</h3>
+            <p className="ag-sub">
+              Rebuild the nine line message from the seven fields, recover the address that signed it, and compare it
+              for equality with the verifier the record names. Recovery on its own establishes nothing: a wrong message
+              recovers a different, perfectly well formed address rather than failing, so the comparison is the check.
+            </p>
+            <button className="btn xv-action" onClick={runCheck} disabled={checking}>
+              {checking ? "Recovering" : "Recover the signer"}
+            </button>
+            {failed && <p className="xv-desc ag-error">The signature would not parse, so no address was recovered.</p>}
+            {recovered !== null && (
+              <div className="ag-ticket ag-ticket-row">
+                <span className="ag-ticket-hash">{recovered}</span>
+                <span className="ag-sub">{matches ? "equal to the verifier the record names" : "not the verifier the record names"}</span>
+              </div>
+            )}
+          </section>
+        </>
+      ) : tab === "attestation" ? (
+        <section className="ag-month">
+          <Fields of={{ "offchain identifier": ANCHOR_259.offchainUid, "timestamped at": ANCHOR_259.timestampedAt }} />
           <a className="ag-link ag-ticket-link" href={`https://sepolia.etherscan.io/tx/${ANCHOR_259.timestampTx}`}>
             Read the timestamp transaction
           </a>
           <p className="ag-sub">
-            An anchored confirmation carries two identifiers that share nothing. This is the onchain one, which a query
-            returns and which getAttestation answers with the schema, the attester and the encoded fields. The offchain
-            one keys the payload endpoint and its time is read with getTimestamp, which answers with a time and no
-            fields; getAttestation asked for an offchain identifier returns an empty struct, which is a badge with no
-            check behind it. Both are named above, each linked to the transaction that carries it.
+            The offchain identifier keys the payload endpoint, and its time is read with getTimestamp, which answers
+            with a time and no fields.
           </p>
         </section>
-      </section>
+      ) : tab === "anchor" ? (
+        <section className="ag-month">
+          <Fields
+            of={{
+              "onchain identifier": ANCHOR_259.onchainUid,
+              attester: ANCHOR_259.attester,
+              "attested at": ANCHOR_259.attestedAt,
+            }}
+          />
+          <a className="ag-link ag-ticket-link" href={`https://sepolia.etherscan.io/tx/${ANCHOR_259.attestTx}`}>
+            Read the attestation transaction
+          </a>
+          <p className="ag-sub">
+            An anchored confirmation carries two identifiers that share nothing. This is the onchain one, which a query
+            returns and which getAttestation answers with the schema, the attester and the encoded fields.
+            getAttestation asked for an offchain identifier returns an empty struct, which is a badge with no check
+            behind it.
+          </p>
+        </section>
+      ) : (
+        exhausted(tab)
+      )}
     </div>
   );
 }
@@ -1632,29 +1842,51 @@ export function AppShell() {
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>("board");
   const [chosen, setChosen] = useState<Chosen | null>(null);
-  const [board, setBoard] = useState<{ days: string[]; cells: { day: string; species: string; onOffer: boolean }[] }>({ days: [], cells: [] });
+  /** `videoId` rides on a cell only where the board serves it, which is what the
+   *  home's recording is read from; without it the home carries the cards alone. */
+  const [board, setBoard] = useState<{ days: string[]; cells: { day: string; species: string; onOffer: boolean; videoId?: string }[] }>({
+    days: [],
+    cells: [],
+  });
   const [boardState, setBoardState] = useState<"loading" | "ready" | "unconfigured" | "failed">("loading");
   const [registration, setRegistration] = useState<Registration>("reading");
-  const [acks, setAcks] = useState<Acks>({ person: false, name: false });
-  const [allowUnregistered, setAllowUnregistered] = useState(false);
+  /** Which source answered, and what it carried. Null until an answer names one. */
+  const [source, setSource] = useState<RegistrationSource | null>(null);
+  const [credential, setCredential] = useState<string | null>(null);
+  const [agentCredential, setAgentCredential] = useState<AgentCredential>("none");
   const [readAgain, setReadAgain] = useState(0);
   const [accountTab, setAccountTab] = useState<AccountTab>("overview");
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [ledger, setLedger] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [chain, setChain] = useState<string | null>(null);
   const [issuedName, setIssuedName] = useState<string | null>(null);
+  const [nameState, setNameState] = useState<NameState>("none");
+  /** The name the route served this wallet, which it serves only to the wallet it
+   *  belongs to. `issuedName` stays the one drawn on a match alone. */
+  const [routeName, setRouteName] = useState<string | null>(null);
+  const [nameLabel, setNameLabel] = useState<string | null>(null);
   const [nameRead, setNameRead] = useState(false);
+  /** Bumped when the name card records a request, so the read runs again and the
+   *  state comes back from the route rather than being assumed here. */
+  const [nameAgain, setNameAgain] = useState(0);
+  /** How far the wheel has turned. The log fills as fast as the stream yields; this
+   *  walks behind it one state at a time so a burst is watchable. */
+  const [cursor, setCursor] = useState(0);
+  /** That this wallet declined World ID, read from the browser and written there
+   *  alone. Re-read when the wallet changes, so one wallet's answer is not another
+   *  wallet's. */
+  const [skipped, setSkipped] = useState(false);
+  const [requestingName, setRequestingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [walletNote, setWalletNote] = useState<string | null>(null);
   const busy = useRef(false);
   const runDialog = useRef<HTMLDialogElement | null>(null);
-  const feedEnd = useRef<HTMLLIElement | null>(null);
-
-  const say = useCallback((line: Line) => {
-    setLines(prev => [...prev, line]);
-    // The newest line is the one being watched, and the body is the only region
-    // that scrolls, so it follows the run rather than making a reader chase it.
-    queueMicrotask(() => feedEnd.current?.scrollIntoView({ block: "end", behavior: "smooth" }));
-  }, []);
+  const nameDialog = useRef<HTMLDialogElement | null>(null);
+  // No scroll to a tail. The run is read on the wheel, which moves itself and
+  // holds one card at a time, and the whole sequence below it is a disclosure a
+  // person opens. The scroll this replaced pointed at a row in the arm above,
+  // so it had been following a node that never mounted.
+  const say = useCallback((line: Line) => setLines(prev => [...prev, line]), []);
 
   /**
    * Read this wallet's settlements once it is known, and again when a run ends.
@@ -1697,7 +1929,6 @@ export function AppShell() {
    */
   // Asked once. Read on mount rather than at render, so the server and the first
   // client render agree about it.
-  useEffect(() => setAcks(readAcks(address)), [address]);
 
   useEffect(() => {
     let live = true;
@@ -1743,6 +1974,9 @@ export function AppShell() {
     if (address === null) {
       setChain(null);
       setIssuedName(null);
+      setNameState("none");
+      setNameLabel(null);
+      setRouteName(null);
       setNameRead(false);
       return;
     }
@@ -1752,23 +1986,38 @@ export function AppShell() {
       if (live) setChain(c);
     });
     fetch(`/api/name?payer=${address}`)
-      .then(async r => (r.ok ? ((await r.json()) as { name: string | null; matches: boolean }) : null))
-      // Only on a match. A name that resolves to somebody else is not this
-      // account's name, and under a wildcard parent every name resolves.
+      .then(async r =>
+        r.ok ? ((await r.json()) as { state: NameState; label: string | null; name: string | null; matches: boolean }) : null,
+      )
       .then(answer => {
         if (!live) return;
+        // The name is drawn only on a match. A name that resolves to somebody else
+        // is not this account's name, and under a wildcard parent every name
+        // resolves, so "it resolves" is true of every label there will ever be.
         setIssuedName(answer !== null && answer.matches ? answer.name : null);
+        // The state is the route's, which draws issued from the chain and never
+        // from the row. A refusal is not a state: it leaves the card at none, with
+        // nothing claimed either way.
+        setNameState(answer === null ? "none" : answer.state);
+        setNameLabel(answer === null ? null : answer.label);
+        setRouteName(answer === null ? null : answer.name);
         setNameRead(true);
       })
       .catch(() => {
         if (!live) return;
         setIssuedName(null);
+        setNameState("none");
+        setNameLabel(null);
+        setRouteName(null);
         setNameRead(true);
       });
     return () => {
       live = false;
     };
-  }, [address]);
+    // `nameAgain` is what the name card bumps once a request is recorded. Without it
+    // here the card would have to remember its own answer, which is the shape that
+    // let a row draw a state the chain does not hold.
+  }, [address, nameAgain]);
 
   // The board is what is for sale and needs no wallet to look at.
   useEffect(() => {
@@ -1777,7 +2026,7 @@ export function AppShell() {
       .then(async r => {
         if (r.status === 503) return "unconfigured" as const;
         if (!r.ok) throw new Error(String(r.status));
-        return (await r.json()) as { days: string[]; cells: { day: string; species: string; onOffer: boolean }[] };
+        return (await r.json()) as { days: string[]; cells: { day: string; species: string; onOffer: boolean; videoId?: string }[] };
       })
       .then(answer => {
         if (!live) return;
@@ -1796,6 +2045,17 @@ export function AppShell() {
     };
   }, []);
 
+  useEffect(() => setSkipped(readSkipped(address)), [address]);
+  /* Remembered only until it enrols. The stored refusal is the record of a
+     decision this wallet has now reversed, and leaving it behind would carry a
+     wallet whose registration later lapses past the step it should be asked
+     again. */
+  useEffect(() => {
+    if (registration !== "registered") return;
+    clearSkipped(address);
+    setSkipped(false);
+  }, [registration, address]);
+
   useEffect(() => {
     if (address === null) {
       setRegistration("idle");
@@ -1807,16 +2067,35 @@ export function AppShell() {
     let live = true;
     setRegistration("reading");
     fetch(`/api/agent/registration?payer=${address}`)
-      .then(async r => (r.ok ? ((await r.json()) as { state: Registration; allowUnregistered?: boolean }) : { state: "unread" as const }))
+      .then(async r =>
+        r.ok
+          ? ((await r.json()) as {
+              state: Registration;
+              source?: RegistrationSource | null;
+              credential?: string | null;
+              agentCredential?: AgentCredential;
+            })
+          : { state: "unread" as const },
+      )
       .then(a => {
         if (!live) return;
         setRegistration(a.state);
-        // Read off the same answer rather than a public variable, so the flag
-        // stays server side and there is one round trip either way.
-        setAllowUnregistered(("allowUnregistered" in a && a.allowUnregistered) === true);
+        // An answer that names no source leaves the page naming none. Filling it in
+        // here would credit a source nobody was told about, which is a positive
+        // drawn from a non answer.
+        setSource("source" in a && (a.source === "agentbook" || a.source === "worldid") ? a.source : null);
+        setCredential("credential" in a && typeof a.credential === "string" && a.credential !== "" ? a.credential : null);
+        // The same rule as the source: an answer that does not name it leaves the
+        // page saying none rather than assuming one exists.
+        setAgentCredential("agentCredential" in a && a.agentCredential === "issued" ? "issued" : "none");
       })
       .catch(() => {
-        if (live) setRegistration("unread");
+        if (live) {
+          setRegistration("unread");
+          setSource(null);
+          setCredential(null);
+          setAgentCredential("none");
+        }
       });
     return () => {
       live = false;
@@ -1824,6 +2103,53 @@ export function AppShell() {
     // `readAgain` is what Check again and Read it again change. Without it here
     // both controls were decoration: they set a number nothing depended on.
   }, [address, readAgain]);
+
+  /*
+   * The wheel turns on a timer, one state at a time.
+   *
+   * The stream yields its steps in a burst, so drawing each as it arrives showed
+   * two or three of ten and the rest passed unrendered. Every step is still a card
+   * and the log behind the disclosure still fills live; what this governs is only
+   * which card is in the middle, and it stops at the last one, which is the state
+   * that stays on screen.
+   */
+  useEffect(() => {
+    if (pinned !== null) return;
+    if (cursor >= lines.length - 1) return;
+    const turn = setTimeout(() => setCursor(c => c + 1), ROLL_DWELL_MS);
+    return () => clearTimeout(turn);
+  }, [cursor, lines.length, pinned]);
+
+  /**
+   * Ask for a name, and read the answer back rather than assuming it.
+   *
+   * The route decides the label and whether this wallet may have one, so nothing is
+   * set here from the fact that a request was sent: it bumps the read and the card
+   * draws whatever came back. A refusal is shown in the route's own words, because
+   * this file cannot know which of them applies.
+   */
+  const onRequestName = useCallback(async () => {
+    if (address === null || requestingName) return;
+    setRequestingName(true);
+    setNameError(null);
+    try {
+      const answer = await fetch("/api/agent/name", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ payer: address }),
+      });
+      if (!answer.ok) {
+        const said = ((await answer.json().catch(() => ({}))) as { error?: string }).error;
+        setNameError(said ?? "The request was refused.");
+        return;
+      }
+      setNameAgain(n => n + 1);
+    } catch {
+      setNameError("The request did not reach Zenbit.");
+    } finally {
+      setRequestingName(false);
+    }
+  }, [address, requestingName]);
 
   /** `showModal` and not an open attribute: it traps focus, makes the page behind
    *  inert and gives Escape for nothing, none of which is worth rebuilding. */
@@ -1893,6 +2219,7 @@ export function AppShell() {
     setLines([]);
     setSteps([]);
     setPinned(null);
+    setCursor(0);
     setChallengeRead(false);
     setSigned(false);
     setPhase("signing");
@@ -1963,15 +2290,23 @@ export function AppShell() {
   // The reason a run stopped, taken from the run's own last stopped line rather
   // than from a second source that could disagree with the feed beside it.
   const stoppedWhy = running ? null : (lines.filter(l => l.tone === "stopped").at(-1)?.text ?? null);
+  // A run lasts from the signature to its last step. The strip carries Run for
+  // exactly that long, and the chip carries how it ended afterwards.
+  const runInProgress = phase === "signing" || phase === "running";
   // Read off the steps rather than off the sentences, so the state is the run's
   // and not a phrase match over its narration.
   const supply = running ? null : supplyFrom(steps);
   const lit = planFrom(challengeRead, signed, steps);
-  // The strip, and everything behind it, does not exist until the third step is
-  // done. Re-derived on every render from the reads themselves, so a remembered
-  // acknowledgement never stands in for a registration that is no longer there.
-  const onboarded = onboardingFrom({ address, chain, registration, name: issuedName, acks, allowUnregistered }).done;
-  const at = pinned === null ? Math.max(0, lines.length - 1) : Math.min(pinned, Math.max(0, lines.length - 1));
+  // Connected and either enrolled or skipped. Re-derived on every render from the
+  // read itself, so a remembered refusal never stands in for a registration that
+  // is no longer there, and a registration that arrives opens the board at once.
+  const enrolment = enrolmentState({ address, registration, skipped });
+  const onboarded = opensTheBoard(enrolment);
+  const last = Math.max(0, lines.length - 1);
+  // The person's hand wins over the wheel: while a card is pinned the dwell stops
+  // advancing and the pager alone moves it.
+  const at = Math.min(pinned ?? cursor, last);
+  const identity = identityChips({ registration, source, agentCredential, nameState, name: routeName });
 
   return (
     <>
@@ -1990,6 +2325,9 @@ export function AppShell() {
             ) : (
               <>
                 <StatusChip phase={phase} why={stoppedWhy} />
+                {/* Who the agent is, on every destination and not only on the cards
+                    that set it up. Drawn from the same two reads the onboarding used. */}
+                <IdentityChips chips={identity} onName={() => nameDialog.current?.showModal()} />
                 <AccountChip
                   address={address}
                   chain={chain}
@@ -2010,14 +2348,14 @@ export function AppShell() {
           <div className="ag-app-top">
             {/* The onboarding is a state of the page rather than a destination,
                 so it has its own head instead of borrowing the board's. */}
-            <h1 className="ag-shead-title">{onboarded ? HEADS[screen]?.title : "Before a run"}</h1>
+            <h1 className="ag-shead-title">{onboarded ? HEADS[screen].title : "Before a run"}</h1>
             <p className="ag-sub">
               {onboarded
-                ? HEADS[screen]?.sub
+                ? HEADS[screen].sub
                 : "Three things have to be true before an agent can pay for a read on your behalf."}
             </p>
                         {onboarded && (
-            <nav className="ag-rail" aria-label="Sections" style={{ "--xv-strip-n": screensFor(chosen !== null).length } as React.CSSProperties}>
+            <nav className="ag-rail" aria-label="Sections" style={{ "--xv-strip-n": screensFor(runInProgress).length } as React.CSSProperties}>
               {/* The indicator is one element moved with `transform`, so the state
                   travels between items rather than being switched off one and on
                   another. Equal columns are what make the arithmetic a percentage
@@ -2025,9 +2363,9 @@ export function AppShell() {
               <span
                 className="ag-rail-indicator"
                 aria-hidden="true"
-                style={{ transform: `translateX(${Math.max(0, screensFor(chosen !== null).findIndex(s => s.id === screen)) * 100}%)` }}
+                style={{ transform: `translateX(${Math.max(0, screensFor(runInProgress).findIndex(s => s.id === screen)) * 100}%)` }}
               />
-              {screensFor(chosen !== null).map(s => (
+              {screensFor(runInProgress).map(s => (
                 <button
                   key={s.id}
                   type="button"
@@ -2055,20 +2393,22 @@ export function AppShell() {
 
           <div className="ag-app-body">
             <div className="ag-app-scroll">
-              {!onboarded ? (
-                <Onboarding
+              {address === null ? (
+                // The default home. The onboarding's cards are about a wallet and
+                // there is none yet, so they are not drawn: a checklist nobody can
+                // act on is a wall with steps painted on it.
+                <Home newest={newestRecording(board.cells)} />
+              ) : !onboarded ? (
+                <Enrol
                   address={address}
-                  chain={chain}
                   registration={registration}
-                  name={issuedName}
-                  acks={acks}
-                  allowUnregistered={allowUnregistered}
-                  onAck={which => {
-                    writeAck(which, address);
-                    setAcks(readAcks(address));
-                  }}
-                  onSwitch={() => void onSwitch()}
+                  source={source}
+                  credential={credential}
                   onRetry={() => setReadAgain(n => n + 1)}
+                  onSkip={() => {
+                    writeSkipped(address);
+                    setSkipped(true);
+                  }}
                 />
               ) : screen === "board" ? (
                 <Board
@@ -2083,6 +2423,10 @@ export function AppShell() {
                 />
               ) : screen === "account" ? (
                 <div className="ag-account-body">
+                  <div className="ag-identity">
+                    <IdentityChips chips={identity} onName={() => nameDialog.current?.showModal()} />
+                  </div>
+                  {enrolment === "skipped" && <WayBack address={address} onRegistered={() => setReadAgain(n => n + 1)} />}
                   <nav className="ag-tabs" aria-label="Account" style={{ "--xv-strip-n": ACCOUNT_TABS.length } as React.CSSProperties}>
                     <span
                       className="ag-tabs-indicator"
@@ -2113,177 +2457,8 @@ export function AppShell() {
                 </div>
               ) : screen === "record" ? (
                 <Records />
-              ) : screen === "notyet" ? (
-                <NotYet />
               ) : (
-                <>
-                  {/* Above both states, because the plan is what the run is about
-                      to do and then what it is doing. Idle at rest; each node
-                      lights from the event that means it happened and never from
-                      the node before it. */}
-                  <ol className="ag-plan">
-                    {PLAN.map((node, i) => (
-                      <li
-                        key={node.label}
-                        className={lit[i] ? `ag-plan-node ag-actor-${node.actor} ag-plan-lit` : `ag-plan-node ag-actor-${node.actor}`}
-                      >
-                        <span className="ag-plan-dot" aria-hidden="true" />
-                        <span className="ag-plan-label">{node.label}</span>
-                      </li>
-                    ))}
-                  </ol>
-                  {lines.length > 0 && <Rolodex lines={lines} at={at} onStep={to => setPinned(to >= lines.length - 1 ? null : Math.max(0, to))} />}
-                  {lines.length === 0 ? (
-                <div className="ag-intro">
-                  {/* The fold. Three verbs, one sentence each, and each sentence restates
-                      something already merged in this repository. What the page opens with
-                      is what a person can do here, not an explanation of it: the paragraph
-                      that used to sit at the top said in four sentences what the third tile
-                      and the command line say in two. */}
-                  <div className="ag-verbs">
-                    <div className="ag-verb">
-                      <h2 className="ag-verb-name">
-                        <MarkReceipt />
-                        Own
-                      </h2>
-                      {/* DISCLOSURE, "A receipts ledger": a settlement is recorded against
-                          the payer who made it. The second sentence is this branch's own
-                          route rather than merged text, and it is what `/api/receipts`
-                          does and what checks 218b and 219 hold it to. "You keep them"
-                          claimed custody the ledger does not give anybody. */}
-                      <p className="ag-verb-line">
-                        Every read your agent pays for leaves a receipt on a public chain. It is read back for that
-                        payer alone.
-                      </p>
-                    </div>
-                    <div className="ag-verb">
-                      <h2 className="ag-verb-name">
-                        <MarkSignature />
-                        Manage
-                      </h2>
-                      {/* DISCLOSURE, "Delegation from a reader's own wallet"; bin/agent.ts,
-                          "Read a window, propose a clip, stop".
-
-                          The proposing is conditional and the tile has to say so. On the
-                          deployment the two ingest variables are not set, so a run there
-                          ends at not-submitted, which is the path `test/agent-run.ts`
-                          asserts and which `DISCLOSURE.md` states as a negative. An
-                          unconditional "proposes once" would put the exact claim the
-                          sweep carries as false onto the judged page. */}
-                      <p className="ag-verb-line">
-                        The agent reads what it paid for and stops. Where a credential is configured, it proposes once.
-                      </p>
-                    </div>
-                    <div className="ag-verb">
-                      <h2 className="ag-verb-name">
-                        <MarkEquality />
-                        Check
-                      </h2>
-                      {/* docs/spec/05-anchor-and-query.md:66, "in a way anybody can check
-                          with one call", for the call; the operator being out of the path is
-                          the same document's trust boundary. */}
-                      <p className="ag-verb-line">
-                        A confirmed record can be checked by a stranger with one call. Zenbit is not in the path.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Four words, because the Manage tile above already carries the
-                      sentence this line used to repeat. It restates DISCLOSURE's
-                      delegation bullet, that the reader signs one payment and supplies
-                      nothing else; the phrasing is carried over from the intro paragraph
-                      this branch removed, which came in with the payment card and is not
-                      on `main`. */}
-                  <p className="ag-command">A signature, and go.</p>
-
-                  {/* Every sentence below is already merged, public and reviewed in this
-                      repository, and each carries the line it came from. The page states
-                      nothing that a reviewed surface does not, so it cannot drift from one.
-
-                      Behind a disclosure rather than deleted. They are merged text and a
-                      judge may want them, and they were the rest state's bulk: five
-                      definitions before a reader had seen what the page does. */}
-                  <details className="ag-more">
-                    <summary className="ag-more-summary">The facts</summary>
-                    <dl className="ag-facts">
-                    <div>
-                      <dt>What a window is</dt>
-                      {/* docs/spec/02-candidate-windows.md:101 */}
-                      <dd>
-                        A claim that something was worth a human&rsquo;s attention. Not a claim that an animal was
-                        identified, or that a behaviour occurred.
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>What paying does not buy</dt>
-                      {/* README, "The human operator confirms; the confirmation is attested", both sentences */}
-                      <dd>
-                        The attestation certifies no identity, no reputation, no payment and no biological fact. The
-                        agent proposes; no credential of its own can confirm or attest.
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>One person, one allowance</dt>
-                      {/* README, "per person caps", for the allowance; DISCLOSURE, "not defeated by generating wallets", for why it is per person. Quoted around the word the interface may not carry, since check 177 reads this file whole. */}
-                      <dd>
-                        The free daily allowance is administered per person rather than per wallet, because a per wallet
-                        limit is not defeated by generating wallets.
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Checkable without Zenbit</dt>
-                      {/* docs/spec/05-anchor-and-query.md:118 */}
-                      <dd>
-                        A confirmation carries the reviewer&rsquo;s signature. The operator can be uncooperative, or
-                        gone, and the confirmation is still checkable by anyone who kept the identifier.{" "}
-                        <a className="ag-link" href={SCHEMA}>
-                          The schema on Sepolia
-                        </a>
-                        .
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Why it exists</dt>
-                      {/* README, "So the thing worth selling is not the observation" */}
-                      <dd>
-                        Observations are public. What is scarce is derivation and provenance, and that join is the
-                        product.
-                      </dd>
-                    </div>
-                    </dl>
-                  </details>
-                </div>
-              ) : (
-                <ol className="ag-feed">
-                  {lines.map((line, i) => (
-                    <li key={i} className={`ag-feed-row ag-tone-${line.tone} ag-actor-${line.actor}`}>
-                      <span className="ag-feed-dot" aria-hidden="true" />
-                      <span>
-                        <span className="ag-feed-text">{line.text}</span>
-                        {line.detail !== undefined && <span className="ag-feed-detail">{line.detail}</span>}
-                        {line.object !== undefined && <Drawing object={line.object} />}
-                      </span>
-                    </li>
-                  ))}
-                  <li ref={feedEnd} className={`ag-feed-row ag-tone-working ag-actor-agent${running ? "" : " ag-feed-hidden"}`}>
-                    <span className="ag-feed-dot ag-feed-pulse" aria-hidden="true" />
-                    <span className="ag-feed-text ag-feed-waiting">working</span>
-                  </li>
-                  {supply !== null && (
-                    <li className="ag-supply">
-                      <p className="ag-supply-line">{supplySentence(supply)}</p>
-                      <span className="ag-tiles">
-                        {supply.ids.map(id => (
-                          <span key={id} className="ag-tile">
-                            {id}
-                          </span>
-                        ))}
-                      </span>
-                    </li>
-                  )}
-                    </ol>
-                  )}
-                </>
+                exhausted(screen)
               )}
             </div>
           </div>
@@ -2315,6 +2490,30 @@ export function AppShell() {
         {/* The run, over the page rather than instead of it. Closing it never
             stops the stream: the status chip keeps moving and the strip's Run
             item reopens it on whatever card the run has reached. */}
+        <dialog ref={nameDialog} className="ag-run-dialog ag-name-dialog" tabIndex={-1} aria-label="A name for this agent">
+          <div className="ag-run-dialog-head">
+            <p className="ag-eyebrow">A name under xovi.eth</p>
+            <form method="dialog">
+              <button className="btn xv-action-outline ag-setup-do">Close</button>
+            </form>
+          </div>
+          {enrolment === "skipped" && <WayBack address={address} onRegistered={() => setReadAgain(n => n + 1)} />}
+          <div className="ag-roll-stage ag-enrol-stage">
+            <NameCard
+              state={nameState}
+              name={issuedName}
+              label={nameLabel}
+              pill={namePill(nameState, "todo")}
+              canRequest={registration === "registered"}
+              requesting={requestingName}
+              error={nameError}
+              onRequest={() => void onRequestName()}
+              className="ag-roll-card ag-actor-human"
+              pillClassName={nameState === "issued" ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}
+            />
+          </div>
+        </dialog>
+
         <dialog ref={runDialog} className="ag-run-dialog" tabIndex={-1} aria-labelledby="ag-run-thesis">
           <div className="ag-run-dialog-head">
             <div>
