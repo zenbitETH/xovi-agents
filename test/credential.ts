@@ -21,6 +21,7 @@ import { type NameRow, type NamesStore, setNamesStoreForTest } from "../lib/agen
 import { type RunStep, runOnce } from "../lib/agent/run";
 import { setCapForTest } from "../lib/human/cap";
 import { setClockForTest } from "../lib/human/clock";
+import { MINT_BACKOFF_MS, resetMintBackoff } from "../lib/agent/credentials";
 import { setRegistryForTest } from "../lib/human/registry";
 import { enrollmentThrottle } from "../lib/human/throttle";
 import { type Verifier, enrolmentMessage, setVerifierForTest, signalHashFor } from "../lib/human/worldid";
@@ -134,15 +135,15 @@ export async function credentialChecks(check: Check) {
 
   /* The two pieces the module rests on, without a route around them. */
   const { ciphertext, nonce } = encryptCredential("xvi_0123456789ab_the-secret-part", ENV);
-  check(decryptCredential({ ciphertext, nonce }, ENV) === "xvi_0123456789ab_the-secret-part", "360 · a credential encrypts and decrypts under the key");
-  check(!ciphertext.includes("the-secret-part") && !Buffer.from(ciphertext, "hex").toString("utf8").includes("secret"), "360a · and the ciphertext does not carry the plaintext");
-  check(/^[0-9a-f]{24}$/.test(nonce) && encryptCredential("x", ENV).nonce !== encryptCredential("x", ENV).nonce, "360b · the nonce is twelve fresh bytes per call");
+  check(decryptCredential({ ciphertext, nonce }, ENV) === "xvi_0123456789ab_the-secret-part", "390 · a credential encrypts and decrypts under the key");
+  check(!ciphertext.includes("the-secret-part") && !Buffer.from(ciphertext, "hex").toString("utf8").includes("secret"), "390a · and the ciphertext does not carry the plaintext");
+  check(/^[0-9a-f]{24}$/.test(nonce) && encryptCredential("x", ENV).nonce !== encryptCredential("x", ENV).nonce, "390b · the nonce is twelve fresh bytes per call");
   let wrongKey = false;
   try { decryptCredential({ ciphertext, nonce }, { CREDENTIAL_KEY: "e".repeat(64) }); } catch { wrongKey = true; }
-  check(wrongKey, "360c · another key does not open it");
+  check(wrongKey, "390c · another key does not open it");
   let noKey = false;
   try { encryptCredential("x", {}); } catch (e) { noKey = e instanceof NoCredentialKey; }
-  check(noKey, "360d · and no key refuses rather than encrypting under nothing");
+  check(noKey, "390d · and no key refuses rather than encrypting under nothing");
 
   /* The routes, against every fake. */
   const mint = await startFakeMint(ENV.INGEST_MINT_SECRET);
@@ -170,7 +171,8 @@ export async function credentialChecks(check: Check) {
   const registry = fakeRegistry({ [REC]: HUMAN_A });
   setCapForTest({ registry: registry.read, store: fakeStore(), verifications: table, freePerDay: 2 });
   const T0 = new Date("2026-09-13T12:00:00Z");
-  setClockForTest(() => T0);
+  let clock = T0;
+  setClockForTest(() => clock);
   enrollmentThrottle.reset();
 
   const logged: string[] = [];
@@ -192,62 +194,78 @@ export async function credentialChecks(check: Check) {
 
   const enrolled = await enrol(KEYS.a);
   const enrolledBody = (await enrolled.clone().json()) as Record<string, unknown>;
-  check(enrolled.status === 200 && enrolledBody.agentCredential === "issued", `361 · an enrolment answers registered with the credential issued (${enrolled.status} ${JSON.stringify(enrolledBody)})`);
-  check(mint.calls.length === 1, `361a · the mint was called once (${mint.calls.length})`);
-  check(mint.calls[0]?.authorization === `Bearer ${ENV.INGEST_MINT_SECRET}` && mint.calls[0]?.contentType === "application/json", "361b · with the secret as a bearer, as json");
-  check(mintedTo[0] === new URL(MINT_PATH, new URL(ingest.url).origin).toString(), `361i · at the mint path under the ingest url's origin (${mintedTo[0]})`);
-  check(Object.keys(mint.calls[0]?.body ?? {}).sort().join(",") === "agentAddress,label", `361c · and a body of exactly the address and a label (${Object.keys(mint.calls[0]?.body ?? {}).sort().join(",")})`);
-  check(mint.calls[0]?.body.agentAddress === getAddress(WALLET_A) && mint.calls[0]?.body.label === getAddress(WALLET_A), "361d · the address checksummed, and the label the address when the wallet has no name");
+  check(enrolled.status === 200 && enrolledBody.agentCredential === "issued", `391 · an enrolment answers registered with the credential issued (${enrolled.status} ${JSON.stringify(enrolledBody)})`);
+  check(mint.calls.length === 1, `391a · the mint was called once (${mint.calls.length})`);
+  check(mint.calls[0]?.authorization === `Bearer ${ENV.INGEST_MINT_SECRET}` && mint.calls[0]?.contentType === "application/json", "391b · with the secret as a bearer, as json");
+  check(mintedTo[0] === new URL(MINT_PATH, new URL(ingest.url).origin).toString(), `391i · at the mint path under the ingest url's origin (${mintedTo[0]})`);
+  check(Object.keys(mint.calls[0]?.body ?? {}).sort().join(",") === "agentAddress,label", `391c · and a body of exactly the address and a label (${Object.keys(mint.calls[0]?.body ?? {}).sort().join(",")})`);
+  check(mint.calls[0]?.body.agentAddress === getAddress(WALLET_A) && mint.calls[0]?.body.label === getAddress(WALLET_A), "391d · the address checksummed, and the label the address when the wallet has no name");
   const row = credentials.rows.get(WALLET_A.toLowerCase());
   const mintedForA = [...mint.keys.entries()].find(([, addr]) => addr === WALLET_A.toLowerCase())?.[0];
-  check(row !== undefined && mintedForA !== undefined && row.keyPrefix === mintedForA.split("_")[1], "361e · one row, for the lowercased wallet, carrying the prefix the mint answered");
+  check(row !== undefined && mintedForA !== undefined && row.keyPrefix === mintedForA.split("_")[1], "391e · one row, for the lowercased wallet, carrying the prefix the mint answered");
   // Wrapped: a row holding something that is not a ciphertext makes the decrypt
   // throw, and that regression must print one red line rather than abort the run.
   const opened = (() => { try { return row ? decryptCredential(row, ENV) : null; } catch { return null; } })();
-  check(mintedForA !== undefined && opened === mintedForA, "361f · whose ciphertext decrypts to the credential the mint returned");
+  check(mintedForA !== undefined && opened === mintedForA, "391f · whose ciphertext decrypts to the credential the mint returned");
   const secretPart = mintedForA?.split("_")[2] ?? "";
   // Readable includes hex: a row holding the credential as hex is a row holding
   // the credential, so the ciphertext is decoded before it is searched.
   const rowText = JSON.stringify(row) + Buffer.from(row?.ciphertext ?? "", "hex").toString("utf8");
-  check(secretPart.length > 0 && !rowText.includes(secretPart), "361g · and nothing readable of it sits in the row, decoded or not");
-  check(row?.mintedAt.getTime() === T0.getTime(), "361h · minted at the clock's time");
+  check(secretPart.length > 0 && !rowText.includes(secretPart), "391g · and nothing readable of it sits in the row, decoded or not");
+  check(row?.mintedAt.getTime() === T0.getTime(), "391h · minted at the clock's time");
 
   const again = await enrol(KEYS.a);
   check(again.status === 200 && ((await again.clone().json()) as { agentCredential: string }).agentCredential === "issued" && mint.calls.length === 1,
-    `362 · a second enrolment of the same wallet mints nothing and still answers issued (${again.status}, ${mint.calls.length} calls)`);
+    `392 · a second enrolment of the same wallet mints nothing and still answers issued (${again.status}, ${mint.calls.length} calls)`);
 
   const named = await enrol(KEYS.b);
   check(named.status === 200 && mint.calls[1]?.body.label === "agent7.xovi.eth" && mint.calls[1]?.body.agentAddress === getAddress(WALLET_B),
-    `363 · a wallet with a name in the table is minted under that name (${String(mint.calls[1]?.body.label)})`);
+    `393 · a wallet with a name in the table is minted under that name (${String(mint.calls[1]?.body.label)})`);
 
   // The AgentBook path: the first read that finds no row mints.
   const callsBeforeRead = mint.calls.length;
   const first = await read(REC);
   check(first.state === "registered" && first.source === "agentbook" && first.agentCredential === "issued" && mint.calls.length === callsBeforeRead + 1,
-    `364 · a wallet AgentBook knows is minted a credential on the first read without one (${JSON.stringify(first)}, ${mint.calls.length - callsBeforeRead} calls)`);
+    `394 · a wallet AgentBook knows is minted a credential on the first read without one (${JSON.stringify(first)}, ${mint.calls.length - callsBeforeRead} calls)`);
   const second = await read(REC);
-  check(second.agentCredential === "issued" && mint.calls.length === callsBeforeRead + 1, "364a · and the next read makes no call");
+  check(second.agentCredential === "issued" && mint.calls.length === callsBeforeRead + 1, "394a · and the next read makes no call");
   const stranger = await read("0x9999999999999999999999999999999999999999");
   check(stranger.state === "not-registered" && stranger.agentCredential === "none" && mint.calls.length === callsBeforeRead + 1,
-    `364b · a wallet in neither source is minted nothing (${JSON.stringify(stranger)})`);
-  check(Object.keys(first).sort().join(",") === "agentCredential,credential,source,state", `364c · the read answers four names (${Object.keys(first).sort().join(",")})`);
+    `394b · a wallet in neither source is minted nothing (${JSON.stringify(stranger)})`);
+  check(Object.keys(first).sort().join(",") === "agentCredential,credential,source,state", `394c · the read answers four names (${Object.keys(first).sort().join(",")})`);
 
   // Every way the mint can fail leaves the enrolment as it is.
   const callsBeforeFail = mint.calls.length;
   delete process.env.INGEST_MINT_SECRET;
   const unconfigured = await enrol(KEYS.c);
   check(unconfigured.status === 200 && ((await unconfigured.clone().json()) as { agentCredential: string }).agentCredential === "none" && mint.calls.length === callsBeforeFail,
-    `365 · with no secret the enrolment stands and no credential is issued, no call made (${unconfigured.status})`);
+    `395 · with no secret the enrolment stands and no credential is issued, no call made (${unconfigured.status})`);
   process.env.INGEST_MINT_SECRET = "the-wrong-secret";
   const refused = await read(WALLET_C);
   check(refused.state === "registered" && refused.agentCredential === "none" && mint.calls.length === callsBeforeFail + 1 && !credentials.rows.has(WALLET_C.toLowerCase()),
-    `365a · a refused mint is none, with no row (${JSON.stringify(refused)})`);
+    `395a · a refused mint is none, with no row (${JSON.stringify(refused)})`);
   process.env.INGEST_MINT_SECRET = ENV.INGEST_MINT_SECRET;
   mint.prefixOnly = true;
   const prefixOnly = await read(WALLET_C);
-  check(prefixOnly.agentCredential === "none" && !credentials.rows.has(WALLET_C.toLowerCase()), "365b · a prefix alone, the answer for a credential minted before, stores nothing and is none");
+  check(prefixOnly.agentCredential === "none" && !credentials.rows.has(WALLET_C.toLowerCase()), "395b · a prefix alone, the answer for a credential minted before, stores nothing and is none");
   mint.prefixOnly = false;
-  check((await read(WALLET_C)).agentCredential === "issued" && credentials.rows.has(WALLET_C.toLowerCase()), "365c · and the next read that gets a credential stores it (negative control)");
+  /*
+   * THE BACKOFF STANDS BETWEEN THE FAILURE AND THE NEXT ATTEMPT.
+   *
+   * A refused mint is remembered for this wallet, so the reads between here and
+   * the end of that window are answered from memory rather than by calling a
+   * service that has just said no. This check used to read again immediately; it
+   * moves the clock past the window instead, which is the behaviour and not a
+   * convenience.
+   */
+  const callsWhileBackingOff = mint.calls.length;
+  check((await read(WALLET_C)).agentCredential === "none" && mint.calls.length === callsWhileBackingOff,
+    "395c · a read inside the backoff window is answered without calling the mint again");
+  clock = new Date(T0.getTime() + MINT_BACKOFF_MS + 1);
+  check((await read(WALLET_C)).agentCredential === "issued" && credentials.rows.has(WALLET_C.toLowerCase()),
+    "395c2 · and the first read past it gets a credential and stores it (negative control)");
+  clock = T0;
+  resetMintBackoff();
   // The one failure that loses a credential for good: minted, and the row would
   // not write. Logged with the wallet and the prefix so an operator can re-mint,
   // and with nothing an attacker could present.
@@ -257,9 +275,9 @@ export async function credentialChecks(check: Check) {
   const lostLine = logged.find(l => l.includes(lost.address.toLowerCase())) ?? "";
   const lostKey = [...mint.keys.entries()].find(([, addr]) => addr === lost.address.toLowerCase())?.[0] ?? "";
   check(lostEnrol.status === 200 && ((await lostEnrol.clone().json()) as { agentCredential: string }).agentCredential === "none" && !credentials.rows.has(lost.address.toLowerCase()),
-    "365d · a row that would not write leaves the enrolment standing with no credential");
+    "395d · a row that would not write leaves the enrolment standing with no credential");
   check(lostKey !== "" && lostLine.includes(lostKey.split("_")[1]) && !lostLine.includes(lostKey.split("_")[2]) && /re-mint/.test(lostLine),
-    `365e · and is logged with the prefix and the way out, never the credential (${lostLine.slice(0, 60)}…)`);
+    `395e · and is logged with the prefix and the way out, never the credential (${lostLine.slice(0, 60)}…)`);
 
   /* The run, under the wallet's own credential. */
   process.env.X402_PAY_TO = "0x000000000000000000000000000000000000dEaD";
@@ -277,50 +295,50 @@ export async function credentialChecks(check: Check) {
     collect(runOnce({ windowsUrl: WINDOWS, paymentHeader: await signAt(WINDOWS, key), windowsFetch, ingestUrl: ingest.url, credentialFor: own, ingestFetch: fetch, ...over }));
 
   const runA = await runAs(`0x${"e1".repeat(32)}`);
-  check(runA.some(s => s.step === "proposed"), `366 · a run paid by an enrolled wallet proposes (${runA.map(s => s.step).join(", ")})`);
-  check(ingest.presented.length === 1 && ingest.presented[0] === mintedForA, "366a · presenting that wallet's own credential to the ingest route");
-  check(mint.keys.get(ingest.presented[0] ?? "") === WALLET_A.toLowerCase(), "366b · so the submitter the credential binds is the payer");
-  check(!JSON.stringify(runA).includes(secretPart), "366c · and the credential appears nowhere in the streamed run");
+  check(runA.some(s => s.step === "proposed"), `396 · a run paid by an enrolled wallet proposes (${runA.map(s => s.step).join(", ")})`);
+  check(ingest.presented.length === 1 && ingest.presented[0] === mintedForA, "396a · presenting that wallet's own credential to the ingest route");
+  check(mint.keys.get(ingest.presented[0] ?? "") === WALLET_A.toLowerCase(), "396b · so the submitter the credential binds is the payer");
+  check(!JSON.stringify(runA).includes(secretPart), "396c · and the credential appears nowhere in the streamed run");
 
   ingest.reset();
   const noneKey = privateKeyToAccount(`0x${"e5".repeat(32)}`);
   const runNone = await runAs(`0x${"e5".repeat(32)}`, { ingestKey: "k-env", ingestKeyPayer: REC });
   check(runNone.some(s => s.step === "not-submitted" && s.reason === "no-credential") && !runNone.some(s => s.step === "proposed") && ingest.hits === 0,
-    `366d · a wallet with no credential stops at not submitted, for want of a credential, and nothing reaches the ingest (${noneKey.address.slice(0, 8)})`);
+    `396d · a wallet with no credential stops at not submitted, for want of a credential, and nothing reaches the ingest (${noneKey.address.slice(0, 8)})`);
   ingest.reset();
   const runRec = await runAs(`0x${"e4".repeat(32)}`, { ingestKey: "k-env", ingestKeyPayer: REC, credentialFor: async () => null });
-  check(runRec.some(s => s.step === "proposed") && ingest.presented[0] === "k-env", "366e · the environment's credential is presented for the one wallet it belongs to (negative control)");
+  check(runRec.some(s => s.step === "proposed") && ingest.presented[0] === "k-env", "396e · the environment's credential is presented for the one wallet it belongs to (negative control)");
   ingest.reset();
   const runOther = await runAs(`0x${"e5".repeat(32)}`, { ingestKey: "k-env" });
-  check(!runOther.some(s => s.step === "proposed") && ingest.hits === 0, "366f · and for nobody when the wallet it belongs to is not named");
+  check(!runOther.some(s => s.step === "proposed") && ingest.hits === 0, "396f · and for nobody when the wallet it belongs to is not named");
   ingest.reset();
   const runUnconfigured = await runAs(`0x${"e1".repeat(32)}`, { ingestUrl: undefined });
-  check(runUnconfigured.some(s => s.step === "not-submitted" && s.reason === "unconfigured"), "366g · no ingest url is the other reason, told apart from a missing credential");
+  check(runUnconfigured.some(s => s.step === "not-submitted" && s.reason === "unconfigured"), "396g · no ingest url is the other reason, told apart from a missing credential");
 
   /* The sweep: the secret and every credential reach nothing this serves. */
   const served: string[] = [];
   for (const r of wires) served.push(await r.text(), ...[...r.headers.entries()].map(([k, v]) => `${k}: ${v}`));
   const needles = [ENV.INGEST_MINT_SECRET, ...[...mint.keys.keys()].map(k => k.split("_")[2])];
   const hits = needles.filter(n => served.some(s => s.includes(n)) || logged.some(l => l.includes(n)) || JSON.stringify([runA, runNone, runRec]).includes(n));
-  check(hits.length === 0 && needles.length >= 4, `367 · the mint secret and every minted credential appear in no answer, no log line and no run stream (${wires.length} answers, ${logged.length} lines, ${needles.length} needles)`);
-  check(mint.calls.every(c => c.authorization === `Bearer ${ENV.INGEST_MINT_SECRET}` || c.authorization === "Bearer the-wrong-secret"), "367a · while the secret did travel to the mint and only there (control)");
-  check(logged.some(l => /prefix/.test(l)) && !logged.some(l => /xvi_[0-9a-f]{12}_/.test(l)), "367b · a failed mint logs the wallet and the prefix, never a credential");
+  check(hits.length === 0 && needles.length >= 4, `397 · the mint secret and every minted credential appear in no answer, no log line and no run stream (${wires.length} answers, ${logged.length} lines, ${needles.length} needles)`);
+  check(mint.calls.every(c => c.authorization === `Bearer ${ENV.INGEST_MINT_SECRET}` || c.authorization === "Bearer the-wrong-secret"), "397a · while the secret did travel to the mint and only there (control)");
+  check(logged.some(l => /prefix/.test(l)) && !logged.some(l => /xvi_[0-9a-f]{12}_/.test(l)), "397b · a failed mint logs the wallet and the prefix, never a credential");
 
   const walk = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap(e => (e.isDirectory() ? walk(join(dir, e.name)) : /\.tsx?$/.test(e.name) ? [join(dir, e.name)] : []));
   const clientFiles = walk("app").filter(f => /^\s*"use client";/m.test(readFileSync(f, "utf8"))).concat(["lib/agent/browser.ts"]);
   const naming = clientFiles.filter(f => /INGEST_MINT_SECRET|CREDENTIAL_KEY/.test(readFileSync(f, "utf8")));
-  check(clientFiles.length >= 2 && naming.length === 0, `368 · no client file names the mint secret or the credential key (${clientFiles.length} walked)`);
-  check(/INGEST_MINT_SECRET/.test(readFileSync("lib/agent/credentials.ts", "utf8")) && /CREDENTIAL_KEY/.test(readFileSync("lib/agent/credentials.ts", "utf8")), "368a · while the server module names both (control)");
+  check(clientFiles.length >= 2 && naming.length === 0, `398 · no client file names the mint secret or the credential key (${clientFiles.length} walked)`);
+  check(/INGEST_MINT_SECRET/.test(readFileSync("lib/agent/credentials.ts", "utf8")) && /CREDENTIAL_KEY/.test(readFileSync("lib/agent/credentials.ts", "utf8")), "398a · while the server module names both (control)");
 
   const migration = "sql/0008_credentials.sql";
   const ddl = existsSync(migration) ? readFileSync(migration, "utf8").replace(/^\s*--.*$/gm, "") : "";
   const columns = [...(ddl.match(/CREATE TABLE IF NOT EXISTS credentials \(([\s\S]*?)\);/)?.[1] ?? "").matchAll(/^\s+([a-z_]+)\s/gm)].map(m => m[1]);
-  check(columns.join(",") === "payer,ciphertext,nonce,key_prefix,minted_at", `369 · migration 0008 holds the wallet, the ciphertext, the nonce, the prefix and the time (${columns.join(",")})`);
-  check(!/^\s+(key|credential|plaintext)\s/m.test(ddl) && /PRIMARY KEY/.test(ddl), "369a · no column for the credential itself, and the wallet is the key");
+  check(columns.join(",") === "payer,ciphertext,nonce,key_prefix,minted_at", `399 · migration 0008 holds the wallet, the ciphertext, the nonce, the prefix and the time (${columns.join(",")})`);
+  check(!/^\s+(key|credential|plaintext)\s/m.test(ddl) && /PRIMARY KEY/.test(ddl), "399a · no column for the credential itself, and the wallet is the key");
   const example = readFileSync(".env.example", "utf8");
   const missing = ["INGEST_MINT_SECRET", "CREDENTIAL_KEY", "XOVI_INGEST_KEY_PAYER"].filter(n => !new RegExp(`^${n}=`, "m").test(example));
-  check(missing.length === 0, `369b · the example names the three variables (${missing.join(", ") || "none missing"})`);
+  check(missing.length === 0, `399b · the example names the three variables (${missing.join(", ") || "none missing"})`);
 
   console.warn = real.warn;
   console.error = real.error;

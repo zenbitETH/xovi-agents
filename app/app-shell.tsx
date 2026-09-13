@@ -134,7 +134,7 @@ export type Line = {
 export const CREDENTIAL_REFUSED = 403;
 
 /** What that means, for the person who paid. It makes no promise about when. */
-export const NO_CREDENTIAL = "The read was paid and served. Xovi holds no credential for this agent, so it cannot propose yet.";
+export const NO_CREDENTIAL = "The read was paid and served; Xovi holds no credential for this agent, so it cannot propose.";
 
 export function lineFor(step: RunStep): Line {
   switch (step.step) {
@@ -246,7 +246,11 @@ export function lineFor(step: RunStep): Line {
         tone: step.kind === "duplicate" ? "supply" : "stopped",
       };
     case "not-submitted":
-      return { text: "Stopped before submitting", detail: step.detail, tone: "stopped", actor: "agent" };
+      // The run knew before it tried, so the person reads why rather than that it
+      // stopped. The sentence is the run's own, taken from the step rather than
+      // looked up again here, so the two cannot drift; the machine's word for the
+      // reason goes in the detail lane.
+      return { text: step.detail, detail: step.reason, tone: "stopped", actor: "agent" };
     case "done":
       return { text: "Run finished", tone: "good", actor: "system" };
   }
@@ -465,6 +469,20 @@ export type Registration = "registered" | "not-registered" | "unread" | "reading
  * answered at all.
  */
 export type RegistrationSource = "agentbook" | "worldid";
+
+/** Whether this wallet holds the credential its own proposals travel under. */
+export type AgentCredential = "issued" | "none";
+
+/**
+ * The pill beside the registration, in the referential voice.
+ *
+ * It says what Xovi holds and not what the person is. `yet` is left out for the
+ * same reason it left the stop card: the sentence describes the present, and
+ * whether a credential arrives later is not this pill's to promise.
+ */
+export function credentialPill(credential: AgentCredential): string {
+  return credential === "issued" ? "credential issued by Xovi" : "no credential issued";
+}
 
 /** What the card says for each state, and it names a source only where it was told one. */
 export function registrationLine(state: Registration, source: RegistrationSource | null): string {
@@ -1119,6 +1137,7 @@ function Onboarding({
   registration,
   source,
   credential,
+  agentCredential,
   nameState,
   name,
   label,
@@ -1133,6 +1152,7 @@ function Onboarding({
   registration: Registration;
   source: RegistrationSource | null;
   credential: string | null;
+  agentCredential: AgentCredential;
   nameState: NameState;
   name: string | null;
   label: string | null;
@@ -1206,6 +1226,12 @@ function Onboarding({
         <li className={cls("person")}>
           <h3 className="ag-panel-title">A person behind the agent</h3>
           <span className={pill(of("person"))}>{registrationPill(of("person"), source)}</span>
+          {/* What Xovi holds for this wallet, which is a different fact from
+              whether a person stands behind it: a registration is read here and a
+              credential is minted there. */}
+          {of("person") === "done" && (
+            <span className={agentCredential === "issued" ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>{credentialPill(agentCredential)}</span>
+          )}
           <p className="ag-sub">{registrationLine(registration, source)}</p>
           {/* The framing sentence is this file's and the rest is the card's. What
               verifying keeps is said by the component, in one exported sentence, so
@@ -1765,6 +1791,7 @@ export function AppShell() {
   /** Which source answered, and what it carried. Null until an answer names one. */
   const [source, setSource] = useState<RegistrationSource | null>(null);
   const [credential, setCredential] = useState<string | null>(null);
+  const [agentCredential, setAgentCredential] = useState<AgentCredential>("none");
   const [readAgain, setReadAgain] = useState(0);
   const [accountTab, setAccountTab] = useState<AccountTab>("overview");
   const [settlements, setSettlements] = useState<Settlement[]>([]);
@@ -1967,7 +1994,12 @@ export function AppShell() {
     fetch(`/api/agent/registration?payer=${address}`)
       .then(async r =>
         r.ok
-          ? ((await r.json()) as { state: Registration; source?: RegistrationSource | null; credential?: string | null })
+          ? ((await r.json()) as {
+              state: Registration;
+              source?: RegistrationSource | null;
+              credential?: string | null;
+              agentCredential?: AgentCredential;
+            })
           : { state: "unread" as const },
       )
       .then(a => {
@@ -1978,12 +2010,16 @@ export function AppShell() {
         // drawn from a non answer.
         setSource("source" in a && (a.source === "agentbook" || a.source === "worldid") ? a.source : null);
         setCredential("credential" in a && typeof a.credential === "string" && a.credential !== "" ? a.credential : null);
+        // The same rule as the source: an answer that does not name it leaves the
+        // page saying none rather than assuming one exists.
+        setAgentCredential("agentCredential" in a && a.agentCredential === "issued" ? "issued" : "none");
       })
       .catch(() => {
         if (live) {
           setRegistration("unread");
           setSource(null);
           setCredential(null);
+          setAgentCredential("none");
         }
       });
     return () => {
@@ -2288,6 +2324,7 @@ export function AppShell() {
                   registration={registration}
                   source={source}
                   credential={credential}
+                  agentCredential={agentCredential}
                   nameState={nameState}
                   name={issuedName}
                   label={nameLabel}

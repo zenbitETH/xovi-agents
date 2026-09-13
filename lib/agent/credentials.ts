@@ -122,6 +122,37 @@ export function mintUrlFrom(env: EnvLike): string | null {
 export type CredentialState = "issued" | "none";
 
 /**
+ * How long a wallet waits before the mint is tried for it again.
+ *
+ * The registration read is answered on every page load, and it mints on the first
+ * read for a wallet that holds no credential. So while the reviewing application
+ * is down, every read of every page by that wallet was another call to a service
+ * that is not answering, at exactly the moment it can least afford them. The
+ * failure is remembered per wallet instead, and the read answers `none` from
+ * memory until the window passes, which is what it would have answered anyway.
+ *
+ * Held in this process, so several instances back off separately, which is the
+ * same shape the request cap has and is stated for the same reason.
+ */
+export const MINT_BACKOFF_MS = 60_000;
+
+const mintFailedAt = new Map<string, number>();
+
+/** Exported so a check can start from a known state rather than from whatever the
+ *  check before it left behind. */
+export function resetMintBackoff(): void {
+  mintFailedAt.clear();
+}
+
+function backingOff(wallet: string, at: Date): boolean {
+  const failed = mintFailedAt.get(wallet);
+  if (failed === undefined) return false;
+  if (at.getTime() - failed < MINT_BACKOFF_MS) return true;
+  mintFailedAt.delete(wallet);
+  return false;
+}
+
+/**
  * Make sure this wallet holds a credential, minting one if it has none.
  *
  * `issued` when a row exists or one was written now; `none` for every other
@@ -143,6 +174,10 @@ export async function ensureCredential(
   const wallet = payer.toLowerCase();
   if (!deps.store) return "none";
   if (await deps.store.byPayer(wallet)) return "issued";
+
+  // Asked before anything that costs a call. A wallet whose mint has just failed
+  // is answered from memory, which is the answer it would have been given anyway.
+  if (backingOff(wallet, deps.at)) return "none";
 
   const url = mintUrlFrom(env);
   const secret = (env.INGEST_MINT_SECRET ?? "").trim();
@@ -172,6 +207,7 @@ export async function ensureCredential(
     });
   } catch {
     console.warn(`credential: the mint could not be reached for ${wallet}`);
+    mintFailedAt.set(wallet, deps.at.getTime());
     return "none";
   }
   let body: Record<string, unknown>;
@@ -183,6 +219,7 @@ export async function ensureCredential(
   if (!answer.ok) {
     // The status and nothing else: the body is the other side's prose.
     console.warn(`credential: the mint refused ${wallet} with ${answer.status}`);
+    mintFailedAt.set(wallet, deps.at.getTime());
     return "none";
   }
   const key = typeof body.key === "string" ? body.key : null;
