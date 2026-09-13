@@ -756,7 +756,7 @@ export async function pageChecks(check: Check) {
   // last anchor was a function that got renamed and the slice silently became the
   // rest of the file.
   const rolodexStart = ui.indexOf("function Rolodex(");
-  const rolodexEnd = ui.indexOf("function Onboarding(");
+  const rolodexEnd = ui.indexOf("function Enrol(");
   const rolodexBlock = rolodexStart >= 0 && rolodexEnd > rolodexStart ? ui.slice(rolodexStart, rolodexEnd) : "";
   check(rolodexBlock.length > 0 && rolodexBlock.length < ui.length / 2, `283c · the rolodex block is found and is a block (${rolodexBlock.length})`);
   const maps = (rolodexBlock.match(/lines\.map\(\(line, i\) =>/g) ?? []).length;

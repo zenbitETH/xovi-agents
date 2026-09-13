@@ -930,66 +930,119 @@ function NotYet() {
 }
 
 /**
- * The three steps a person completes before the page opens.
+ * What stands between a connected wallet and the board.
  *
- * In order, one lit at a time, and the strip does not exist until the third is
- * done. The flow ran straight for anyone already set up and a new person could
- * walk past all of it to a run that could not work.
+ * **One step, and it is optional.** It was three, and two of them were wrong. The
+ * wallet card restated what the header's own chip already says, and the name card
+ * held a person at a step Zenbit performs: a wallet that had enrolled and not asked
+ * for a name landed on a checklist instead of the board, which is the founder's
+ * finding. The name is offered from the header and from the account, never
+ * required, and the chain is guarded where it is used, at the signature and on the
+ * chip, rather than by a card that asks somebody to read it.
  *
- * **Every step now has something on its own card that completes it**, which is
- * what changed. The registration step used to draw `blocked` for a wallet the
- * registry did not know: a state with a sentence and no way out, on the one card
- * where a person most needs one. A wallet can be verified here now, so the step is
- * a thing to do rather than a wall, and `blocked` is gone rather than left in the
- * type for nobody to reach.
- *
- * **The name step completes on the request and not on the issuance.** The record
- * is written by Zenbit's own transaction, because the resolver that answers for
- * the parent admits no operator and no server can hold a key it would accept. That
- * is somebody else's work on somebody else's clock, so holding a person here until
- * the chain catches up would gate the product on a task they cannot do.
+ * A person who declines World ID may go on: they pay for every read, earn no
+ * allowance and get no name, and their run stops before proposing, because a
+ * credential is minted only for a wallet somebody stands behind. That is a worse
+ * deal and an honest one, and it is theirs to take.
  */
-export type StepId = "wallet" | "person" | "name";
+export type Enrolment = "reading" | "needed" | "enrolled" | "skipped";
+
+/** How a pill reads a thing that is done, not done, or waiting on something else.
+ *  What is left of the three step machinery: the pills outlived the checklist. */
 export type StepMark = "done" | "todo" | "waiting";
-export type Step = { id: StepId; mark: StepMark };
 
 /** What the name route answers, and the card's three states are its three. */
 export type NameState = "none" | "requested" | "issued";
 
+export function enrolmentState(input: { address: string | null; registration: Registration; skipped: boolean }): Enrolment {
+  // No wallet is not a step: that is the home, and the home says what this is.
+  if (input.address === null) return "reading";
+  if (input.registration === "registered") return "enrolled";
+  if (input.skipped) return "skipped";
+  // An answer that has not arrived is not a demand. Drawing the step while the
+  // registry is still being read asks a returning wallet to enrol every time.
+  if (input.registration === "reading" || input.registration === "idle") return "reading";
+  return "needed";
+}
+
+/** Connected and either enrolled or skipped, and nothing else. */
+export function opensTheBoard(state: Enrolment): boolean {
+  return state === "enrolled" || state === "skipped";
+}
+
+/**
+ * That a person declined, remembered for that wallet and nowhere else.
+ *
+ * The browser alone: no request carries it, because it is a preference about this
+ * page and not a fact about the wallet, and a server that knew it would be
+ * remembering a refusal. A reload offers the step again only for a wallet that has
+ * not answered, which is the difference between asking once and nagging.
+ */
+const SKIPPED = "xovi-agents:enrolment-skipped";
+
+function skipKey(address: string | null): string {
+  return `${SKIPPED}:${(address ?? "none").toLowerCase()}`;
+}
+
+export function readSkipped(address: string | null): boolean {
+  try {
+    return globalThis.localStorage?.getItem(skipKey(address)) === "yes";
+  } catch {
+    // A browser that refuses storage offers the step again, which is the safe
+    // direction: it costs a person one click and claims nothing about them.
+    return false;
+  }
+}
+
+export function writeSkipped(address: string | null): void {
+  try {
+    globalThis.localStorage?.setItem(skipKey(address), "yes");
+  } catch {
+    // Nothing to do about it, and nothing to say about it to a server.
+  }
+}
+
 /**
  * Who this agent is, as the two facts the page can stand behind.
  *
- * Once the onboarding is done it disappears, and with it everything that said who
- * the agent was: a person looking at the board saw a wallet chip and nothing about
- * the name they had just asked for or the registration they had just made. These
- * are drawn on every render from the two routes, never remembered, so a name that
- * stops resolving or a verification that lapses takes its chip with it.
- *
- * Null where there is nothing true to say. A wallet with no name gets no name chip
- * rather than an empty one, and an unregistered wallet gets no pill rather than a
- * pill saying no.
+ * Drawn on every render from the two routes, never remembered, so a verification
+ * that lapses or a name that stops resolving takes its chip with it. Null where
+ * there is nothing true to say: a wallet with no name gets no name chip rather
+ * than an empty one, and an unregistered wallet gets no pill rather than one
+ * saying no.
  */
 export function identityChips(input: {
   registration: Registration;
   source: RegistrationSource | null;
+  agentCredential: AgentCredential;
   nameState: NameState;
   name: string | null;
-}): { name: string | null; registration: string | null } {
+}): { name: string | null; registration: string | null; credential: string | null } {
   return {
-    // The route serves a name only to the wallet it belongs to, so a name in hand
-    // here is this wallet's own. The state travels with it because requested and
-    // issued are two different facts and a chip that flattened them would say a
-    // record exists where only a row does.
     name: input.nameState !== "none" && input.name !== null ? `${input.name} · ${input.nameState}` : null,
     registration: input.registration === "registered" ? registrationPill("done", input.source) : null,
+    // Drawn beside the registration rather than on the enrolment card, which is
+    // shown only to a wallet that has neither, so a pill there would have read the
+    // same words every time it was seen.
+    credential: input.registration === "registered" ? credentialPill(input.agentCredential) : null,
   };
 }
 
-function IdentityChips({ chips }: { chips: { name: string | null; registration: string | null } }) {
+function IdentityChips({ chips, onName }: { chips: { name: string | null; registration: string | null; credential: string | null }; onName: () => void }) {
   return (
     <>
       {chips.registration !== null && <span className="ag-chip ag-chip-good">{chips.registration}</span>}
-      {chips.name !== null && <span className="ag-chip ag-chip-idle">{chips.name}</span>}
+      {chips.credential !== null && <span className="ag-chip ag-chip-idle">{chips.credential}</span>}
+      {/* The name is offered here rather than required before the board. A wallet
+          with one is told; a wallet without one is offered the request and may
+          ignore it for as long as it likes. */}
+      {chips.name !== null ? (
+        <span className="ag-chip ag-chip-idle">{chips.name}</span>
+      ) : (
+        <button type="button" className="ag-chip ag-chip-idle ag-chip-do" onClick={onName}>
+          no name · get one
+        </button>
+      )}
     </>
   );
 }
@@ -1000,36 +1053,6 @@ export function namePill(state: NameState, mark: StepMark): string {
   return state === "issued" ? "issued" : state === "requested" ? "requested" : "not yet";
 }
 
-export function onboardingFrom(input: {
-  address: string | null;
-  chain: string | null;
-  registration: Registration;
-  nameState: NameState;
-}): { steps: Step[]; done: boolean; at: StepId } {
-  const walletDone = input.address !== null && input.chain === BASE_SEPOLIA_HEX;
-  const wallet: Step = { id: "wallet", mark: walletDone ? "done" : "todo" };
-
-  let person: Step;
-  if (!walletDone) person = { id: "person", mark: "waiting" };
-  else if (input.registration === "registered") person = { id: "person", mark: "done" };
-  else if (input.registration === "reading" || input.registration === "idle") person = { id: "person", mark: "waiting" };
-  // Not registered and unread are both todo, and for the same reason: this card
-  // carries something a person can press for either of them. They are still two
-  // different sentences, because one is an answer about the wallet and the other
-  // is an answer about the read.
-  else person = { id: "person", mark: "todo" };
-
-  const name: Step =
-    person.mark !== "done"
-      ? { id: "name", mark: "waiting" }
-      : input.nameState === "none"
-        ? { id: "name", mark: "todo" }
-        : { id: "name", mark: "done" };
-
-  const steps = [wallet, person, name];
-  const at = steps.find(step => step.mark !== "done")?.id ?? "name";
-  return { steps, done: steps.every(step => step.mark === "done"), at };
-}
 
 /**
  * The run as a rolodex, ported from the Zenbit site's stack.
@@ -1222,113 +1245,82 @@ function Home({ newest }: { newest: { day: string; videoId: string } | null }) {
   );
 }
 
-function Onboarding({
+/**
+ * The one step between a connected wallet and the board.
+ *
+ * Drawn as the run is drawn: a line of states beside one card, so the two moments
+ * a person spends here look like one page rather than two. Three nodes, because a
+ * person wants to know where they are and what follows, and only the middle one
+ * asks anything of them.
+ *
+ * **The card offers and does not require.** A person who declines goes on, pays for
+ * every read, earns no allowance and gets no name, and their run stops before
+ * proposing. The wallet card is gone: the header's chip already draws the address,
+ * the chain and the switch, and a card restating it was a step that completed
+ * itself. The name card is gone from here too: issuing is Zenbit's own work and
+ * holding somebody at it was the founder's finding.
+ */
+function Enrol({
   address,
-  chain,
   registration,
   source,
   credential,
-  agentCredential,
-  nameState,
-  name,
-  label,
-  requestingName,
-  nameError,
-  onSwitch,
   onRetry,
-  onRequestName,
+  onSkip,
 }: {
   address: `0x${string}` | null;
-  chain: string | null;
   registration: Registration;
   source: RegistrationSource | null;
   credential: string | null;
-  agentCredential: AgentCredential;
-  nameState: NameState;
-  name: string | null;
-  label: string | null;
-  requestingName: boolean;
-  nameError: string | null;
-  onSwitch: () => void;
   onRetry: () => void;
-  onRequestName: () => void;
+  onSkip: () => void;
 }) {
-  const { steps, at } = onboardingFrom({ address, chain, registration, nameState });
-  const of = (id: StepId) => steps.find(step => step.id === id)?.mark ?? "waiting";
-  const cls = (id: StepId) => (id === at ? "ag-panel ag-step ag-step-at" : of(id) === "done" ? "ag-panel ag-step ag-step-done" : "ag-panel ag-step");
-  const pill = (m: StepMark) => (m === "done" ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle");
-
+  const nodes = [
+    { label: "A wallet", state: "done" as const },
+    { label: "A person behind it", state: "at" as const },
+    { label: "The board", state: "ahead" as const },
+  ];
   return (
-    <div className="ag-setup">
-      <ol className="ag-cards ag-setup-cards">
-        <li className={cls("wallet")}>
-          <h3 className="ag-panel-title">A wallet on Base Sepolia</h3>
-          <span className={pill(of("wallet"))}>{of("wallet") === "done" ? "connected" : "not yet"}</span>
-          {address === null ? (
-            <p className="ag-sub">Connect a wallet in the header.</p>
-          ) : (
+    <div className="ag-roll ag-enrol">
+      <nav className="ag-steps" aria-label="Before the board">
+        <span className="ag-steps-spine" aria-hidden="true" />
+        {nodes.map(node => (
+          <span key={node.label} className="ag-steps-item" data-state={node.state} aria-current={node.state === "at" ? "step" : undefined}>
+            <span className="ag-steps-dot" aria-hidden="true" />
+            <span className="ag-steps-label">{node.label}</span>
+          </span>
+        ))}
+      </nav>
+
+      <div className="ag-roll-stage ag-enrol-stage">
+        <article className="ag-roll-card ag-actor-human" data-position="current">
+          <h3 className="ag-panel-title">A person behind the agent</h3>
+          <span className={registration === "registered" ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>
+            {registrationPill(registration === "registered" ? "done" : "todo", source)}
+          </span>
+          <p className="ag-sub">{registrationLine(registration, source)}</p>
+          {credential !== null && <p className="ag-account-address">World ID credential: {credential}</p>}
+          <p className="ag-sub">World ID asserts that one person stands behind this wallet.</p>
+          {/* A step already done draws no control for doing it: a registered wallet
+              is told its state and asked for nothing. */}
+          {registration !== "registered" && <WorldIdCard payer={address} onRegistered={onRetry} />}
+          {(registration === "not-registered" || registration === "unread") && (
             <>
-              <span className="ag-account-face ag-setup-face">
-                <Identicon address={address} />
-                <span className="ag-account-address">
-                  {address.slice(0, 6)}…{address.slice(-4)}
-                </span>
-              </span>
-              {/* Said on the card rather than left to be worked out. The two cards
-                  below read this address, the run pays from it, and a person who
-                  switches accounts is looking at a different agent. */}
+              <button type="button" className="btn xv-action-outline ag-setup-do" onClick={onRetry}>
+                {registration === "unread" ? "Read it again" : "Check again"}
+              </button>
+              {/* The worse deal, stated rather than hidden behind a smaller word. */}
+              <button type="button" className="btn xv-action-outline ag-setup-do" onClick={onSkip}>
+                Go on without World ID
+              </button>
               <p className="ag-sub">
-                The connected wallet is the agent&apos;s address. It signs the payment, and the registration and the
-                name below are read for it.
+                Without it every read settles, there is no free allowance, no name is issued, and a run stops before
+                proposing, because a credential is minted for a wallet somebody stands behind.
               </p>
-              {chain !== BASE_SEPOLIA_HEX && (
-                <button type="button" className="btn xv-action ag-setup-do" onClick={onSwitch}>
-                  Switch to Base Sepolia
-                </button>
-              )}
             </>
           )}
-        </li>
-
-        <li className={cls("person")}>
-          <h3 className="ag-panel-title">A person behind the agent</h3>
-          <span className={pill(of("person"))}>{registrationPill(of("person"), source)}</span>
-          {/* What Xovi holds for this wallet, which is a different fact from
-              whether a person stands behind it: a registration is read here and a
-              credential is minted there. */}
-          {of("person") === "done" && (
-            <span className={agentCredential === "issued" ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>{credentialPill(agentCredential)}</span>
-          )}
-          <p className="ag-sub">{registrationLine(registration, source)}</p>
-          {/* The framing sentence is this file's and the rest is the card's. What
-              verifying keeps is said by the component, in one exported sentence, so
-              the copy and the thing that does the keeping cannot drift apart. */}
-          <p className="ag-sub">World ID asserts that one person stands behind this wallet.</p>
-          {credential !== null && <p className="ag-account-address">World ID credential: {credential}</p>}
-          <WorldIdCard payer={address} onRegistered={onRetry} />
-          {(registration === "not-registered" || registration === "unread") && (
-            <button type="button" className="btn xv-action-outline ag-setup-do" onClick={onRetry}>
-              {registration === "unread" ? "Read it again" : "Check again"}
-            </button>
-          )}
-        </li>
-
-        {/* The card is its own file and draws its own `li`: its three states are the
-            route's three, and the word in its pill is the checklist's, because only
-            the checklist knows the step before it is unfinished. */}
-        <NameCard
-          state={nameState}
-          name={name}
-          label={label}
-          pill={namePill(nameState, of("name"))}
-          canRequest={registration === "registered"}
-          requesting={requestingName}
-          error={nameError}
-          onRequest={onRequestName}
-          className={cls("name")}
-          pillClassName={pill(of("name"))}
-        />
-      </ol>
+        </article>
+      </div>
     </div>
   );
 }
@@ -1882,11 +1874,16 @@ export function AppShell() {
   /** How far the wheel has turned. The log fills as fast as the stream yields; this
    *  walks behind it one state at a time so a burst is watchable. */
   const [cursor, setCursor] = useState(0);
+  /** That this wallet declined World ID, read from the browser and written there
+   *  alone. Re-read when the wallet changes, so one wallet's answer is not another
+   *  wallet's. */
+  const [skipped, setSkipped] = useState(false);
   const [requestingName, setRequestingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [walletNote, setWalletNote] = useState<string | null>(null);
   const busy = useRef(false);
   const runDialog = useRef<HTMLDialogElement | null>(null);
+  const nameDialog = useRef<HTMLDialogElement | null>(null);
   const feedEnd = useRef<HTMLLIElement | null>(null);
 
   const say = useCallback((line: Line) => {
@@ -2052,6 +2049,8 @@ export function AppShell() {
       live = false;
     };
   }, []);
+
+  useEffect(() => setSkipped(readSkipped(address)), [address]);
 
   useEffect(() => {
     if (address === null) {
@@ -2294,15 +2293,15 @@ export function AppShell() {
   // and not a phrase match over its narration.
   const supply = running ? null : supplyFrom(steps);
   const lit = planFrom(challengeRead, signed, steps);
-  // The strip, and everything behind it, does not exist until the third step is
-  // done. Re-derived on every render from the reads themselves, so a remembered
-  // acknowledgement never stands in for a registration that is no longer there.
-  const onboarded = onboardingFrom({ address, chain, registration, nameState }).done;
+  // Connected and either enrolled or skipped. Re-derived on every render from the
+  // read itself, so a remembered refusal never stands in for a registration that
+  // is no longer there, and a registration that arrives opens the board at once.
+  const onboarded = opensTheBoard(enrolmentState({ address, registration, skipped }));
   const last = Math.max(0, lines.length - 1);
   // The person's hand wins over the wheel: while a card is pinned the dwell stops
   // advancing and the pager alone moves it.
   const at = Math.min(pinned ?? cursor, last);
-  const identity = identityChips({ registration, source, nameState, name: routeName });
+  const identity = identityChips({ registration, source, agentCredential, nameState, name: routeName });
 
   return (
     <>
@@ -2323,7 +2322,7 @@ export function AppShell() {
                 <StatusChip phase={phase} why={stoppedWhy} />
                 {/* Who the agent is, on every destination and not only on the cards
                     that set it up. Drawn from the same two reads the onboarding used. */}
-                <IdentityChips chips={identity} />
+                <IdentityChips chips={identity} onName={() => nameDialog.current?.showModal()} />
                 <AccountChip
                   address={address}
                   chain={chain}
@@ -2395,21 +2394,16 @@ export function AppShell() {
                 // act on is a wall with steps painted on it.
                 <Home newest={newestRecording(board.cells)} />
               ) : !onboarded ? (
-                <Onboarding
+                <Enrol
                   address={address}
-                  chain={chain}
                   registration={registration}
                   source={source}
                   credential={credential}
-                  agentCredential={agentCredential}
-                  nameState={nameState}
-                  name={issuedName}
-                  label={nameLabel}
-                  requestingName={requestingName}
-                  nameError={nameError}
-                  onSwitch={() => void onSwitch()}
                   onRetry={() => setReadAgain(n => n + 1)}
-                  onRequestName={() => void onRequestName()}
+                  onSkip={() => {
+                    writeSkipped(address);
+                    setSkipped(true);
+                  }}
                 />
               ) : screen === "board" ? (
                 <Board
@@ -2425,7 +2419,7 @@ export function AppShell() {
               ) : screen === "account" ? (
                 <div className="ag-account-body">
                   <div className="ag-identity">
-                    <IdentityChips chips={identity} />
+                    <IdentityChips chips={identity} onName={() => nameDialog.current?.showModal()} />
                   </div>
                   <nav className="ag-tabs" aria-label="Account" style={{ "--xv-strip-n": ACCOUNT_TABS.length } as React.CSSProperties}>
                     <span
@@ -2659,6 +2653,29 @@ export function AppShell() {
         {/* The run, over the page rather than instead of it. Closing it never
             stops the stream: the status chip keeps moving and the strip's Run
             item reopens it on whatever card the run has reached. */}
+        <dialog ref={nameDialog} className="ag-run-dialog ag-name-dialog" tabIndex={-1} aria-label="A name for this agent">
+          <div className="ag-run-dialog-head">
+            <p className="ag-eyebrow">A name under xovi.eth</p>
+            <form method="dialog">
+              <button className="btn xv-action-outline ag-setup-do">Close</button>
+            </form>
+          </div>
+          <div className="ag-roll-stage ag-enrol-stage">
+            <NameCard
+              state={nameState}
+              name={issuedName}
+              label={nameLabel}
+              pill={namePill(nameState, "todo")}
+              canRequest={registration === "registered"}
+              requesting={requestingName}
+              error={nameError}
+              onRequest={() => void onRequestName()}
+              className="ag-roll-card ag-actor-human"
+              pillClassName={nameState === "issued" ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}
+            />
+          </div>
+        </dialog>
+
         <dialog ref={runDialog} className="ag-run-dialog" tabIndex={-1} aria-labelledby="ag-run-thesis">
           <div className="ag-run-dialog-head">
             <div>

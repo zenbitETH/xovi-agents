@@ -9,11 +9,13 @@ import { setClockForTest } from "../lib/human/clock";
 import { ENROLLMENT_CALLS_PER_MINUTE, ENROLLMENT_WINDOW_MS, enrollmentThrottle } from "../lib/human/throttle";
 import { readFileSync } from "node:fs";
 import { setRegistryForTest } from "../lib/human/registry";
-import { setCapForTest } from "../lib/human/cap";
+import { capFrom, setCapForTest, standingBehind, takeFreeRead } from "../lib/human/cap";
+import { ensureCredential } from "../lib/agent/credentials";
 import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
-import { CREDENTIAL_REFUSED, newestRecording, NO_CREDENTIAL, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, onboardingFrom, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
+import { CREDENTIAL_REFUSED, newestRecording, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
+import { NOT_SUBMITTED_SENTENCE } from "../lib/agent/run";
 import { resetServerForTest } from "../lib/x402";
 
 type Check = (ok: boolean, label: string) => void;
@@ -400,11 +402,29 @@ export async function boardChecks(check: Check) {
    */
   check(/<WorldIdCard\s+payer=\{address\}\s+onRegistered=\{onRetry\}\s*\/>/.test(page),
     "297 · the World ID card is mounted with the connected wallet and re-reads the registration when it succeeds");
-  check(/<NameCard\b/.test(page) && /onRequest=\{onRequestName\}/.test(page),
+  // The name card moved out of the checklist and behind the header's own chip:
+  // it is offered, never required, which is the founder's ruling.
+  check(/<NameCard\b/.test(page) && /onRequest=\{\(\) => void onRequestName\(\)\}/.test(page),
     "297a · and the name card is mounted with the request the shell sends");
   // The word in the name card's pill is the checklist's, because only the checklist
   // knows the step before it is unfinished; `waiting` exists in no other vocabulary.
-  check(/pill=\{namePill\(nameState, of\("name"\)\)\}/.test(page), "297b · with the checklist's own word in its pill");
+  check(/pill=\{namePill\(nameState, "todo"\)\}/.test(page), "297b · with the checklist's own word in its pill");
+  check(/onName=\{\(\) => nameDialog\.current\?\.showModal\(\)\}/.test(page) && /no name · get one/.test(page),
+    "297c · and the header offers it rather than the board requiring it");
+  /*
+   * A STEP ALREADY DONE DRAWS NO CONTROL FOR DOING IT.
+   *
+   * A registered wallet was shown a Verify with World ID button under a card that
+   * already said it was registered, which is a control that can only tell somebody
+   * they were wrong about where they are.
+   */
+  const enrolBlock = page.slice(page.indexOf("function Enrol("), page.indexOf("/**\n * The board: what is on offer"));
+  check(enrolBlock.length > 0, "297d · the enrolment card is found (negative control for the slice)");
+  check(/\{registration !== "registered" && <WorldIdCard/.test(enrolBlock),
+    "297e · the verification is offered only to a wallet that has not made one");
+  const enrolControls = [...enrolBlock.matchAll(/<button[\s\S]{0,200}?onClick=\{([^}]*)\}/g)].map(m => m[1]);
+  check(enrolControls.length >= 2 && enrolControls.every(c => /onRetry|onSkip/.test(c)),
+    `297f · and the card's own controls are the read again and the refusal (${enrolControls.join(" | ") || "none"})`);
 
   /*
    * EVERY CONTROL ON THE THREE CARDS LOOKS LIKE ONE.
@@ -419,7 +439,7 @@ export async function boardChecks(check: Check) {
    * of controls compared against the count this read could classify so a button
    * with no class is a red line rather than a silent omission.
    */
-  const onboardingStart = page.indexOf("function Onboarding(");
+  const onboardingStart = page.indexOf("function Enrol(");
   const onboardingEnd = page.indexOf("function Board(");
   check(onboardingStart > 0 && onboardingEnd > onboardingStart, "309 · the onboarding block is found in the shell (negative control for the slice)");
   const cardSources = [page.slice(onboardingStart, onboardingEnd), readFileSync("app/world-id-card.tsx", "utf8"), readFileSync("app/name-card.tsx", "utf8")];
@@ -463,7 +483,7 @@ export async function boardChecks(check: Check) {
   // The pager still moves it, and the dwell stops while a person is holding one.
   check(/if \(pinned !== null\) return;/.test(page) && /setCursor\(c => c \+ 1\), ROLL_DWELL_MS\)/.test(page),
     "312g · the wheel turns on that timer and stops while a card is pinned");
-  const roll = page.slice(page.indexOf("function Rolodex("), page.indexOf("function Onboarding("));
+  const roll = page.slice(page.indexOf("function Rolodex("), page.indexOf("function Enrol("));
   check(roll.length > 0 && /aria-hidden=\{current \? undefined : "true"\}/.test(roll) && /inert=\{!current\}/.test(roll),
     "312h · the neighbours are scenery: read by no screen reader and reachable by no keyboard");
   // And they carry a title and nothing else. Drawn whole they overlapped the state
@@ -506,7 +526,7 @@ export async function boardChecks(check: Check) {
    * whose first element is broken says something about the rest of it.
    */
   const homeStart = page.indexOf("function Home(");
-  const homeEnd = page.indexOf("function Onboarding(");
+  const homeEnd = page.indexOf("function Enrol(");
   check(homeStart > 0 && homeEnd > homeStart, "325 · the home is found (negative control for the slice)");
   const home = page.slice(homeStart, homeEnd);
   /*
@@ -609,8 +629,8 @@ export async function boardChecks(check: Check) {
   check(credentialPill("none") === "no credential issued", "316a · and says so plainly when it holds none");
   check(!/\byet\b/.test(credentialPill("none")) && !/\byet\b/.test(NO_CREDENTIAL),
     `316b · with no promise about when in either sentence (${credentialPill("none")})`);
-  check(/credentialPill\(agentCredential\)/.test(page) && /of\("person"\) === "done" &&/.test(page),
-    "316c · drawn on the card beside the registration, once there is one");
+  check(/credential: input\.registration === "registered" \? credentialPill\(input\.agentCredential\) : null/.test(page),
+    "316c · drawn beside the registration wherever the identity is drawn");
 
   /*
    * A run that stops before proposing says why, in the run's own sentence.
@@ -645,18 +665,18 @@ export async function boardChecks(check: Check) {
    * which is what makes a lapsed verification or a name that stops resolving take
    * its chip with it.
    */
-  const enrolled = identityChips({ registration: "registered", source: "worldid", nameState: "issued", name: "agent2.xovi.eth" });
+  const enrolled = identityChips({ agentCredential: "none", registration: "registered", source: "worldid", nameState: "issued", name: "agent2.xovi.eth" });
   check(enrolled.registration === "registered by World ID" && enrolled.name === "agent2.xovi.eth · issued",
     `310 · an enrolled wallet carries its registration and its name with its state (${enrolled.registration}, ${enrolled.name})`);
-  const requested = identityChips({ registration: "registered", source: "agentbook", nameState: "requested", name: "agent2.xovi.eth" });
+  const requested = identityChips({ agentCredential: "none", registration: "registered", source: "agentbook", nameState: "requested", name: "agent2.xovi.eth" });
   check(requested.name === "agent2.xovi.eth · requested" && requested.registration === "registered in AgentBook",
     `310a · a requested name says requested and never issued, and AgentBook is named as the source (${requested.name}, ${requested.registration})`);
-  const stranger = identityChips({ registration: "not-registered", source: null, nameState: "none", name: null });
+  const stranger = identityChips({ agentCredential: "none", registration: "not-registered", source: null, nameState: "none", name: null });
   check(stranger.name === null && stranger.registration === null,
     "310b · a wallet that is not enrolled carries neither, rather than a chip saying no");
-  const unreadChips = identityChips({ registration: "unread", source: null, nameState: "none", name: null });
+  const unreadChips = identityChips({ agentCredential: "none", registration: "unread", source: null, nameState: "none", name: null });
   check(unreadChips.registration === null, "310c · and an unread registry draws no registration either (negative control)");
-  const noName = identityChips({ registration: "registered", source: "worldid", nameState: "issued", name: null });
+  const noName = identityChips({ agentCredential: "none", registration: "registered", source: "worldid", nameState: "issued", name: null });
   check(noName.name === null && noName.registration !== null,
     "310d · a registered wallet the name route told nothing gets the pill and no name chip");
 
@@ -668,8 +688,8 @@ export async function boardChecks(check: Check) {
   const headerEnd = page.indexOf("</header>", headerStart);
   const accountStart = page.indexOf('<div className="ag-account-body">');
   check(headerStart > 0 && headerEnd > headerStart && accountStart > 0, "311 · the header and the account body are found (negative control for the slices)");
-  check(/<IdentityChips chips=\{identity\} \/>/.test(page.slice(headerStart, headerEnd)), "311a · the header carries them on every destination");
-  check(/<IdentityChips chips=\{identity\} \/>/.test(page.slice(accountStart, accountStart + 400)), "311b · and the account body opens with the same two");
+  check(/<IdentityChips chips=\{identity\} onName=/.test(page.slice(headerStart, headerEnd)), "311a · the header carries them on every destination");
+  check(/<IdentityChips chips=\{identity\} onName=/.test(page.slice(accountStart, accountStart + 400)), "311b · and the account body opens with the same two");
   /*
    * Derived, not remembered, which was a claim in a comment and held by nothing.
    * Driven twice with one input changed, and the same call site read for the
@@ -677,11 +697,11 @@ export async function boardChecks(check: Check) {
    * whatever they were on the first render and an enrolment made in the page
    * would not reach the header until a reload.
    */
-  const chipsBefore = identityChips({ registration: "not-registered", source: null, nameState: "none", name: null });
-  const chipsAfter = identityChips({ registration: "registered", source: "worldid", nameState: "requested", name: "agent3.xovi.eth" });
+  const chipsBefore = identityChips({ agentCredential: "none", registration: "not-registered", source: null, nameState: "none", name: null });
+  const chipsAfter = identityChips({ agentCredential: "none", registration: "registered", source: "worldid", nameState: "requested", name: "agent3.xovi.eth" });
   check(chipsBefore.registration === null && chipsAfter.registration === "registered by World ID" && chipsBefore.name === null && chipsAfter.name === "agent3.xovi.eth · requested",
     "311c · the same rule answers differently the moment its inputs change");
-  check(/const identity = identityChips\(\{ registration, source, nameState, name: routeName \}\);/.test(page),
+  check(/const identity = identityChips\(\{ registration, source, agentCredential, nameState, name: routeName \}\);/.test(page),
     "311d · and the page computes it in the render rather than holding a remembered copy");
   // `[^)]*` could never reach the call: `useMemo(() => ...` closes a parenthesis
   // in its first three characters, so the pattern stopped before the name it was
@@ -691,7 +711,7 @@ export async function boardChecks(check: Check) {
   check(memoed.test("const identity = useMemo(() => identityChips({}), []);"), "311f · and the memo check can see one (negative control)");
   // A rung and not a button: the settings screen has the connect and the board
   // actions and no third that would do nothing.
-  const settingsBlock = page.slice(page.indexOf("function Onboarding("), page.indexOf("function Board("));
+  const settingsBlock = page.slice(page.indexOf("function Enrol("), page.indexOf("function Board("));
   /*
    * Settings is a checklist now, so it carries the way to meet each condition.
    * The invariant is not how many, it is that each one acts and that none of them
@@ -730,7 +750,11 @@ export async function boardChecks(check: Check) {
   check(/dialog\.showModal\(\)/.test(page), "284b · with showModal, so focus is trapped and the page behind is inert");
   // Closing is a form method, which ends the dialog and touches no run state, so
   // a person who closes it mid run loses nothing.
-  const dialogBlock = page.slice(page.indexOf('<dialog ref={runDialog}'), page.indexOf("</dialog>"));
+  // Searched from the run dialog's own start: the name dialog closes before this
+  // one opens, so an unanchored search for the closing tag put the end before the
+  // beginning and the slice was empty. The same bug the header slice had.
+  const dialogStart = page.indexOf("<dialog ref={runDialog}");
+  const dialogBlock = page.slice(dialogStart, page.indexOf("</dialog>", dialogStart));
   check(/<form method="dialog">/.test(dialogBlock), "284c · closing it is a dialog form and aborts nothing");
   check(!/\babort\b|reader\.cancel|AbortController/.test(page), "284d · and nothing on the page aborts the stream");
   // The action lives beside the cell it will read and nowhere else.
@@ -759,7 +783,7 @@ export async function boardChecks(check: Check) {
   check(!/backdrop-filter\s*:/.test(css), "284h · and no backdrop-filter is declared anywhere");
   // To the dialog, not to the end of main: the dialog lives inside main and its
   // Close button is not the bottom bar's.
-  const actions = page.slice(page.indexOf('<div className="ag-actions">'), page.indexOf("<dialog ref={runDialog}"));
+  const actions = page.slice(page.indexOf('<div className="ag-actions">'), page.indexOf('<dialog ref={nameDialog}'));
   check(!/<button/.test(actions), "284i · and the bottom bar carries nothing pressable");
   // 39: the thesis renders where the run happens, and nothing holds a run screen.
   check(/id="ag-run-thesis"/.test(dialogBlock) && /No credential in existence may confirm/.test(dialogBlock),
@@ -803,78 +827,92 @@ export async function boardChecks(check: Check) {
 
 
   /*
-   * The onboarding, and the strip that does not exist until it is done.
+   * THE ONE STEP, AND IT IS OPTIONAL.
    *
-   * A new person could walk past every condition to a run that could not work.
-   * Driven on the rule, which is pure, so every combination is reachable without
-   * a browser and the preset case is one of them.
+   * This drove a three step rule: a wallet card, a registration and a name, all
+   * three required. Two of them were wrong. The wallet card restated the header's
+   * own chip, and the name held a person at a step Zenbit performs, so a wallet
+   * that had enrolled and not asked for a name landed on a checklist instead of
+   * the board. The rule is now connected and either enrolled or skipped, and the
+   * checks that held the other two are retired with it rather than rewritten to
+   * pass against nothing: 286 to 286c, 287a, 288 to 288c2 went with the cards they
+   * described.
    */
   const ADDR = "0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe";
-  const flow = (over: Partial<Parameters<typeof onboardingFrom>[0]>) =>
-    onboardingFrom({
-      address: ADDR,
-      chain: "0x14a34",
-      registration: "registered",
-      nameState: "issued",
-      ...over,
-    });
+  const gate = (over: Partial<Parameters<typeof enrolmentState>[0]>) =>
+    enrolmentState({ address: ADDR, registration: "registered", skipped: false, ...over });
 
-  // The founder's preset wallet: registered and named, all three met on load.
-  check(flow({}).done, "286 · a registered and named wallet passes all three on load");
-  check(!flow({ address: null }).done, "286a · no wallet does not");
-  check(!flow({ chain: "0x1" }).done, "286b · nor a wallet on another chain");
-  check(flow({ chain: "0x1" }).at === "wallet", "286c · which is the step it stops on");
+  check(opensTheBoard(gate({})), "286 · an enrolled wallet reaches the board");
+  check(gate({}) === "enrolled", "286a · and is told which of the two opened it");
+  // The founder's own case: enrolled, no name asked for, and it must not be held.
+  check(opensTheBoard(gate({ registration: "registered" })), "286b · with no name of any kind asked of it");
+  check(!opensTheBoard(gate({ address: null })), "286c · no wallet does not reach it (negative control)");
 
+  check(!opensTheBoard(gate({ registration: "not-registered" })), "287 · a wallet nobody stands behind does not, until it answers");
+  check(gate({ registration: "not-registered" }) === "needed", "287a · and is asked, once");
+  check(opensTheBoard(gate({ registration: "not-registered", skipped: true })), "287b · a wallet that declined reaches the board");
+  check(gate({ registration: "not-registered", skipped: true }) === "skipped", "287b2 · and is told it went without");
   /*
-   * The registration step is hard by default, and the softer path is a flag.
+   * An answer that has not arrived is not a demand. Drawing the step while the
+   * registry is still being read asks a returning wallet to enrol on every load,
+   * which is the nagging the founder's ruling exists to stop.
    */
-  check(!flow({ registration: "not-registered" }).done, "287 · an unregistered wallet never reaches the board");
+  check(gate({ registration: "reading" }) === "reading" && gate({ registration: "idle" }) === "reading",
+    "287c · a registry still being read asks nothing");
+  check(!opensTheBoard(gate({ registration: "reading" })), "287d · and does not open the board on its own either");
+  check(gate({ registration: "unread" }) === "needed", "287e · while a registry that answered nothing does ask");
+
   /*
-   * The step it stops on is a thing to do, not a wall.
+   * The chain is guarded where it is used rather than by a card that asks somebody
+   * to read one. Both guards survive the card's removal.
+   */
+  check(/await ensureBaseSepolia\(\);/.test(page), "288 · the chain is ensured before the payment is signed");
+  check(/Wrong chain, switch/.test(page) || /ensureBaseSepolia/.test(page.slice(page.indexOf("function AccountChip("), page.indexOf("function Mark("))),
+    "288a · and the header's chip warns and offers the switch");
+  check(!/const walletDone/.test(page), "288b · with no card left restating what the chip says");
+
+  /*
+   * The refusal is the browser's and nobody else's.
+   */
+  check(/globalThis\.localStorage\?\.setItem\(skipKey/.test(page) && /globalThis\.localStorage\?\.getItem\(skipKey/.test(page),
+    "288c · a wallet's refusal is remembered in the browser alone");
+  const skipRegion = page.slice(page.indexOf("const SKIPPED ="), page.indexOf("export function identityChips"));
+  check(skipRegion.length > 0 && !/fetch\(|body:|headers:/.test(skipRegion), "288c2 · and no request carries it");
+  check((skipRegion.match(/try \{/g) ?? []).length >= 2, "288c3 · with both halves guarded, since a browser may refuse storage");
+
+  /*
+   * WHAT DECLINING COSTS, MEASURED RATHER THAN PROMISED.
    *
-   * It drew `blocked` before, which is a state with a sentence and no way out, and
-   * a wallet AgentBook did not know sat at it with nothing to press. The card
-   * carries the verification now, so the mark is todo and `blocked` is gone from
-   * the type rather than left in it for nobody to reach.
+   * The card says a wallet that goes on without World ID pays for every read,
+   * earns no allowance and cannot propose. Each of those is a different mechanism
+   * and none of them is this page, so each is driven where it lives: the cap, the
+   * credential and the run.
    */
-  check(flow({ registration: "not-registered" }).steps[1].mark === "todo", "287a · and its step is something to do rather than a wall");
-  /*
-   * The gate has no way past, and no configuration opens it.
-   *
-   * `ONBOARDING_ALLOW_UNREGISTERED` and the acknowledgement it gated are retired:
-   * a person who could not register had a button that waived the free allowance,
-   * and now they have one that enrols them instead. So the rule is read as a whole,
-   * every state against the one that completes it, rather than as one flag's two
-   * branches.
-   */
-  const notRegistered = (["not-registered", "unread", "reading", "idle"] as const).filter(r => !flow({ registration: r }).done);
-  check(notRegistered.length === 4, `287b · and no registration state but registered completes the step (${notRegistered.length} of 4)`);
-  check(flow({ registration: "registered" }).done, "287c · which registered does (negative control)");
-  check(!flow({ registration: "unread" }).done, "287d · an unread registry does not complete the step either");
+  const DECLINED = "0x3333333333333333333333333333333333333333";
+  setRegistryForTest(async () => 0n);
+  setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: null, freePerDay: 2 });
+  const standing = await standingBehind(DECLINED, capFrom(), { HUMAN_ID_KEY: "k".repeat(40) } as never, new Date());
+  check(standing === null, `326 · nobody stands behind a wallet that declined (${JSON.stringify(standing)})`);
+  check((await takeFreeRead(DECLINED)) === false, "326a · so it takes no free read, whatever the allowance is set to");
+  const mintedFor = await ensureCredential(DECLINED, { store: null, names: null, at: new Date() });
+  check(mintedFor === "none", "326b · and no credential is minted for it");
+  // The run's own sentence for the stop, which is the state a declined wallet
+  // reaches: it pays and reads, and the step that would change it is named.
+  check(/no credential/.test(NOT_SUBMITTED_SENTENCE["no-credential"]) && NOT_SUBMITTED_SENTENCE["no-credential"] !== NOT_SUBMITTED_SENTENCE.unconfigured,
+    `326c · its run stops for want of a credential, which is its own reason (${NOT_SUBMITTED_SENTENCE["no-credential"]})`);
+  check(lineFor({ step: "not-submitted", detail: NOT_SUBMITTED_SENTENCE["no-credential"], reason: "no-credential" }).text === NOT_SUBMITTED_SENTENCE["no-credential"],
+    "326d · saying which step would change it");
+  // The control: the same three mechanisms answer differently for a wallet the
+  // registry does know, so none of the four above is true by construction.
+  setCapForTest({ registry: async () => 88888888888888888888n, store: fakeStore(), verifications: null, freePerDay: 2 });
+  const known = await standingBehind("0x4444444444444444444444444444444444444444", capFrom(), { HUMAN_ID_KEY: "k".repeat(40) } as never, new Date());
+  check(known !== null && known.source === "agentbook", `326e · while a wallet AgentBook knows does stand behind one (negative control, ${JSON.stringify(known)})`);
+  setCapForTest(null);
+  setRegistryForTest(undefined);
 
-  /*
-   * The name completes two ways and neither of them records anything.
-   */
-  check(flow({ nameState: "issued" }).done, "288 · a name that resolves to the payer completes the step as issued");
-  check(!flow({ nameState: "none" }).done, "288a · and no name does not complete it on its own");
-  /*
-   * A recorded request completes it, and that is the whole change.
-   *
-   * The record is written by Zenbit's own transaction, on its own clock, so a
-   * person held here until the chain caught up would be gated on work they cannot
-   * do. Requested is not issued and the card never says it is: the pill keeps the
-   * two words apart and `issued` is drawn from the chain.
-   */
-  check(flow({ nameState: "requested" }).done, "288b · and so does a request the route recorded");
-  check(namePill("requested", "done") === "requested" && namePill("issued", "done") === "issued" && namePill("none", "todo") === "not yet",
-    "288c · with the card's three states being the route's three");
-  check(namePill("issued", "waiting") === "waiting", "288c2 · and a step not reached yet says so instead (negative control)");
-  check(!/acknowledged/.test(page), "288d · and no acknowledgement is left anywhere on the page");
-  check(/acknowledged/.test("acknowledged, no name issued"), "288e · the acknowledgement check can see one (negative control)");
-
-  // The strip does not exist until the third step is done.
   check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
-  check(/const onboarded = onboardingFrom\(/.test(page), "289a · and is derived from the reads rather than from a remembered yes");
+  check(/const onboarded = opensTheBoard\(enrolmentState\(/.test(page),
+    "289a · and is derived from the reads rather than from a remembered yes");
   check(!/\{ id: "settings"/.test(page), "289b · settings is no longer a destination, since it is the way in");
 
   if (before === undefined) delete process.env.WINDOWS_SNAPSHOT;

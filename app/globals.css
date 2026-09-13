@@ -1531,6 +1531,48 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   line-height: 1;
 }
 
+/* The one step before the board, drawn as the run is drawn. */
+.ag-enrol {
+  padding-top: 1rem;
+}
+
+/* Taller than the run's stage, because this card carries a widget and a refusal
+   rather than one sentence, and shorter than the viewport so nothing is cut. */
+.ag-enrol-stage {
+  grid-template-rows: minmax(0, 1fr);
+  height: auto;
+  min-height: 18rem;
+}
+
+/* A chip that acts. It keeps the chip's shape because it sits in a row of them,
+   and takes the press every other control on this page has. */
+.ag-chip-do {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  transition: transform 120ms var(--xv-ease-out), opacity 150ms var(--xv-ease-out);
+}
+
+.ag-chip-do:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ag-chip-do:active {
+    transform: none;
+  }
+}
+
+.ag-chip-do:focus-visible {
+  outline: 2px solid var(--color-xv-gold);
+  outline-offset: 2px;
+}
+
+/* The name, asked for from the header rather than required before the board. */
+.ag-name-dialog {
+  min-height: min(24rem, calc(100dvh - 4rem));
+}
+
 .ag-setup-do {
   align-self: flex-start;
   transition:
