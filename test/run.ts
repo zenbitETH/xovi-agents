@@ -35,6 +35,7 @@ import { pageChecks } from "./page";
 import { agentRunChecks } from "./agent-run";
 import { boardChecks } from "./board";
 import { enrolChecks } from "./enrol";
+import { ensChecks } from "./ens";
 import { verificationChecks } from "./verifications";
 import { nameChecks } from "./name";
 import { namesChecks } from "./names";
@@ -779,6 +780,7 @@ async function main() {
   await boardChecks(check);
   await verificationChecks(check);
   await enrolChecks(check);
+  await ensChecks(check);
 
   await pageChecks(check);
 
