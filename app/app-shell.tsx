@@ -19,6 +19,8 @@ import { BOARD_SPECIES } from "~~/lib/windows/types";
 import { recoverConfirmer } from "~~/lib/anchor/confirmation";
 import { decisionCode } from "~~/lib/anchor/schema";
 import { ANCHOR_259, CONFIRMATION_259 } from "~~/lib/anchor/confirmation-259";
+import { WorldIdCard } from "./world-id-card";
+import { NameCard } from "./name-card";
 
 const REPO = "https://github.com/zenbitETH/xovi-agents";
 
@@ -820,11 +822,16 @@ function Proposals({ submitter }: { submitter: string | null }) {
  * carries, rather than from the branch that holds the file.
  */
 const RUNGS: { rung: string; sentences: string }[] = [
-  // The negative moved, because the old one was about to expire by Zenbit's own
+  // The rung moved because the old negative was about to expire by Zenbit's own
   // hand: labels are assigned now, so "no other name is issued" flips the day the
-  // second one is. What replaces it is the measurement the whole name leg rests
-  // on, and it is falsified by a key on a server rather than by an issuance.
-  { rung: "a name", sentences: "`agent1.xovi.eth` resolves to the agent's payer. No server holds a key that issues names." },
+  // second one is. The fact states what happens and the negative is the
+  // measurement the whole name leg rests on, falsified by a key on a server
+  // rather than by an issuance.
+  {
+    rung: "a name",
+    sentences:
+      "Every other name under `xovi.eth` is issued by Zenbit from a request made on this page. No server holds a key that issues one.",
+  },
   { rung: "the money", sentences: "Receipts land in a ledger. No rule routes any of it onward." },
   { rung: "the look", sentences: "A human confirms or rejects every proposal and signs the decision. No institution has paid for one." },
   { rung: "the query", sentences: "The anchor joins the confirmation. No key but Zenbit's has queried it." },
@@ -1004,29 +1011,6 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
  * sentences with the negative say the same thing truthfully and go on the sweep
  * with everything else.
  */
-/**
- * Where `app/world-id-card.tsx` mounts.
- *
- * That component carries the widget and the two calls behind it, and it arrives on
- * its own branch. This file owns the card's place in the checklist and the sentence
- * saying what verifying keeps, so that sentence survives whatever the component
- * says; the integration commit puts the component here and nothing else moves.
- *
- * It draws nothing until then, and deliberately draws no control: a button that
- * cannot do the thing it names is the defect this page was already caught with
- * once, on a retry that set a number nobody read.
- */
-function WorldIdSlot(props: { payer: `0x${string}` | null; onRegistered: () => void }) {
-  void props;
-  return null;
-}
-
-/** Where `app/name-card.tsx` mounts, on the same terms. */
-function NameSlot(props: { payer: `0x${string}` | null; onRequested: () => void }) {
-  void props;
-  return null;
-}
-
 function Onboarding({
   address,
   chain,
@@ -1036,9 +1020,11 @@ function Onboarding({
   nameState,
   name,
   label,
+  requestingName,
+  nameError,
   onSwitch,
   onRetry,
-  onNameRead,
+  onRequestName,
 }: {
   address: `0x${string}` | null;
   chain: string | null;
@@ -1048,9 +1034,11 @@ function Onboarding({
   nameState: NameState;
   name: string | null;
   label: string | null;
+  requestingName: boolean;
+  nameError: string | null;
   onSwitch: () => void;
   onRetry: () => void;
-  onNameRead: () => void;
+  onRequestName: () => void;
 }) {
   const { steps, at } = onboardingFrom({ address, chain, registration, nameState });
   const of = (id: StepId) => steps.find(step => step.id === id)?.mark ?? "waiting";
@@ -1117,15 +1105,12 @@ function Onboarding({
           <h3 className="ag-panel-title">A person behind the agent</h3>
           <span className={pill(of("person"))}>{registrationPill(of("person"), source)}</span>
           <p className="ag-sub">{registrationLine(registration, source)}</p>
-          {/* What the verification does and what it leaves behind, on the card where
-              it is offered rather than only in a document. The retention and the
-              purpose are the ruling's, and the digest is what the table holds. */}
-          <p className="ag-sub">
-            World ID asserts that one person stands behind this wallet. Verifying here keeps a keyed digest of your
-            World ID identifier, for thirty days, to count free reads; never the identifier.
-          </p>
+          {/* The framing sentence is this file's and the rest is the card's. What
+              verifying keeps is said by the component, in one exported sentence, so
+              the copy and the thing that does the keeping cannot drift apart. */}
+          <p className="ag-sub">World ID asserts that one person stands behind this wallet.</p>
           {credential !== null && <p className="ag-account-address">World ID credential: {credential}</p>}
-          <WorldIdSlot payer={address} onRegistered={onRetry} />
+          <WorldIdCard payer={address} onRegistered={onRetry} />
           {(registration === "not-registered" || registration === "unread") && (
             <button type="button" className="ag-rail-item ag-setup-do" onClick={onRetry}>
               {registration === "unread" ? "Read it again" : "Check again"}
@@ -1133,29 +1118,21 @@ function Onboarding({
           )}
         </li>
 
-        <li className={cls("name")}>
-          <h3 className="ag-panel-title">A name</h3>
-          <span className={pill(of("name"))}>{namePill(nameState, of("name"))}</span>
-          {nameState === "issued" && name !== null && (
-            <>
-              <p className="ag-setup-name">{name}</p>
-              <p className="ag-account-address">resolves to this payer</p>
-            </>
-          )}
-          {nameState === "requested" && (
-            <>
-              {label !== null && <p className="ag-setup-name">{label}.xovi.eth</p>}
-              <p className="ag-sub">
-                Requested. Zenbit issues the name from the parent it owns, and this card shows it once the record
-                resolves to this payer.
-              </p>
-            </>
-          )}
-          {nameState === "none" && (
-            <p className="ag-sub">A name is issued into a parent Zenbit owns. Zenbit issues names by hand from its own key.</p>
-          )}
-          <NameSlot payer={address} onRequested={onNameRead} />
-        </li>
+        {/* The card is its own file and draws its own `li`: its three states are the
+            route's three, and the word in its pill is the checklist's, because only
+            the checklist knows the step before it is unfinished. */}
+        <NameCard
+          state={nameState}
+          name={name}
+          label={label}
+          pill={namePill(nameState, of("name"))}
+          canRequest={registration === "registered"}
+          requesting={requestingName}
+          error={nameError}
+          onRequest={onRequestName}
+          className={cls("name")}
+          pillClassName={pill(of("name"))}
+        />
       </ol>
     </div>
   );
@@ -1698,6 +1675,8 @@ export function AppShell() {
   /** Bumped when the name card records a request, so the read runs again and the
    *  state comes back from the route rather than being assumed here. */
   const [nameAgain, setNameAgain] = useState(0);
+  const [requestingName, setRequestingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [walletNote, setWalletNote] = useState<string | null>(null);
   const busy = useRef(false);
   const runDialog = useRef<HTMLDialogElement | null>(null);
@@ -1902,6 +1881,37 @@ export function AppShell() {
     // `readAgain` is what Check again and Read it again change. Without it here
     // both controls were decoration: they set a number nothing depended on.
   }, [address, readAgain]);
+
+  /**
+   * Ask for a name, and read the answer back rather than assuming it.
+   *
+   * The route decides the label and whether this wallet may have one, so nothing is
+   * set here from the fact that a request was sent: it bumps the read and the card
+   * draws whatever came back. A refusal is shown in the route's own words, because
+   * this file cannot know which of them applies.
+   */
+  const onRequestName = useCallback(async () => {
+    if (address === null || requestingName) return;
+    setRequestingName(true);
+    setNameError(null);
+    try {
+      const answer = await fetch("/api/agent/name", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ payer: address }),
+      });
+      if (!answer.ok) {
+        const said = ((await answer.json().catch(() => ({}))) as { error?: string }).error;
+        setNameError(said ?? "The request was refused.");
+        return;
+      }
+      setNameAgain(n => n + 1);
+    } catch {
+      setNameError("The request did not reach Zenbit.");
+    } finally {
+      setRequestingName(false);
+    }
+  }, [address, requestingName]);
 
   /** `showModal` and not an open attribute: it traps focus, makes the page behind
    *  inert and gives Escape for nothing, none of which is worth rebuilding. */
@@ -2143,9 +2153,11 @@ export function AppShell() {
                   nameState={nameState}
                   name={issuedName}
                   label={nameLabel}
+                  requestingName={requestingName}
+                  nameError={nameError}
                   onSwitch={() => void onSwitch()}
                   onRetry={() => setReadAgain(n => n + 1)}
-                  onNameRead={() => setNameAgain(n => n + 1)}
+                  onRequestName={() => void onRequestName()}
                 />
               ) : screen === "board" ? (
                 <Board

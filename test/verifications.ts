@@ -46,15 +46,15 @@ export async function verificationChecks(check: Check) {
    * The cap reads both sources, and the table's digest is the identifier.
    */
   const free = [await takeFreeRead(WALLET_A, ENV, T0), await takeFreeRead(WALLET_A, ENV, T0), await takeFreeRead(WALLET_A, ENV, T0)];
-  check(free.join(",") === "true,true,false", `313 · an enrolled wallet AgentBook does not know takes the configured allowance and no more (${free.join(",")})`);
-  check(usage.counted === 2, "313a · counted twice");
+  check(free.join(",") === "true,true,false", `343 · an enrolled wallet AgentBook does not know takes the configured allowance and no more (${free.join(",")})`);
+  check(usage.counted === 2, "343a · counted twice");
   const standing = await standingBehind(WALLET_A, cap, ENV, T0);
   check(standing?.source === "worldid" && standing.digest === table.rows.get(WALLET_A.toLowerCase())?.nullifierDigest,
-    "313b · keyed on the stored digest, read back rather than derived again");
-  check((await takeFreeRead(NOBODY, ENV, T0)) === false, "313c · a wallet in neither source settles (negative control)");
+    "343b · keyed on the stored digest, read back rather than derived again");
+  check((await takeFreeRead(NOBODY, ENV, T0)) === false, "343c · a wallet in neither source settles (negative control)");
   // The read, with the source named, from the same function the route calls.
-  check((await registrationOf(WALLET_A, cap, T0)).source === "worldid", "313d · the registration read names the table as the source");
-  check((await registrationOf(NOBODY, cap, T0)).state === "not-registered", "313e · and a wallet in neither is not registered");
+  check((await registrationOf(WALLET_A, cap, T0)).source === "worldid", "343d · the registration read names the table as the source");
+  check((await registrationOf(NOBODY, cap, T0)).state === "not-registered", "343e · and a wallet in neither is not registered");
   // Taken here, while rows exist, for the sweep below: the lapse checks that
   // follow delete them, and a sweep over an empty table proves nothing.
   const storedRows = JSON.stringify([...table.rows.values()]);
@@ -63,38 +63,38 @@ export async function verificationChecks(check: Check) {
   usage.reset();
   const row2 = table.rows.get(WALLET_A.toLowerCase()) as { verifiedAt: Date };
   const edge = new Date(expiryFrom(row2.verifiedAt).getTime() - 1000);
-  check((await takeFreeRead(WALLET_A, ENV, edge)) === true, "314 · one second before the enrollment lapses a read is still free");
+  check((await takeFreeRead(WALLET_A, ENV, edge)) === true, "344 · one second before the enrollment lapses a read is still free");
   const past = new Date(expiryFrom(row2.verifiedAt).getTime() + 1000);
-  check((await takeFreeRead(WALLET_A, ENV, past)) === false, "314a · one second after it, the same wallet settles");
-  check(!table.rows.has(WALLET_A.toLowerCase()), "314b · and the lapsed row is gone, deleted on the request path");
-  check(ENROLLMENT_DAYS === RETENTION_DAYS, `314c · the enrollment lasts the days the notice declares (${ENROLLMENT_DAYS}, ${RETENTION_DAYS})`);
+  check((await takeFreeRead(WALLET_A, ENV, past)) === false, "344a · one second after it, the same wallet settles");
+  check(!table.rows.has(WALLET_A.toLowerCase()), "344b · and the lapsed row is gone, deleted on the request path");
+  check(ENROLLMENT_DAYS === RETENTION_DAYS, `344c · the enrollment lasts the days the notice declares (${ENROLLMENT_DAYS}, ${RETENTION_DAYS})`);
 
   // The recording wallet, unchanged: AgentBook answers and the table is not asked.
   usage.reset();
   table.calls.standingOf = 0;
   const recorded = [await takeFreeRead(RECORDING, ENV, T0), await takeFreeRead(RECORDING, ENV, T0), await takeFreeRead(RECORDING, ENV, T0)];
   check(recorded.join(",") === "true,true,false" && table.calls.standingOf === 0,
-    `315 · the recording wallet takes its two reads from AgentBook and the table is never consulted (${recorded.join(",")}, ${table.calls.standingOf} table reads)`);
+    `345 · the recording wallet takes its two reads from AgentBook and the table is never consulted (${recorded.join(",")}, ${table.calls.standingOf} table reads)`);
   check((await registrationOf(RECORDING, { registry: registry.read, store: usage, verifications: null, freePerDay: 2 }, T0)).source === "agentbook",
-    "315a · and with no table at all it is still registered by AgentBook");
+    "345a · and with no table at all it is still registered by AgentBook");
 
 
   /*
    * What the migration holds, read and counted.
    */
   const migration = "sql/0005_verifications.sql";
-  check(existsSync(migration), `318 · the migration is ${migration}, the next number after the four`);
+  check(existsSync(migration), `348 · the migration is ${migration}, the next number after the four`);
   const ddl = existsSync(migration) ? readFileSync(migration, "utf8") : "";
   const creates = ddl.match(/CREATE (TABLE|UNIQUE INDEX|INDEX)/g) ?? [];
-  check(creates.length > 0 && creates.length === (ddl.match(/IF NOT EXISTS/g) ?? []).length, `318a · every create is IF NOT EXISTS (${creates.length})`);
+  check(creates.length > 0 && creates.length === (ddl.match(/IF NOT EXISTS/g) ?? []).length, `348a · every create is IF NOT EXISTS (${creates.length})`);
   const columns = [...(ddl.match(/CREATE TABLE IF NOT EXISTS verifications \(([\s\S]*?)\);/)?.[1] ?? "").matchAll(/^\s+([a-z_]+)\s/gm)].map(m => m[1]);
-  check(columns.join(",") === "payer,action,nullifier_digest,credential,verified_at,expires_at", `318b · the table holds the wallet, the action, the digest, the credential and two times (${columns.join(",")})`);
+  check(columns.join(",") === "payer,action,nullifier_digest,credential,verified_at,expires_at", `348b · the table holds the wallet, the action, the digest, the credential and two times (${columns.join(",")})`);
   // Over the statements with the comments stripped: the comments say what the
   // column is not, and a naive match would find its own explanation.
   const statements = ddl.replace(/^\s*--.*$/gm, "");
-  check(!/^\s+nullifier\s/m.test(statements) && /nullifier_digest/.test(statements), "318c · and no column is named for the nullifier itself");
-  check(/UNIQUE INDEX IF NOT EXISTS \w+ ON verifications \(action, nullifier_digest\)/.test(ddl), "318d · one enrolled wallet per person is an index, not a hope");
-  check(/verification_replays/.test(ddl) && /PRIMARY KEY/.test(ddl) && /ON verification_replays \(proof_digest\)/.test(ddl), "318e · replays are keyed twice, on the nonce and on the proof");
+  check(!/^\s+nullifier\s/m.test(statements) && /nullifier_digest/.test(statements), "348c · and no column is named for the nullifier itself");
+  check(/UNIQUE INDEX IF NOT EXISTS \w+ ON verifications \(action, nullifier_digest\)/.test(ddl), "348d · one enrolled wallet per person is an index, not a hope");
+  check(/verification_replays/.test(ddl) && /PRIMARY KEY/.test(ddl) && /ON verification_replays \(proof_digest\)/.test(ddl), "348e · replays are keyed twice, on the nonce and on the proof");
 
   setCapForTest(null);
 }

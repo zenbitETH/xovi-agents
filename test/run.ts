@@ -43,9 +43,25 @@ import { receiptsChecks } from "./receipts";
 
 let n = 0;
 let bad = 0;
+/**
+ * Every id this run printed, so two checks cannot quietly share one.
+ *
+ * Two branches merged holding the same free range and the suite stayed green:
+ * twenty seven ids were printed twice, every one of them passing, and a finding
+ * cited by number pointed at two different properties. Counted at runtime rather
+ * than read from the files, because the ids that collide are the ones that run,
+ * and two arms of one try and its catch may share a number since only one of them
+ * ever prints.
+ */
+/** Named apart from the two locals inside `main` that are also called `seen`: the
+ *  first version was shadowed by one of them and counted responses, which the type
+ *  checker caught and a reading of the file would not have. */
+const idsSeen = new Map<string, number>();
 const check = (ok: boolean, label: string) => {
   n++;
   if (!ok) bad++;
+  const id = /^([0-9]+[a-z0-9]*)\s·/.exec(label)?.[1];
+  if (id) idsSeen.set(id, (idsSeen.get(id) ?? 0) + 1);
   console.log(`    ${ok ? "ok  " : "FAIL"} ${label}`);
 };
 
@@ -765,6 +781,10 @@ async function main() {
   await enrolChecks(check);
 
   await pageChecks(check);
+
+  const shared = [...idsSeen.entries()].filter(([, times]) => times > 1).map(([id]) => id);
+  check(shared.length === 0, `354 · no two checks in this run share an id (${shared.join(", ") || "none shared"})`);
+  check(idsSeen.size > 100 && (idsSeen.get("354") ?? 0) === 1, `354a · and the ids were counted (${idsSeen.size} distinct, this one seen ${idsSeen.get("354") ?? 0})`);
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;

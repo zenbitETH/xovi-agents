@@ -41,6 +41,7 @@ export function NameCard({
   state,
   name,
   label,
+  pill,
   canRequest,
   requesting,
   error,
@@ -53,6 +54,10 @@ export function NameCard({
   name: string | null;
   /** The assigned label, known once a row exists, before the chain has anything. */
   label: string | null;
+  /** The word in the pill. It comes from the checklist rather than from here: this
+   *  card knows its own three states and not that the step before it is unfinished,
+   *  and `waiting` is the honest word while a person has nothing to press yet. */
+  pill: string;
   /** Whether a person stands behind this wallet, by either source. */
   canRequest: boolean;
   requesting: boolean;
@@ -64,9 +69,7 @@ export function NameCard({
   return (
     <li className={className}>
       <h3 className="ag-panel-title">A name</h3>
-      <span className={pillClassName}>
-        {state === "issued" ? "issued" : state === "requested" ? "requested" : "not yet"}
-      </span>
+      <span className={pillClassName}>{pill}</span>
 
       {state === "issued" && name !== null && (
         <>

@@ -5,13 +5,15 @@ import { ZERO_ADDRESS, nameResolver } from "~~/lib/agent/name";
 import { PARENT, storeFrom } from "~~/lib/agent/names-store";
 import { enrolledSeam } from "~~/lib/agent/enrolled";
 import { UNREGISTERED, registryFrom } from "~~/lib/human/registry";
+import { now } from "~~/lib/human/clock";
+import { enrollmentThrottle } from "~~/lib/human/throttle";
 
 export const dynamic = "force-dynamic";
 
 const NO_STORE = { "Cache-Control": "private, no-store" } as const;
 
-function refuse(status: number, error: string) {
-  return NextResponse.json({ error }, { status, headers: NO_STORE });
+function refuse(status: number, error: string, headers: Record<string, string> = {}) {
+  return NextResponse.json({ error }, { status, headers: { ...NO_STORE, ...headers } });
 }
 
 /**
@@ -46,6 +48,18 @@ export async function POST(request: Request) {
   if (typeof payer !== "string" || !payer) return refuse(400, "name a payer");
   if (!isAddress(payer)) return refuse(400, "that is not an address");
   const wallet = getAddress(payer);
+
+  /*
+   * The same per wallet cap the two registration routes take.
+   *
+   * This route was unauthenticated and uncapped: a new address cost a registry read
+   * and two chain reads before its refusal, which is work a stranger could ask for
+   * as fast as they could open connections. It shares the enrolment's limiter rather
+   * than keeping its own, so one wallet has one budget across the three routes that
+   * answer questions about it.
+   */
+  const taken = enrollmentThrottle.take(wallet.toLowerCase(), now());
+  if (!taken.ok) return refuse(429, "too many requests for this wallet; wait a moment", { "Retry-After": String(taken.retryAfterSeconds) });
 
   const store = storeFrom();
   // No database is not a quiet no-op here. A request that cannot be recorded is a

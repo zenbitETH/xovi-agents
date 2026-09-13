@@ -1,11 +1,17 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GET as boardGET } from "../app/api/agent/board/route";
 import { GET as windowsGET } from "../app/api/agent/windows/route";
 import { GET as registrationGET } from "../app/api/agent/registration/route";
+import { POST as namePOST } from "../app/api/agent/name/route";
+import { setClockForTest } from "../lib/human/clock";
+import { ENROLLMENT_CALLS_PER_MINUTE, ENROLLMENT_WINDOW_MS, enrollmentThrottle } from "../lib/human/throttle";
 import { readFileSync } from "node:fs";
 import { setRegistryForTest } from "../lib/human/registry";
+import { setCapForTest } from "../lib/human/cap";
+import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
+import { fakeStore, fakeVerifications } from "./human";
 import { SCREENS, namePill, onboardingFrom, registrationLine, registrationPill } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
@@ -211,6 +217,76 @@ export async function boardChecks(check: Check) {
   setRegistryForTest(undefined);
   check(/\d/.test(JSON.stringify({ state: 12345n.toString() })), "278f · the digit check can see one (negative control)");
 
+  /*
+   * THE NAME REQUEST SHARES THE ENROLMENT'S COUNTER.
+   *
+   * It was unauthenticated and uncapped: every new address cost a registry read and
+   * two chain reads before its refusal, which is work a stranger could ask for as
+   * fast as they could open connections. One limiter for the three routes that
+   * answer questions about a wallet, so a caller cannot spend each one's allowance
+   * separately.
+   *
+   * Driven on a fake clock, and the cap is asserted to bite BEFORE the store is
+   * consulted: with no database configured the route answers 503, so a 429 arriving
+   * instead is the only evidence that nothing downstream was reached.
+   */
+  const CAPPED_NAME = "0x1111111111111111111111111111111111111122";
+  const OTHER_NAME = "0x1111111111111111111111111111111111111133";
+  const askName = (payer: string) =>
+    namePOST(new Request("http://127.0.0.1/api/agent/name", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ payer }) }));
+  const T0 = new Date("2026-09-12T22:00:00Z");
+  let nameClock = T0;
+  setClockForTest(() => nameClock);
+  enrollmentThrottle.reset();
+  let lastName = await askName(CAPPED_NAME);
+  for (let i = 1; i < ENROLLMENT_CALLS_PER_MINUTE; i++) lastName = await askName(CAPPED_NAME);
+  check(lastName.status !== 429, `298 · the name request is answered up to the shared limit (${lastName.status})`);
+  const overName = await askName(CAPPED_NAME);
+  check(overName.status === 429 && Number(overName.headers.get("retry-after")) >= 1,
+    `298a · and the next one is refused with a retry-after (${overName.status}, ${overName.headers.get("retry-after")})`);
+  check(!JSON.stringify(await overName.json()).includes("store"),
+    "298b · with the refusal taken before the store, whose own answer would have named it");
+  check((await askName(OTHER_NAME)).status !== 429, "298c · another wallet was never held (negative control)");
+  nameClock = new Date(T0.getTime() + ENROLLMENT_WINDOW_MS + 1);
+  check((await askName(CAPPED_NAME)).status !== 429, "298d · and a minute later the same wallet is answered again (negative control)");
+  enrollmentThrottle.reset();
+  setClockForTest(undefined);
+
+  /*
+   * THE SEAM'S OWN DEFAULT, WHICH NO INJECTED FAKE CAN REACH.
+   *
+   * `enrolledSeam` answers whether a person stands behind a wallet, and the name
+   * route asks it for every wallet AgentBook does not know. Every other check in
+   * the suite injects that seam, so the default the deployment actually runs was
+   * exercised by nothing: replacing it with `async () => false`, which is what it
+   * was before the enrolment existed, left the whole suite green. That default
+   * refuses a name to exactly the people the enrolment was built for.
+   *
+   * Driven with nothing injected, through a cap whose two sources are fakes, so
+   * the answer comes from the real function.
+   */
+  setEnrolledForTest(undefined);
+  const seamTable = fakeVerifications();
+  const ENROLLED_HERE = "0x5555555555555555555555555555555555555551";
+  const KNOWN_TO_NEITHER = "0x5555555555555555555555555555555555555552";
+  const seamAt = new Date("2026-09-12T22:00:00Z");
+  seamTable.rows.set(ENROLLED_HERE.toLowerCase(), {
+    payer: ENROLLED_HERE.toLowerCase(),
+    action: "enrol-agent",
+    nullifierDigest: "a".repeat(64),
+    credential: "proof_of_human",
+    verifiedAt: seamAt,
+    expiresAt: new Date(seamAt.getTime() + 86_400_000),
+  });
+  setClockForTest(() => seamAt);
+  setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: seamTable, freePerDay: 1 });
+  check(await enrolledSeam()(ENROLLED_HERE), "299 · a wallet the page enrolled stands behind a person, where AgentBook says it does not");
+  check(!(await enrolledSeam()(KNOWN_TO_NEITHER)), "299a · and a wallet neither source knows does not (negative control)");
+  setCapForTest({ registry: async () => 12345n, store: fakeStore(), verifications: seamTable, freePerDay: 1 });
+  check(await enrolledSeam()(KNOWN_TO_NEITHER), "299b · while AgentBook alone is still enough (negative control)");
+  setCapForTest(null);
+  setClockForTest(undefined);
+
   const page = readFileSync("app/app-shell.tsx", "utf8");
   const css = readFileSync("app/globals.css", "utf8");
   check(/registrationLine\(/.test(page), "279 · the gate draws the registry's answer as a sentence per state");
@@ -229,9 +305,20 @@ export async function boardChecks(check: Check) {
    * request route existed. Each is now refused by name, with the sentence that
    * replaced it required beside it, so neither can come back quietly.
    */
-  check(!/Registering is not done here/.test(page), "279b · and neither sentence the enrolment falsified is left on the page");
-  check(!/No path\s+issues one from this page/.test(page.replace(/\s+/g, " ")), "279b2 · including the one about issuing a name");
-  check(/Zenbit issues names by hand from its own key/.test(page), "279b3 · which says instead who issues a name (negative control)");
+  /*
+   * Swept over every file the interface is built from, not over the shell alone.
+   *
+   * The copy moved into two card components when they landed, and a check anchored
+   * on the shell would have gone quiet rather than gone red. It went red, which is
+   * how this was found; the fix is to sweep the directory the page is assembled
+   * from, with the corpus counted so an empty read cannot pass for a clean one.
+   */
+  const uiFiles = readdirSync("app").filter(f => f.endsWith(".tsx"));
+  const ui = uiFiles.map(f => readFileSync(join("app", f), "utf8")).join("\n");
+  check(uiFiles.length >= 3, `279b0 · the interface sweep reads every file the page is built from (${uiFiles.length})`);
+  check(!/Registering is not done here/.test(ui), "279b · and neither sentence the enrolment falsified is left in any of them");
+  check(!/No path\s+issues one from this page/.test(ui.replace(/\s+/g, " ")), "279b2 · including the one about issuing a name");
+  check(/Zenbit issues names by hand from its own key/.test(ui), "279b3 · which says instead who issues a name (negative control)");
 
   /*
    * TWO SOURCES ANSWER ONE QUESTION, AND THE PAGE SAYS WHICH.
@@ -266,12 +353,18 @@ export async function boardChecks(check: Check) {
    * clause about the digest is the one that must not drift: what is kept is a
    * keyed derivation and never the identifier.
    */
-  const personCard = page.slice(page.indexOf('<h3 className="ag-panel-title">A person behind the agent</h3>'), page.indexOf('<h3 className="ag-panel-title">A name</h3>'));
-  check(personCard.length > 0, "296 · the person card is found (negative control for the slice)");
-  const kept = personCard.replace(/\s+/g, " ");
-  check(/keyed digest of your World ID identifier, for thirty days, to count free reads; never the identifier/.test(kept),
-    "296a · and says what verifying keeps, for how long, what for, and what it never keeps");
-  check(!/\bnullifier\b/.test(personCard), "296b · without naming the value itself on the page");
+  const worldCard = readFileSync("app/world-id-card.tsx", "utf8");
+  const declared = /export const KEEPS_SENTENCE\s*=\s*\n?\s*"([^"]+)";/.exec(worldCard);
+  check(declared !== null, "296 · the sentence saying what verifying keeps is declared once, as a constant (negative control for the read)");
+  const kept = (declared?.[1] ?? "").replace(/\s+/g, " ");
+  check(/keyed digest of your World ID identifier/.test(kept) && /thirty days/.test(kept) && /count free reads/.test(kept) && /never the identifier/.test(kept),
+    `296a · and says what is kept, for how long, what for, and what is never kept (${kept || "nothing read"})`);
+  // Drawn from the constant rather than retyped beside it, so the copy on the screen
+  // and the sentence a document quotes cannot drift into disagreeing.
+  check(/\$\{KEEPS_SENTENCE\}/.test(worldCard), "296c · and the card draws that constant rather than a second copy of it");
+  const uiRendered = ui.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  check(!/\bnullifier\b/i.test(uiRendered), "296b · with the value itself named nowhere the interface renders");
+  check(/\bnullifier\b/i.test("the nullifier"), "296d · the value check can see the word (negative control)");
 
   /*
    * The two components mount in slots, and the slots take the wallet.
@@ -281,10 +374,13 @@ export async function boardChecks(check: Check) {
    * front of it, which is worth catching before the component lands rather than
    * after.
    */
-  check(/<WorldIdSlot payer=\{address\}/.test(page), "297 · the World ID card mounts in a slot that takes the connected wallet");
-  check(/<NameSlot payer=\{address\}/.test(page), "297a · and so does the name card");
-  check(/function WorldIdSlot\(props: \{ payer: `0x\$\{string\}` \| null; onRegistered: \(\) => void \}\)/.test(page),
-    "297b · with the props the component it takes is written against");
+  check(/<WorldIdCard\s+payer=\{address\}\s+onRegistered=\{onRetry\}\s*\/>/.test(page),
+    "297 · the World ID card is mounted with the connected wallet and re-reads the registration when it succeeds");
+  check(/<NameCard\b/.test(page) && /onRequest=\{onRequestName\}/.test(page),
+    "297a · and the name card is mounted with the request the shell sends");
+  // The word in the name card's pill is the checklist's, because only the checklist
+  // knows the step before it is unfinished; `waiting` exists in no other vocabulary.
+  check(/pill=\{namePill\(nameState, of\("name"\)\)\}/.test(page), "297b · with the checklist's own word in its pill");
   // A rung and not a button: the settings screen has the connect and the board
   // actions and no third that would do nothing.
   const settingsBlock = page.slice(page.indexOf("function Onboarding("), page.indexOf("function Board("));
