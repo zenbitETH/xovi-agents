@@ -1018,10 +1018,16 @@ body:has(.ag-run-dialog[open]) .ag-surface {
 /* A modal is anchored to nothing, so it grows from its own centre rather than
    from the control that opened it. Never from scale 0: a thing that appears from
    nothing reads as a glitch. */
+/* Never from scale 0, and never from nothing: 0.96 is a shape a reader can see
+   before it settles. The floor is as much the rule as the ceiling. */
 @keyframes xvDialogIn {
   from {
     opacity: 0;
     transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
@@ -1055,9 +1061,15 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   }
 }
 
+/* The scale goes entirely under reduced motion; only the fade is left. */
 @keyframes xvDialogInReduced {
   from {
     opacity: 0;
+    transform: none;
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -1223,7 +1235,11 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   width: 100%;
   max-width: 100%;
   aspect-ratio: 16 / 9;
+  /* Both, so the box shrinks rather than letterboxing: with only a max height the
+     width stayed full and the player padded itself with black. */
   max-height: 32vh;
+  max-width: calc(32vh * 16 / 9);
+  align-self: flex-start;
   border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
   border-radius: 0.75rem;
 }
@@ -1248,7 +1264,10 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   flex-direction: column;
   gap: 0.5rem;
   align-items: flex-start;
-  opacity: 0.55;
+  /* 0.72 rather than 0.55: measured, the dimmed text sat at 2.66:1 and 3.87:1,
+     under the 4.5:1 a card a person is meant to read needs. It is 3.50 and 5.48
+     at this value, and a step that is not the current one is still legible. */
+  opacity: 0.72;
   transition: opacity 160ms var(--xv-ease-out);
 }
 
@@ -1258,7 +1277,7 @@ body:has(.ag-run-dialog[open]) .ag-surface {
 }
 
 .ag-step-done {
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
 .ag-setup-card {

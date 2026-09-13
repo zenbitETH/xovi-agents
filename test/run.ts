@@ -128,7 +128,16 @@ async function main() {
   } catch (e) {
     check(e instanceof SnapshotUnavailable, "21 · one bad row refuses the WHOLE snapshot, rather than serving the readable subset");
   }
-  check(loadSnapshot({ WINDOWS_SNAPSHOT: "fixtures/windows.synthetic.jsonl" }).length === 3, "22 · the shipped synthetic fixture is itself valid");
+  // Wrapped: a fixture that stops loading would abort the harness here and skip
+  // every check after it, which is a crash hiding the suite rather than one red line.
+  const shipped = (() => {
+    try {
+      return loadSnapshot({ WINDOWS_SNAPSHOT: "fixtures/windows.synthetic.jsonl" }).length;
+    } catch {
+      return -1;
+    }
+  })();
+  check(shipped === 3, `22 · the shipped synthetic fixture is itself valid (${shipped})`);
 
   console.log("\n  payment\n");
   resetServerForTest();

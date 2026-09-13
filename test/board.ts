@@ -6,7 +6,7 @@ import { GET as windowsGET } from "../app/api/agent/windows/route";
 import { GET as registrationGET } from "../app/api/agent/registration/route";
 import { readFileSync } from "node:fs";
 import { setRegistryForTest } from "../lib/human/registry";
-import { onboardingFrom } from "../app/app-shell";
+import { SCREENS, onboardingFrom } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
 
@@ -288,7 +288,12 @@ export async function boardChecks(check: Check) {
   check(/tabIndex=\{-1\}/.test(page) && /dialog\.focus\(\)/.test(page), "285c · and the dialog takes focus rather than its Close button");
   check(/aria-haspopup=\{s\.id === "run" \? "dialog"/.test(page), "285d · the strip's run item says it opens one");
   const heads = page.slice(page.indexOf("const HEADS"), page.indexOf("const HEADS") + 900);
-  check(/settings:/.test(heads) && /board:/.test(heads), "285 · every screen but the run carries its own head line");
+  // Every destination the strip offers, read off SCREENS rather than named, and
+  // settings is not among them: the onboarding is the way in and has its own head.
+  const headless = SCREENS.filter(d => d.id !== "run" && !new RegExp(`\\b${d.id}:`).test(heads));
+  check(headless.length === 0, `285 · every destination carries its own head line (${headless.map(d => d.id).join(", ") || "none"})`);
+  check(!/settings:/.test(heads), "285e · and settings is not one, since it is the way in");
+  check(/Before a run/.test(page), "285f · while the onboarding has a head of its own");
 
 
   /*

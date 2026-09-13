@@ -699,7 +699,13 @@ export async function pageChecks(check: Check) {
   // Every line is a card, so the log and the stack cannot disagree.
   // Read the Rolodex block, as 279c reads the Settings one. Off the whole file
   // the feed's own map satisfied it, so cards built from a slice stayed green.
-  const rolodexBlock = ui.slice(ui.indexOf("function Rolodex("), ui.indexOf("function Settings("));
+  // Anchored on the next declaration by name, and asserted non empty, because the
+  // last anchor was a function that got renamed and the slice silently became the
+  // rest of the file.
+  const rolodexStart = ui.indexOf("function Rolodex(");
+  const rolodexEnd = ui.indexOf("function Onboarding(");
+  const rolodexBlock = rolodexStart >= 0 && rolodexEnd > rolodexStart ? ui.slice(rolodexStart, rolodexEnd) : "";
+  check(rolodexBlock.length > 0 && rolodexBlock.length < ui.length / 2, `283c · the rolodex block is found and is a block (${rolodexBlock.length})`);
   check(/lines\.map\(\(line, i\) => \(/.test(rolodexBlock) && /data-position=/.test(rolodexBlock),
     "283 · every line the log holds is a card");
   check(!/lines\.slice/.test(rolodexBlock), "283b · and none of them is dropped before the stack is built");

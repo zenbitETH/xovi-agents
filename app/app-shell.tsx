@@ -32,7 +32,6 @@ const CHANNEL = "UCAwjFyErB8f18Ufwj_TUJfA";
  * screen with things swapped underneath it.
  */
 const HEADS: Record<string, { title: string; sub: string }> = {
-  settings: { title: "Settings", sub: "The wallet, what AgentBook says about it, and whether a name is issued to it." },
   board: { title: "On offer", sub: "A day and a species to read. The agent chooses the window and forms the proposal." },
   account: { title: "Account", sub: "What this wallet settled, proposed, and can check." },
   record: { title: "Record", sub: "A confirmation, and the check a stranger can run beside it." },
@@ -1021,7 +1020,7 @@ function Onboarding({
       <div className="ag-stream">
         <iframe
           className="ag-stream-frame"
-          src={`https://www.youtube.com/embed/live_stream?channel=${CHANNEL}&autoplay=0`}
+          src={`https://www.youtube-nocookie.com/embed/live_stream?channel=${CHANNEL}&autoplay=0`}
           title="The public livestream"
           loading="lazy"
           allow="encrypted-media; picture-in-picture"
@@ -1099,8 +1098,7 @@ function Onboarding({
             </>
           ) : (
             <p className="ag-sub">
-              A name is issued into a parent Zenbit owns, by hand, and is asked for through this repository. No path
-              issues one from this page.
+              A name is issued into a parent Zenbit owns, by hand. No path issues one from this page.
             </p>
           )}
           {name === null && of("name") === "todo" && (
@@ -1604,7 +1602,7 @@ export function AppShell() {
   const [chosen, setChosen] = useState<Chosen | null>(null);
   const [board, setBoard] = useState<{ days: string[]; cells: { day: string; species: string; onOffer: boolean }[] }>({ days: [], cells: [] });
   const [boardState, setBoardState] = useState<"loading" | "ready" | "unconfigured" | "failed">("loading");
-  const [registration, setRegistration] = useState<Registration>("idle");
+  const [registration, setRegistration] = useState<Registration>("reading");
   const [acks, setAcks] = useState<Acks>({ person: false, name: false });
   const [allowUnregistered, setAllowUnregistered] = useState(false);
   const [readAgain, setReadAgain] = useState(0);
@@ -1613,6 +1611,7 @@ export function AppShell() {
   const [ledger, setLedger] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [chain, setChain] = useState<string | null>(null);
   const [issuedName, setIssuedName] = useState<string | null>(null);
+  const [nameRead, setNameRead] = useState(false);
   const [walletNote, setWalletNote] = useState<string | null>(null);
   const busy = useRef(false);
   const runDialog = useRef<HTMLDialogElement | null>(null);
@@ -1712,8 +1711,10 @@ export function AppShell() {
     if (address === null) {
       setChain(null);
       setIssuedName(null);
+      setNameRead(false);
       return;
     }
+    setNameRead(false);
     let live = true;
     void currentChain().then(c => {
       if (live) setChain(c);
@@ -1723,10 +1724,14 @@ export function AppShell() {
       // Only on a match. A name that resolves to somebody else is not this
       // account's name, and under a wildcard parent every name resolves.
       .then(answer => {
-        if (live) setIssuedName(answer !== null && answer.matches ? answer.name : null);
+        if (!live) return;
+        setIssuedName(answer !== null && answer.matches ? answer.name : null);
+        setNameRead(true);
       })
       .catch(() => {
-        if (live) setIssuedName(null);
+        if (!live) return;
+        setIssuedName(null);
+        setNameRead(true);
       });
     return () => {
       live = false;
@@ -1764,6 +1769,9 @@ export function AppShell() {
       setRegistration("idle");
       return;
     }
+    // Held in reading until the answer lands, so a returning wallet never shows
+    // not yet on its way to registered.
+    setRegistration("reading");
     let live = true;
     setRegistration("reading");
     fetch(`/api/agent/registration?payer=${address}`)
@@ -1781,7 +1789,9 @@ export function AppShell() {
     return () => {
       live = false;
     };
-  }, [address]);
+    // `readAgain` is what Check again and Read it again change. Without it here
+    // both controls were decoration: they set a number nothing depended on.
+  }, [address, readAgain]);
 
   /** `showModal` and not an open attribute: it traps focus, makes the page behind
    *  inert and gives Escape for nothing, none of which is worth rebuilding. */
@@ -1966,8 +1976,14 @@ export function AppShell() {
       <main className="ag-app">
         <div className="ag-surface">
           <div className="ag-app-top">
-            <h1 className="ag-shead-title">{HEADS[screen]?.title}</h1>
-                <p className="ag-sub">{HEADS[screen]?.sub}</p>
+            {/* The onboarding is a state of the page rather than a destination,
+                so it has its own head instead of borrowing the board's. */}
+            <h1 className="ag-shead-title">{onboarded ? HEADS[screen]?.title : "Before a run"}</h1>
+            <p className="ag-sub">
+              {onboarded
+                ? HEADS[screen]?.sub
+                : "Three things have to be true before an agent can pay for a read on your behalf."}
+            </p>
                         {onboarded && (
             <nav className="ag-rail" aria-label="Sections" style={{ "--xv-strip-n": screensFor(chosen !== null).length } as React.CSSProperties}>
               {/* The indicator is one element moved with `transform`, so the state
