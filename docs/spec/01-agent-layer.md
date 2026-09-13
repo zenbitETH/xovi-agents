@@ -88,7 +88,7 @@ A property the compiler refuses and the suite catches is a stronger claim than e
 | `GET /api/agent/windows` | x402 payment | Candidate windows. Never public. Route handler, not middleware. `private, no-store`. Settles only when the handler succeeded |
 | Clip proposal | machine credential | Bearer, then schema validation, then authorisation. Station-scoped from day one |
 | Confirmation | human session | No bearer branch exists |
-| Observation payload | none, and stays none | The anchor proves existence and time only; the payload it commits to must be free to fetch or the anchor proves nothing to anyone |
+| Observation payload | none, and stays none | The anchor asserts existence and time only; the payload it commits to must be free to fetch or the anchor proves nothing to anyone |
 | MCP query | x402 payment | The 402 is a tool result, not an HTTP header |
 
 > **Note, 2026-09-06.** Of these, only the clip proposal capability exists, and it shipped station-scoped as specified. Every other row is unbuilt.

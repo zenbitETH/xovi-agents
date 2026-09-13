@@ -64,7 +64,7 @@ AGENT_ENS_NAME=<the name> npm run agent -- --dry-run --limit 1
 
 With `WINDOWS_URL` unset, the windows url it prints came from `x402:windows` and from nothing else. That is the confirmation; a successful run with the url still configured confirms only that the agent works, which it did before.
 
-**This step costs a read.** `--dry-run` gates the proposal, not the fetch, so the agent still calls `payingFetch`: it spends one free allowance if the payer is a verified human with allowance left, and settles USDC on Base Sepolia otherwise. **Run it once, when establishing that the agent consumes the record.** It does not need re-running before each recording, and step 5 is the one to repeat, because step 5 proves the resolution for nothing and the resolution is the part that goes stale.
+**This step costs a read.** `--dry-run` gates the proposal, not the fetch, so the agent still calls `payingFetch`: it spends one free allowance if the payer is a registered person with allowance left, and settles USDC on Base Sepolia otherwise. **Run it once, when establishing that the agent consumes the record.** It does not need re-running before each recording, and step 5 is the one to repeat, because step 5 proves the resolution for nothing and the resolution is the part that goes stale.
 
 **8. If the agent starts failing after step 7, this is what it looks like and this is the fix.**
 
