@@ -295,6 +295,32 @@ export async function boardChecks(check: Check) {
   check(!/settings:/.test(heads), "285e · and settings is not one, since it is the way in");
   check(/Before a run/.test(page), "285f · while the onboarding has a head of its own");
 
+  /*
+   * The retry controls re-read, and the embed sets no cookie.
+   *
+   * Both were fixed and neither was held: taking the retry state out of the
+   * read's dependencies left the suite green, which is the fix being real and
+   * unguarded, and nothing stopped the embed host going back to the one that sets
+   * three cookies on a plain fetch.
+   *
+   * The dependency is read off the effect that does the reading, found by the
+   * call it makes rather than by a line number, so a rename does not blind it.
+   */
+  const readEffect = page.slice(page.indexOf("/api/agent/registration?payer="));
+  const readDeps = readEffect.slice(0, readEffect.indexOf("\n\n"));
+  check(/\}, \[address, readAgain\]\);/.test(readDeps), "292 · the retry state is a dependency of the registration read");
+  check(/setReadAgain\(n => n \+ 1\)/.test(page), "292a · and the controls are what change it");
+  check(!/\}, \[address\]\);/.test(readDeps), "292b · so the read cannot be left depending on the address alone");
+
+  // To the self closing bracket: the element has no closing tag, so anchoring on
+  // one gave an empty slice that satisfied nothing and failed loudly rather than
+  // quietly, which is the only reason it was caught here.
+  const embedStart = page.indexOf("<iframe");
+  const embed = page.slice(embedStart, page.indexOf("/>", embedStart) + 2);
+  check(/youtube-nocookie\.com/.test(embed), "293 · the stream loads from the host that sets no cookie");
+  check(!/\/\/www\.youtube\.com/.test(page), "293a · and the one that sets three appears nowhere");
+  check(/\/\/www\.youtube\.com/.test("https://www.youtube.com/embed"), "293b · the host check can see it (negative control)");
+
 
   /*
    * The onboarding, and the strip that does not exist until it is done.
