@@ -329,8 +329,13 @@ export type BoardCell = {
   recordingSeconds?: number;
   windowSeconds?: { min: number; max: number };
   /** What this payer's own agent last did here, and nobody else's. Present only
-   *  where a payer was named and only for that payer's runs. */
-  read?: { outcome: string; clipId: number | null; ranAt: string };
+   *  where a payer was named and only for that payer's runs.
+   *
+   *  `attested` is the anchor store's answer for that clip and never an inference
+   *  from the proposal existing: a clip can be proposed, confirmed and not yet
+   *  anchored, and reading the three as one would draw a chain that has not
+   *  happened. Absent where the store cannot answer, which is not false. */
+  read?: { outcome: string; clipId: number | null; ranAt: string; attested?: boolean };
 };
 
 /**
@@ -349,7 +354,16 @@ export function servedCell(cell: BoardCell): BoardCell {
     onOffer: cell.onOffer,
     // Built key by key like the rest: a mark carries what came of a run and when,
     // and never a window, a station or an alias, none of which the row holds.
-    ...(cell.read === undefined ? {} : { read: { outcome: cell.read.outcome, clipId: cell.read.clipId, ranAt: cell.read.ranAt } }),
+    ...(cell.read === undefined
+      ? {}
+      : {
+          read: {
+            outcome: cell.read.outcome,
+            clipId: cell.read.clipId,
+            ranAt: cell.read.ranAt,
+            ...(cell.read.attested === undefined ? {} : { attested: cell.read.attested }),
+          },
+        }),
     ...(cell.videoId === undefined ? {} : { videoId: cell.videoId }),
     ...(cell.thumbnail === undefined ? {} : { thumbnail: cell.thumbnail }),
     ...(cell.recordingSeconds === undefined ? {} : { recordingSeconds: cell.recordingSeconds }),

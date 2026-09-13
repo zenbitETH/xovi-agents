@@ -19,7 +19,8 @@ import { fakeStore, fakeVerifications } from "./human";
 import { CREDENTIAL_REFUSED, PROCESS, clearSkipped, readSkipped, writeSkipped, newestRecording, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellRecording, cellState, loadSnapshot, servedCell } from "../lib/windows/snapshot";
 import { NOT_SUBMITTED_SENTENCE, environmentCredentialCovers, namesACell, windowsUrlFor as runWindowsUrlFor } from "../lib/agent/run";
-import { type BoardCellView, cellMetaLine, readMarkLine, readableLength, windowsUrlFor } from "../app/app-shell";
+import { LIFECYCLE, type BoardCellView, cellMetaLine, lifecycleLine, lifecycleOf, readableLength, stopReason, windowsUrlFor } from "../app/app-shell";
+import { type AnchorRow, nextAction, setStoreForTest } from "../lib/anchor/store";
 import { resetServerForTest } from "../lib/x402";
 
 type Check = (ok: boolean, label: string) => void;
@@ -627,6 +628,35 @@ export async function boardChecks(check: Check) {
   check(newest?.videoId === "newest" && newest.day === "2026-09-09", `325d · the newest recording on offer is the one embedded (${JSON.stringify(newest)})`);
   check(newestRecording([{ day: "2026-09-04", onOffer: true }]) === null,
     "325e · and a board that serves no recording embeds none rather than guessing one");
+  /*
+   * A DAY CAN CARRY MORE THAN ONE RECORDING, AND THE TIE IS A RULE.
+   *
+   * The days are cut per species, so the snapshot this deployment serves holds two
+   * for 2026-09-09. The reduce takes a strictly later day, so the earliest cell of
+   * the newest day survives every comparison, which is the first species in the
+   * board's own row order that has one. Driven on a fixture with the tie in it,
+   * because a fixture with one recording per day cannot tell the rule from an
+   * accident, and `>=` in that reduce passes such a fixture.
+   */
+  const tied = [
+    { day: "2026-09-04", onOffer: true, videoId: "older" },
+    { day: "2026-09-09", onOffer: true, videoId: "firstOfTheDay" },
+    { day: "2026-09-09", onOffer: true, videoId: "secondOfTheDay" },
+  ];
+  check(newestRecording(tied)?.videoId === "firstOfTheDay",
+    `325e2 · a tie goes to the first cell in the board's row order (${newestRecording(tied)?.videoId ?? "none"})`);
+  check(newestRecording([...tied].reverse())?.videoId === "secondOfTheDay",
+    `325e3 · which is the cell order and not a property of the ids (negative control, ${newestRecording([...tied].reverse())?.videoId ?? "none"})`);
+  /*
+   * And the caption says so. "The recording of that day" is a claim the board
+   * contradicts one screen later, where the same day carries another.
+   */
+  const captions = [...home.matchAll(/recording of \{newest\.day\}|recording of \$\{newest\.day\}/gi)].length;
+  check(captions === 2, `325e4 · the day is named twice on the home, in the frame's title and in the line under it (${captions})`);
+  check(!/[Tt]he recording of \{newest\.day\}/.test(home) && !/[Tt]he recording of \$\{newest\.day\}/.test(home),
+    "325e5 · and neither calls it the recording of that day, where the board serves two");
+  check(/[Tt]he recording of \$\{newest\.day\}/.test("title={`The recording of ${newest.day}`}"),
+    "325e6 · the caption check can see the definite article (negative control)");
   const cards = (home.match(/ag-process-card/g) ?? []).length;
   /*
    * The array itself, imported rather than read out of the file.
@@ -853,23 +883,27 @@ export async function boardChecks(check: Check) {
   check(builders === 1, `280a3 · with one place building that url (${builders})`);
 
   /*
-   * THE CELL'S ONE LINE, AND THE NUMBER IT NEVER CARRIES.
+   * THE CELL'S TWO TIMES, THE WORDS THAT LEFT THEM, AND THE NUMBER IT NEVER
+   * CARRIES.
    *
-   * Three facts: how long the recording runs, the span its windows cover, and what
-   * a read costs. Each is left out where it is not known rather than guessed, so a
-   * cell with no meta beside its file says less and nothing false, and nowhere in
-   * it is a count of windows.
+   * How long the recording runs and the span its windows cover, in that order, and
+   * each left out where it is not known rather than guessed. The labels are gone
+   * and the units carry the difference, since a recording runs in minutes or hours
+   * and a window in seconds; the price left this line for a ribbon of its own,
+   * because it is the thing being decided about rather than a fact about the
+   * footage.
    */
   const full: BoardCellView = { day: "2026-09-04", species: "mexicanum", onOffer: true, videoId: "vidA", thumbnail: "https://i.ytimg.com/vi/vidA/mqdefault.jpg", recordingSeconds: 10013, windowSeconds: { min: 12, max: 36 } };
-  const line = cellMetaLine(full, "0.50 USDC");
-  check(line === "recording 2 h 47 min · windows 12 to 36 s · 0.50 USDC a read", `318 · a cell says its length, its span and its price (${line})`);
+  const line = cellMetaLine(full);
+  check(line === "2 h 47 min · 12 to 36 s", `318 · a cell says how long the recording runs and the span its windows cover (${line})`);
   check(!/\b5\b/.test(line), `318a · and never how many windows it holds (${line})`);
-  const bare = cellMetaLine({ day: "2026-09-04", species: "mexicanum", onOffer: true }, null);
+  check(!/recording|windows/i.test(line), `318a2 · with neither word read out loud beside its own value (${line})`);
+  check(/recording|windows/i.test("recording 2 h 47 min · windows 12 to 36 s"), "318a3 · the label check can see them (negative control)");
+  const bare = cellMetaLine({ day: "2026-09-04", species: "mexicanum", onOffer: true });
   check(bare === "", `318b · a cell with nothing known says nothing rather than guessing (${bare || "empty"})`);
-  const noPrice = cellMetaLine(full, null);
-  check(!/USDC|read/.test(noPrice) && /recording/.test(noPrice), `318c · and a price that could not be read is left out alone (${noPrice})`);
-  const single = cellMetaLine({ ...full, windowSeconds: { min: 94, max: 94 } }, null);
-  check(/windows 94 s/.test(single) && !/94 to 94/.test(single), `318d · one span is said once rather than as a range of itself (${single})`);
+  check(!/USDC|\$/.test(line), `318c · and no price, which is a ribbon on the cell rather than a third fact in this line (${line})`);
+  const single = cellMetaLine({ ...full, windowSeconds: { min: 94, max: 94 } });
+  check(/94 s/.test(single) && !/94 to 94/.test(single), `318d · one span is said once rather than as a range of itself (${single})`);
   check(readableLength(10013) === "2 h 47 min" && readableLength(600) === "10 min", `318e · a recording's length reads as hours and minutes (${readableLength(10013)})`);
 
   /*
@@ -1044,25 +1078,266 @@ export async function boardChecks(check: Check) {
   const planted = servedCell({ day: "2026-09-03", species: "mexicanum", onOffer: true, read: { outcome: "proposed", clipId: 1, ranAt: "2026-09-13T05:12:00Z", stationId: "AM 1", specimenAlias: "Alfa" } } as never);
   check(!JSON.stringify(planted).includes("AM 1") && !JSON.stringify(planted).includes("Alfa"),
     `322e · and a station or an alias planted in a row is refused by the shape (${JSON.stringify(planted.read)})`);
+
+  /*
+   * WHETHER THAT CLIP IS ANCHORED, ASKED OF THE ANCHOR STORE AND NEVER INFERRED.
+   *
+   * The board's fourth stage is a separate event with a separate store, so it is
+   * read rather than derived from the proposal existing. Only the clips this
+   * payer's own runs produced are looked up, which are the ids already on this
+   * payer's own marks, so no identifier that was not going to be served is asked
+   * about. And a half finished anchor is not done: a row written before the first
+   * transaction and never completed is the state the High finding on `claim` was
+   * about, and reading it as anchored is that confusion again.
+   */
+  const lookedUp: number[] = [];
+  const anchorRows = new Map<number, AnchorRow>();
+  const signedStub = { clipId: 0 } as never;
+  anchorRows.set(261, { clipId: 261, uid: "0xu", clipHash: "0xh", schemaUid: "0xs", attester: "0xa", signed: signedStub, attestTx: "0xt", onchainUid: "0xo" });
+  setStoreForTest({
+    claim: async () => ({ fresh: false, row: anchorRows.get(261) as AnchorRow }),
+    byClipId: async clipId => {
+      lookedUp.push(clipId);
+      return anchorRows.get(clipId) ?? null;
+    },
+    complete: async () => undefined,
+    byUid: async () => null,
+  });
+  const anchoredBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`))).json()) as { cells: Record<string, unknown>[] };
+  const anchoredMark = anchoredBoard.cells.find(c => c.read !== undefined)?.read as { attested?: boolean } | undefined;
+  check(anchoredMark?.attested === true, `410 · a clip the anchor store has finished rides on the mark as attested (${JSON.stringify(anchoredMark)})`);
+  check(lookedUp.join(",") === "261", `410a · asked only about the clip this payer's own run produced (${lookedUp.join(", ") || "none"})`);
+  check(!lookedUp.includes(999), "410a2 · and never about another payer's (negative control)");
+
+  // A row with no attestation transaction is a half anchor. `nextAction` decides
+  // it, the same function the anchoring run decides on, rather than a second rule.
+  anchorRows.set(261, { clipId: 261, uid: "0xu", clipHash: "0xh", schemaUid: "0xs", attester: "0xa", signed: signedStub, timestampTx: "0xtt" });
+  const halfBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`))).json()) as { cells: Record<string, unknown>[] };
+  const halfMark = halfBoard.cells.find(c => c.read !== undefined)?.read as { attested?: boolean } | undefined;
+  check(halfMark?.attested === false, `410b · a half finished anchor is carried as not attested rather than as anchored (${JSON.stringify(halfMark)})`);
+  check(nextAction(anchorRows.get(261) as AnchorRow) !== "done", "410b2 · which is the anchoring run's own reading of that row (negative control)");
+
+  /*
+   * A STORE THAT ANSWERS NOTHING AND A STORE THAT CANNOT ANSWER ARE TWO THINGS.
+   *
+   * No row for a clip is an answer: nothing has been anchored for it, which is
+   * what `nextAction` says of a null row, so the mark carries not attested. A read
+   * that threw is not an answer and leaves the key off, and the bar reads an
+   * absent key as not seen rather than as no.
+   */
+  anchorRows.delete(261);
+  const unknownBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`))).json()) as { cells: Record<string, unknown>[] };
+  const unknownMark = unknownBoard.cells.find(c => c.read !== undefined)?.read as { attested?: boolean } | undefined;
+  check(unknownMark?.attested === false, `410c · a clip the store has no row for is not attested, because the store answered (${JSON.stringify(unknownMark)})`);
+  check(nextAction(null) !== "done", "410c2 · which is the anchoring run's own reading of no row (negative control)");
+
+  setStoreForTest({
+    claim: async () => ({ fresh: false, row: signedStub }),
+    byClipId: async () => {
+      throw new Error("the anchor store is unavailable");
+    },
+    complete: async () => undefined,
+    byUid: async () => null,
+  });
+  const brokenBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`))).json()) as { cells: Record<string, unknown>[] };
+  const brokenMark = brokenBoard.cells.find(c => c.read !== undefined)?.read as Record<string, unknown> | undefined;
+  check(brokenMark !== undefined && !("attested" in brokenMark),
+    `410c3 · while a store that threw leaves the key off, which is not an answer (${JSON.stringify(brokenMark)})`);
+
+  setStoreForTest(null);
+  const noStoreBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`))).json()) as { cells: Record<string, unknown>[] };
+  const noStoreMark = noStoreBoard.cells.find(c => c.read !== undefined)?.read as Record<string, unknown> | undefined;
+  check(noStoreMark !== undefined && !("attested" in noStoreMark), `410d · and no store configured serves the mark without it rather than failing the board (${JSON.stringify(noStoreMark)})`);
+  setStoreForTest(undefined);
+
+  const plantedAnchor = servedCell({ day: "2026-09-03", species: "mexicanum", onOffer: true, read: { outcome: "proposed", clipId: 1, ranAt: "2026-09-13T05:12:00Z", attested: true } } as never);
+  check((plantedAnchor.read as { attested?: boolean })?.attested === true, "410e · the served shape carries the answer through rather than dropping it");
   setRunsStoreForTest(undefined);
 
-  check(readMarkLine({ outcome: "proposed", clipId: 261, ranAt: "2026-09-13T05:12:00Z" }) === "read by your agent · proposed clip 261 · 05:12 UTC",
-    `323 · the mark says what the run did and when (${readMarkLine({ outcome: "proposed", clipId: 261, ranAt: "2026-09-13T05:12:00Z" })})`);
-  check(readMarkLine({ outcome: "declined:duplicate", clipId: null, ranAt: "2026-09-13T05:12:00Z" }) === "read by your agent · already a clip · 05:12 UTC",
-    "323a · a duplicate says the window is already a clip");
-  check(readMarkLine({ outcome: "declined:refused", clipId: null, ranAt: "2026-09-13T05:12:00Z" }) === "read by your agent · declined · 05:12 UTC",
-    "323b · and a refusal says declined");
   /*
-   * Every branch, including the one that answers an outcome this page does not
-   * know. Driving one outcome left the fallback untested, and a count planted there
-   * stayed green: the branch nobody drives is the branch nobody guards.
+   * HOW FAR A CELL GOT, AS FOUR EVENTS AND NOT AS ONE WORD.
+   *
+   * Four sources: the runs table, the run's own outcome, Zenbit's public list and
+   * the anchor store. None is inferred from the one before it, which is the whole
+   * reason the bar has four segments; driven here on the same read with three
+   * different answers from the last two, so a stage that filled itself forward
+   * from the one before shows.
    */
-  const everyOutcome = ["proposed", "declined:duplicate", "declined:refused", "declined:rejected", "cell-spent", "nothing-proposable", "not-submitted", "something-new"];
-  const lines = everyOutcome.map(outcome => readMarkLine({ outcome, clipId: null, ranAt: "2026-09-13T05:12:00Z" }));
-  const counted = lines.filter(l => /\d+\s*(windows|reads|clips)\b/.test(l));
-  check(counted.length === 0, `323c · no branch of the mark counts anything (${counted.join(" | ") || "none"})`);
-  check(lines.every(l => /05:12 UTC$/.test(l) && l.startsWith("read by your agent")), `323d · and every branch says whose agent and when (${lines.length} branches)`);
-  check(/\d+\s*windows\b/.test("read by your agent · 5 windows · 05:12 UTC"), "323e · the count check can see one (negative control)");
+  const proposedRead = { outcome: "proposed", clipId: 261, ranAt: "2026-09-13T05:12:00Z" };
+  check(LIFECYCLE.join(",") === "read,proposed,confirmed,attested", `323 · four events in order (${LIFECYCLE.join(", ")})`);
+  const waiting = lifecycleOf(proposedRead, new Set<number>());
+  check(waiting.join(",") === "done,done,not seen,not seen", `323a · a proposal the public list does not carry is read and proposed and no further (${waiting.join(", ")})`);
+  const listUnread = lifecycleOf(proposedRead, null);
+  check(listUnread.join(",") === waiting.join(","), `323a2 · and a list nobody could read leaves it exactly there rather than further or worse (${listUnread.join(", ")})`);
+  const confirmedOnly = lifecycleOf(proposedRead, new Set([261]));
+  check(confirmedOnly.join(",") === "done,done,done,not seen", `323b · a clip the list carries is confirmed and not yet attested (${confirmedOnly.join(", ")})`);
+  const anchoredToo = lifecycleOf({ ...proposedRead, attested: true }, new Set([261]));
+  check(anchoredToo.join(",") === "done,done,done,done", `323b2 · and the anchor's own answer is what fills the fourth (${anchoredToo.join(", ")})`);
+  const attestedAlone = lifecycleOf({ ...proposedRead, attested: true }, new Set<number>());
+  check(attestedAlone[3] === "not seen", `323b3 · which no unconfirmed clip reaches, whatever the anchor says (${attestedAlone.join(", ")})`);
+  const otherClip = lifecycleOf(proposedRead, new Set([260]));
+  check(otherClip[2] === "not seen", `323b4 · and the list is matched on this clip rather than on carrying any (${otherClip.join(", ")})`);
+
+  /*
+   * NOT SEEN IS NEVER REJECTED, ANYWHERE.
+   *
+   * The list serves confirmed rows only and returns the fifty most recent, so a
+   * proposal missing from it is waiting on a person, refused by one, or older than
+   * fifty, and nothing here holds those apart. Over every outcome the run can
+   * write plus one it cannot, because the branch nobody drives is the branch
+   * nobody guards, and a count planted in a fallback stayed green once already.
+   */
+  const everyOutcome = ["proposed", "declined:duplicate", "declined:refused", "declined:rejected", "cell-spent", "nothing-proposable", "not-submitted", "read", "something-new"];
+  const everyLine = everyOutcome.map(outcome => lifecycleLine({ outcome, clipId: outcome === "proposed" ? 261 : null, ranAt: "2026-09-13T05:12:00Z" }, lifecycleOf({ outcome, clipId: outcome === "proposed" ? 261 : null }, new Set<number>())));
+  const judged = everyLine.filter(l => /\breject|\brefused\b|\bturned down\b/i.test(l));
+  check(judged.length === 0, `323c · no sentence turns an absence from the list into a decision (${judged.join(" | ") || "none"})`);
+  check(/\breject/i.test("your agent proposed clip 261, rejected"), "323c2 · the decision check can see one (negative control)");
+  const counted = everyLine.filter(l => /\d+\s*(windows|reads|clips)\b/.test(l));
+  check(counted.length === 0, `323c3 · and no branch counts anything (${counted.join(" | ") || "none"})`);
+  check(/\d+\s*windows\b/.test("your agent read it, 5 windows · 05:12 UTC"), "323c4 · the count check can see one (negative control)");
+  check(everyLine.every(l => /05:12 UTC$/.test(l) && l.startsWith("your agent")), `323d · and every branch says whose agent and when (${everyLine.length} branches)`);
+  check(lifecycleLine(proposedRead, waiting) === "your agent proposed clip 261, not seen in the public list · 05:12 UTC",
+    `323d2 · a proposal the list does not carry says not seen (${lifecycleLine(proposedRead, waiting)})`);
+  check(lifecycleLine(proposedRead, anchoredToo) === "your agent proposed clip 261, a person confirmed it, and it is attested · 05:12 UTC",
+    `323d3 · and one the chain carries says so (${lifecycleLine(proposedRead, anchoredToo)})`);
+
+  /*
+   * A run that stopped says why, in the run's own vocabulary rather than in a
+   * second one grown on the board.
+   */
+  const duplicateStages = lifecycleOf({ outcome: "declined:duplicate", clipId: null }, null);
+  check(duplicateStages[1] === "stopped", `323e · a run that ended before proposing is drawn as stopped, not as unseen (${duplicateStages.join(", ")})`);
+  check(lifecycleOf({ outcome: "read", clipId: null }, null)[1] === "not seen",
+    "323e2 · while a run the board has no stop for says nothing about why (negative control)");
+  check(stopReason("declined:duplicate") === "already a clip" && stopReason("cell-spent") === "already a clip",
+    `323e3 · a window already made into a clip says so either way it is reported (${stopReason("declined:duplicate")})`);
+  check(stopReason("declined:anything") === "declined" && stopReason("proposed") === null,
+    `323e4 · a refusal says declined and a proposal is not a stop (${stopReason("declined:anything")})`);
+
+  /*
+   * THE BOARD SAYS WHAT THE GRID CANNOT, AND NOTHING THE GRID ALREADY SAYS.
+   *
+   * "Choose a day and a species to read" is the interface read out loud: the grid
+   * is days across, species down, and a control in every cell on offer. What is
+   * left is the claim no arrangement of cells can make, that the agent picks the
+   * window, and the one thing a mark below must not be read as.
+   */
+  // From the board itself, not from the first paragraph in the function: the four
+  // states above it are each a paragraph of the same kind, and the first version
+  // read "Reading what is on offer" and called it the board's line.
+  const gridAt = boardJsx.indexOf('<div className="ag-board">');
+  const boardLead = gridAt === -1
+    ? ""
+    : (/<p className="xv-desc ag-empty">\s*([\s\S]*?)<\/p>/.exec(boardJsx.slice(gridAt))?.[1]?.replace(/\s+/g, " ").trim() ?? "");
+  check(boardLead.length > 0 && gridAt > 0, `405 · the board's own line is found (negative control for the read, ${boardLead.slice(0, 40)})`);
+  check(!/Choose a day and a species/i.test(boardJsx), "405a · and it no longer tells a person to choose a cell from a grid of cells");
+  check(/The agent chooses the window/.test(boardLead), "405b · while the claim the grid cannot make stays");
+  /*
+   * And the reason "not seen" is not a decision is said once, where a person reads
+   * the board, rather than on every cell. The list serves confirmed rows only and
+   * returns the fifty most recent, so absence from it is three states at once.
+   */
+  check(/Not seen means/.test(boardLead) && /confirmed clips\s*only and the fifty most recent/.test(boardLead),
+    `405c · the board says once what an unseen mark means and why (${boardLead.slice(-120)})`);
+  const perCell = (boardJsx.match(/fifty most recent/g) ?? []).length;
+  check(perCell === 1, `405d · once and not on every cell (${perCell})`);
+
+  /*
+   * THE PRICE IS A RIBBON ON THE CELL, NOT A THIRD FACT ABOUT THE FOOTAGE.
+   *
+   * It is the thing a person is deciding about, and it read as a third property of
+   * the recording at the end of a line of two. Positioned on the cell, which is
+   * why the cell is the positioned element and the ribbon is not in its column.
+   */
+  check(/<span className="ag-board-price">\{priceForCell\}<\/span>/.test(boardJsx),
+    "406 · the price is drawn as its own element rather than inside the cell's line");
+  const priceRule = /\.ag-board-price\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(priceRule.length > 0, `406a · and it has a rule (negative control for the read, ${priceRule.length})`);
+  check(/position:\s*absolute/.test(priceRule) && /top:/.test(priceRule) && /right:/.test(priceRule),
+    `406b · placed on the cell's upper right (${/top:[^;]*/.exec(priceRule)?.[0] ?? "none"}, ${/right:[^;]*/.exec(priceRule)?.[0] ?? "none"})`);
+  const cellRule = /\.ag-board-cell\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(/position:\s*relative/.test(cellRule), "406c · against the cell it prices, which is the positioned element");
+
+  /*
+   * THE TWO TIMES SIT WITH THE SPECIES AND THE PILL, ON ONE ROW.
+   *
+   * They were a caption under the cell's name and its state, which read as a
+   * second thing about a first. Held on the markup rather than on the rule, since
+   * a row that carries the three is what the order is.
+   */
+  /*
+   * Bounded by the row's own closing tag, found by its indentation.
+   *
+   * The first version stopped at the first `</span>`, which belongs to the species
+   * nested inside, and gave a row of one. The second ran to the bar after it,
+   * which meant moving the times out of the row and under it left them inside the
+   * slice: the check could not see its own mutation, which is the whole thing it
+   * exists to catch. JSX in this file closes at the indentation it opened at, and
+   * the two controls below hold that the block is the row and stops at it.
+   */
+  const rowAt = boardJsx.indexOf('<span className="ag-board-row">');
+  const rowIndent = rowAt === -1 ? 0 : rowAt - (boardJsx.lastIndexOf("\n", rowAt) + 1);
+  const rowEnd = rowAt === -1 ? -1 : boardJsx.indexOf(`\n${" ".repeat(rowIndent)}</span>`, rowAt);
+  const rowBlock = rowAt === -1 || rowEnd === -1 ? "" : boardJsx.slice(rowAt, rowEnd);
+  check(rowBlock.length > 0 && rowBlock.length < boardJsx.length / 4, `407 · the cell's row is found and is a row (negative control for the read, ${rowBlock.length})`);
+  check(!/ag-life|ag-board-read|ag-board-thumb/.test(rowBlock),
+    "407a0 · and stops at the row, so what follows it is outside this read (negative control)");
+  const order = ["ag-board-name", "ag-chip", "ag-board-meta"].map(c => rowBlock.indexOf(c));
+  check(order.every(i => i >= 0) && order[0] < order[1] && order[1] < order[2],
+    `407a · carrying the species, then the pill, then the times (${order.join(", ")})`);
+  const rowRule = /\.ag-board-row\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(/display:\s*flex/.test(rowRule) && /flex-wrap:\s*wrap/.test(rowRule),
+    `407b · laid out as one row that wraps rather than as a column (${rowRule.replace(/\s+/g, " ").trim().slice(0, 60)})`);
+  const metaRule = /\.ag-board-meta\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(!/margin-top/.test(metaRule), `407c · and the times no longer push themselves onto a line of their own (${metaRule.replace(/\s+/g, " ").trim().slice(0, 60)})`);
+
+  /*
+   * THE MARK IS A BAR OF FOUR EVENTS, AND THE BAR CARRIES NO WORDS.
+   *
+   * A colour cannot say why a run stopped and must not be asked to, so the bar is
+   * four states and the sentence under it is the run's own. Hidden from assistive
+   * technology, because the sentence says everything it says and a screen reader
+   * hearing four unlabelled segments hears nothing.
+   */
+  const bar = /<span className="ag-life" aria-hidden="true">([\s\S]*?)<\/span>/.exec(boardJsx)?.[1] ?? "";
+  check(bar.length > 0, `408 · the bar is drawn and is hidden from a screen reader (negative control for the read, ${bar.length})`);
+  check(/LIFECYCLE\.map/.test(bar) && /data-state=\{stages\[i\]\}/.test(bar),
+    "408a · one segment per event, read off the array and the states rather than written out");
+  const segRules = [...css.matchAll(/\.ag-life-seg(\[data-state="([^"]+)"\])?\s*\{([^}]*)\}/g)];
+  const stated = segRules.map(m => m[2] ?? "base");
+  check(stated.includes("base") && stated.includes("done") && stated.includes("stopped"),
+    `408b · with a rule for the base, for done and for stopped (${stated.join(", ")})`);
+  check(!stated.includes("not seen"), "408c · and none for not seen, which is the absence of a state rather than one of its own");
+  check(/<span className="ag-board-read">\{lifecycleLine\(cell\.read, stages\)\}<\/span>/.test(boardJsx),
+    "408d · the sentence under it is built from the same stages the bar draws, so the two cannot disagree");
+
+  /*
+   * THE BORDER SAYS WHICH OF TWO THINGS HAPPENED, AND STOPS WHEN ONE DID.
+   *
+   * Gold while the agent's proposal waits on a person and teal once one decided,
+   * and the motion stops there: a border still breathing after a decision would
+   * say something is still happening. Only `opacity` moves, on a pseudo element,
+   * because animating a box shadow is a paint on every frame.
+   */
+  const lifeAttr = /data-life=\{([^\n]*)\}/.exec(boardJsx)?.[1] ?? "";
+  check(lifeAttr.length > 0, `409 · the cell reports its own lifecycle to the stylesheet (negative control for the read, ${lifeAttr})`);
+  check(/stages\[2\] === "done" \? "confirmed"/.test(lifeAttr) && /stages\[1\] === "done" \? "proposed"/.test(lifeAttr),
+    `409a · confirmed where a person decided and proposed where one has not (${lifeAttr})`);
+  check(/stages === null \? undefined/.test(lifeAttr), "409b · and nothing at all on a cell nobody has read");
+  const glow = /\.ag-board-cell\[data-life\]::after\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  const waiting2 = /\.ag-board-cell\[data-life="proposed"\]::after\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  const decided = /\.ag-board-cell\[data-life="confirmed"\]::after\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(glow.length > 0 && waiting2.length > 0 && decided.length > 0,
+    `409c · the three rules are found (negative control for the reads, ${glow.length}/${waiting2.length}/${decided.length})`);
+  check(/var\(--color-xv-agent\)/.test(glow) && /var\(--color-primary\)/.test(decided),
+    "409d · gold while it waits and teal once a person decided, from the tokens rather than as literals");
+  check(/animation:\s*xvCellWait/.test(waiting2) && !/animation/.test(decided),
+    `409e · and only the waiting one moves (${/animation:[^;]*/.exec(waiting2)?.[0] ?? "none"})`);
+  const frames = /@keyframes xvCellWait\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
+  check(frames.length > 0, `409f · the breathing's own frames are found (negative control for the read, ${frames.length})`);
+  const moved = [...frames.matchAll(/^\s*([a-z-]+):/gm)].map(m => m[1]);
+  check(moved.length > 0 && moved.every(prop => prop === "opacity" || prop === "transform"),
+    `409g · which move opacity and nothing that paints (${[...new Set(moved)].join(", ") || "none"})`);
 
   const lookups = [...boardJsx.matchAll(/prices\[([^\]]*)\]/g)].map(m => m[1]);
   check(lookups.length === 1 && lookups[0] === "`${day}|${species}`",

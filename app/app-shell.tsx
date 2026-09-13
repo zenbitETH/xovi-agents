@@ -433,24 +433,87 @@ export type BoardCellView = {
 };
 
 /**
- * What this wallet's own agent last did here, in a person's words.
+ * What can have happened to a cell this wallet's own agent read, in order.
  *
- * The outcome is the run's own step name, so this is the one place it becomes a
- * sentence and the board and the run cannot end up with two vocabularies. A run
- * whose outcome is not one of these says only that the cell was read, which is
- * the fact the mark exists to carry.
+ * **Four events with four sources, and none of them is inferred from the one
+ * before it.** The read is the runs table, the proposal is the run's own outcome,
+ * the confirmation is Zenbit's public list and the anchor is the anchor store. A
+ * clip can be proposed and not confirmed, or confirmed and not yet anchored, so a
+ * bar that filled itself forward would draw a chain that has not happened.
  */
-export function readMarkLine(read: { outcome: string; clipId: number | null; ranAt: string }): string {
-  const at = read.ranAt.slice(11, 16);
-  if (read.outcome === "proposed") {
-    return read.clipId === null ? `read by your agent · proposed · ${at} UTC` : `read by your agent · proposed clip ${read.clipId} · ${at} UTC`;
-  }
-  if (read.outcome === "declined:duplicate") return `read by your agent · already a clip · ${at} UTC`;
-  if (read.outcome.startsWith("declined:")) return `read by your agent · declined · ${at} UTC`;
-  if (read.outcome === "cell-spent") return `read by your agent · already a clip · ${at} UTC`;
-  if (read.outcome === "nothing-proposable") return `read by your agent · nothing to propose · ${at} UTC`;
-  if (read.outcome === "not-submitted") return `read by your agent · not submitted · ${at} UTC`;
-  return `read by your agent · ${at} UTC`;
+export const LIFECYCLE = ["read", "proposed", "confirmed", "attested"] as const;
+
+/**
+ * How far a cell got, and what the page may say where it did not get there.
+ *
+ * **Not seen is never rejected.** The public list this page reads serves confirmed
+ * rows only and returns the fifty most recent, so a proposal missing from it is
+ * waiting on a person, refused by one, or older than fifty, and nothing here holds
+ * those apart. Saying the second would publish a decision nobody made. Stopped is
+ * different and is the run's own report of itself: the run ended before proposing
+ * and said why.
+ */
+export type StageState = "done" | "stopped" | "not seen";
+
+/** Why a run ended without a proposal, in the run's own vocabulary, so the board
+ *  and the run cannot end up with two. A run whose outcome is not one of these
+ *  did not stop: it read, and the mark says only that. */
+const STOPPED_AT: Record<string, string> = {
+  "declined:duplicate": "already a clip",
+  "cell-spent": "already a clip",
+  "nothing-proposable": "nothing to propose",
+  "not-submitted": "not submitted",
+};
+
+export function stopReason(outcome: string): string | null {
+  if (outcome === "proposed") return null;
+  const named = STOPPED_AT[outcome];
+  if (named !== undefined) return named;
+  return outcome.startsWith("declined:") ? "declined" : null;
+}
+
+export function lifecycleOf(
+  read: { outcome: string; clipId: number | null; attested?: boolean },
+  confirmed: ReadonlySet<number> | null,
+): StageState[] {
+  const proposed = read.outcome === "proposed" && read.clipId !== null;
+  const stages: StageState[] = [
+    "done",
+    proposed ? "done" : stopReason(read.outcome) !== null ? "stopped" : "not seen",
+    "not seen",
+    "not seen",
+  ];
+  if (!proposed) return stages;
+  // A list nobody could read says nothing, which is not a proposal nobody
+  // confirmed, so an unread list leaves the stage where an absent row leaves it.
+  if (confirmed === null || !confirmed.has(read.clipId as number)) return stages;
+  stages[2] = "done";
+  // And the anchor is asked separately. Absent is not false: a store that could
+  // not answer leaves the key off the mark entirely.
+  stages[3] = read.attested === true ? "done" : "not seen";
+  return stages;
+}
+
+/**
+ * The sentence under the bar, which says what the bar cannot.
+ *
+ * The bar carries four states and no words; this carries the run's own reason for
+ * stopping, the clip it proposed, and when. It never carries a count, and it never
+ * turns an absence from the public list into a decision.
+ */
+export function lifecycleLine(
+  read: { outcome: string; clipId: number | null; ranAt: string; attested?: boolean },
+  stages: StageState[],
+): string {
+  const at = `${read.ranAt.slice(11, 16)} UTC`;
+  const stop = stopReason(read.outcome);
+  if (stop !== null) return `your agent read it and stopped, ${stop} · ${at}`;
+  if (stages[1] !== "done") return `your agent read it · ${at}`;
+  const clip = read.clipId === null ? "a clip" : `clip ${read.clipId}`;
+  if (stages[2] !== "done") return `your agent proposed ${clip}, not seen in the public list · ${at}`;
+  return stages[3] === "done"
+    ? `your agent proposed ${clip}, a person confirmed it, and it is attested · ${at}`
+    : `your agent proposed ${clip} and a person confirmed it · ${at}`;
 }
 
 /** The url of one cell's windows. One builder, so the price a person is shown and
@@ -472,22 +535,25 @@ export function readableLength(seconds: number): string {
 }
 
 /**
- * The one line a cell says about itself.
+ * The two times a cell says about itself, beside its species and its pill.
  *
- * Three facts and never a fourth: how long the recording runs, the span its
- * windows cover, and what one read costs. **Not how many windows there are**, which
- * is the number the gate exists to keep, and the range is two numbers already in a
- * public file. Each part is left out where it is not known rather than guessed, so
- * a cell with no meta beside its file says less and nothing false.
+ * **Not how many windows there are**, which is the number the gate exists to keep;
+ * the span is two numbers already in a public file. The words "recording" and
+ * "windows" are gone and the units carry the difference: a recording runs for
+ * minutes or hours and a window for seconds, and the label was reading the value
+ * out loud beside it. The price left this line and is a ribbon on the cell, since
+ * it is what a person is deciding about rather than a fact about the footage.
+ *
+ * Each part is left out where it is not known rather than guessed, so a cell with
+ * no meta beside its file says less and nothing false.
  */
-export function cellMetaLine(cell: BoardCellView, price: string | null): string {
+export function cellMetaLine(cell: BoardCellView): string {
   const parts: string[] = [];
-  if (cell.recordingSeconds !== undefined) parts.push(`recording ${readableLength(cell.recordingSeconds)}`);
+  if (cell.recordingSeconds !== undefined) parts.push(readableLength(cell.recordingSeconds));
   if (cell.windowSeconds !== undefined) {
     const { min, max } = cell.windowSeconds;
-    parts.push(min === max ? `windows ${Math.round(min)} s` : `windows ${Math.round(min)} to ${Math.round(max)} s`);
+    parts.push(min === max ? `${Math.round(min)} s` : `${Math.round(min)} to ${Math.round(max)} s`);
   }
-  if (price !== null) parts.push(`${price} a read`);
   return parts.join(" · ");
 }
 
@@ -1159,10 +1225,22 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
  *
  * The id is already a served field on a cell, so nothing new crosses the wire and
  * nothing new enters the tree for this.
+ *
+ * **A day can carry more than one recording, and one of them is drawn.** The days
+ * are cut per species, so 2026-09-09 holds two on the snapshot this deployment
+ * serves. The tie goes to the first cell in the board's own row order, which is
+ * the first species in `BOARD_SPECIES` that has a recording that day: the reduce
+ * below takes a strictly later day, so the earliest cell of the newest day
+ * survives every comparison. That is a rule rather than an accident and the
+ * caption says "a recording of that day" rather than "the recording", because the
+ * home shows one of two and naming it as the day's own would be a claim the board
+ * contradicts one screen later.
  */
 export function newestRecording(cells: { day: string; onOffer: boolean; videoId?: string }[]): { day: string; videoId: string } | null {
   const playable = cells.filter(c => c.onOffer && c.videoId !== undefined && c.day !== "");
   if (playable.length === 0) return null;
+  // Strictly later, so a tie keeps the earlier cell: the first species in the
+  // board's row order that has one. `>=` here would silently take the last.
   const newest = playable.reduce((a, b) => (b.day > a.day ? b : a));
   return { day: newest.day, videoId: newest.videoId as string };
 }
@@ -1207,13 +1285,13 @@ function Home({ newest }: { newest: { day: string; videoId: string } | null }) {
           <iframe
             className="ag-stream-frame"
             src={`https://www.youtube-nocookie.com/embed/${newest.videoId}`}
-            title={`The recording of ${newest.day}`}
+            title={`A recording of ${newest.day}`}
             loading="lazy"
             allow="encrypted-media; picture-in-picture"
             referrerPolicy="strict-origin-when-cross-origin"
           />
           <p className="ag-sub">
-            The recording of {newest.day}, from the museum's own stream. The windows on offer are spans of recordings
+            A recording of {newest.day}, from the museum's own stream. The windows on offer are spans of recordings
             like this one that a machine thinks a person should look at. The clips a person has confirmed are public:{" "}
             <a className="ag-link" href="https://xovi.axolodao.org/galeria">
               the gallery
@@ -1359,6 +1437,7 @@ function Board({
   days,
   cells,
   prices,
+  confirmed,
   chosen,
   onChoose,
   onRun,
@@ -1369,6 +1448,10 @@ function Board({
   days: string[];
   cells: BoardCellView[];
   prices: Record<string, string>;
+  /** The clip ids Zenbit's public list carries for this wallet. Null where the
+   *  list has not answered or could not be read, which says nothing rather than
+   *  saying no proposal of this wallet's was confirmed. */
+  confirmed: ReadonlySet<number> | null;
   chosen: Chosen | null;
   onChoose: (cell: Chosen) => void;
   onRun: () => void;
@@ -1382,9 +1465,14 @@ function Board({
 
   return (
     <div className="ag-board">
+      {/* The instruction is gone: the grid is a grid of days and species with a
+          control in every cell, and telling a person to choose one is reading the
+          interface out loud. What is left is the claim the grid cannot make and
+          the one thing a mark below may not be read as. */}
       <p className="xv-desc ag-empty">
-        Choose a day and a species to read. The agent chooses the window and forms the proposal; no word and no choice
-        of window from here reaches the clip.
+        The agent chooses the window and forms the proposal; no word and no choice of window from here reaches the
+        clip. Not seen means Zenbit&rsquo;s public list does not carry that clip, and the list carries confirmed clips
+        only and the fifty most recent, so it is not a decision anybody made.
       </p>
       {chosen !== null && (
         <div className="ag-board-run">
@@ -1413,13 +1501,21 @@ function Board({
               // One lookup and one line, so the price drawn is this cell's own and
               // the condition and the text cannot come apart.
               const priceForCell = prices[`${day}|${species}`] ?? null;
-              const meta = on && cell !== undefined ? cellMetaLine(cell, priceForCell) : "";
+              const meta = on && cell !== undefined ? cellMetaLine(cell) : "";
+              // The four events, from four sources, for this cell alone. Built
+              // here so the bar and the sentence under it cannot disagree: both
+              // read the same array rather than each deciding for itself.
+              const stages = cell?.read === undefined ? null : lifecycleOf(cell.read, confirmed);
               return (
                 <button
                   key={`${day}-${species}`}
                   type="button"
                   className={picked ? "ag-board-cell ag-board-picked" : "ag-board-cell"}
                   aria-current={picked ? "true" : undefined}
+                  /* What the border says: gold while the agent's proposal waits on
+                     a person, teal once one has decided. Absent otherwise, so a
+                     cell nobody has read draws no glow at all. */
+                  data-life={stages === null ? undefined : stages[2] === "done" ? "confirmed" : stages[1] === "done" ? "proposed" : undefined}
                   disabled={!on}
                   onClick={() => onChoose({ day, species })}
                 >
@@ -1431,13 +1527,33 @@ function Board({
                     // eslint-disable-next-line @next/next/no-img-element
                     <img className="ag-board-thumb" src={cell.thumbnail} alt={`The recording for ${day}, ${species}`} loading="lazy" />
                   )}
-                  <span className="ag-board-name">{species}</span>
-                  <span className={on ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>{on ? "on offer" : "none"}</span>
-                  {meta !== "" && <span className="ag-board-meta">{meta}</span>}
-                  {/* Where this wallet's own agent has been. Drawn in the person's
-                      hue, because a run is delegated by a person and the two hues
-                      are what separates their activity from the machine's. */}
-                  {cell?.read !== undefined && <span className="ag-board-read">{readMarkLine(cell.read)}</span>}
+                  {/* What a read costs, as a ribbon on the corner rather than a
+                      third clause in a line of facts about the footage: it is the
+                      thing being decided about and not a property of the cell. */}
+                  {priceForCell !== null && <span className="ag-board-price">{priceForCell}</span>}
+                  {/* Species, state and the two times on one row, so the facts
+                      about the footage read as one thing and not as a caption
+                      under another. */}
+                  <span className="ag-board-row">
+                    <span className="ag-board-name">{species}</span>
+                    <span className={on ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>{on ? "on offer" : "none"}</span>
+                    {meta !== "" && <span className="ag-board-meta">{meta}</span>}
+                  </span>
+                  {/* Where this wallet's own agent has been, as how far it got.
+                      Four segments and no words, and the sentence under them
+                      carries the run's own reason. Drawn in the person's hue,
+                      because a run is delegated by a person and the two hues are
+                      what separates their activity from the machine's. */}
+                  {stages !== null && cell?.read !== undefined && (
+                    <>
+                      <span className="ag-life" aria-hidden="true">
+                        {LIFECYCLE.map((stage, i) => (
+                          <span key={stage} className="ag-life-seg" data-state={stages[i]} />
+                        ))}
+                      </span>
+                      <span className="ag-board-read">{lifecycleLine(cell.read, stages)}</span>
+                    </>
+                  )}
                 </button>
               );
             })}
@@ -2171,6 +2287,38 @@ export function AppShell() {
     // agent has just read is marked without anybody reloading the page.
   }, [address, phase === "finished"]);
 
+  /*
+   * WHICH OF THIS WALLET'S PROPOSALS ZENBIT'S PUBLIC LIST CARRIES.
+   *
+   * The same route the account reads, so the board and the account cannot end up
+   * with two answers, and only ever for the connected wallet. Null until it
+   * answers and null where it could not be read: a list nobody could read says
+   * nothing, and the board's third stage reads a null exactly as it reads an
+   * absent row, which is not seen rather than refused.
+   */
+  const [confirmedClips, setConfirmedClips] = useState<ReadonlySet<number> | null>(null);
+  useEffect(() => {
+    if (address === null) {
+      setConfirmedClips(null);
+      return;
+    }
+    let live = true;
+    fetch(`/api/proposals?submitter=${address}`)
+      .then(async r => (r.ok ? ((await r.json()) as { proposals: Proposal[] }) : null))
+      .then(answer => {
+        if (!live) return;
+        setConfirmedClips(answer === null ? null : new Set(answer.proposals.map(p => p.id).filter((id): id is number => id !== null)));
+      })
+      .catch(() => {
+        if (live) setConfirmedClips(null);
+      });
+    return () => {
+      live = false;
+    };
+    // Re-read when the wallet changes and when a run finishes, on the board's own
+    // terms, so a clip confirmed between two runs shows without a reload.
+  }, [address, phase === "finished"]);
+
   useEffect(() => setSkipped(readSkipped(address)), [address]);
   /* Remembered only until it enrols. The stored refusal is the record of a
      decision this wallet has now reversed, and leaving it behind would carry a
@@ -2543,6 +2691,7 @@ export function AppShell() {
                 <Board
                   state={boardState}
                   prices={prices}
+                  confirmed={confirmedClips}
                   days={board.days}
                   cells={board.cells}
                   chosen={chosen}

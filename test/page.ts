@@ -676,16 +676,31 @@ export async function pageChecks(check: Check) {
   /*
    * Animations are held by name rather than by duration.
    *
-   * Two run long and both are inherited: the app card's 320ms entrance and the
-   * ambient layers Xovi drifts behind everything. Naming them keeps the bound
-   * live, because a new animation past 300ms carries a new name and fails.
+   * Four are inherited: the app card's 320ms entrance and the ambient layers Xovi
+   * drifts behind everything. One is this repository's own and is a decision
+   * rather than an inheritance: a cell whose proposal is waiting on a person
+   * breathes at 2400ms, because it reports a state that lasts and a fast one would
+   * read as loading. Naming them keeps the bound live, because a new animation
+   * past 300ms carries a new name and fails until somebody writes down why it is
+   * there.
    */
   const INHERITED_LONG = ["xvFadeUp", "xvAurora", "xvRays", "xvPulse"];
+  const DECIDED_LONG = ["xvCellWait"];
   const longAnimations = [...cssLive.matchAll(/animation:\s*([a-zA-Z][\w-]*)\s+([\d.]+)(m?s)/g)]
     .map(m => ({ name: m[1], ms: m[3] === "s" ? Number(m[2]) * 1000 : Number(m[2]) }))
     .filter(a => a.ms > 300);
-  const unnamed = longAnimations.filter(a => !INHERITED_LONG.includes(a.name));
-  check(unnamed.length === 0, `263d · every animation past 300ms is one of the inherited ones (${unnamed.map(a => a.name).join(", ") || "none"})`);
+  const unnamed = longAnimations.filter(a => ![...INHERITED_LONG, ...DECIDED_LONG].includes(a.name));
+  check(unnamed.length === 0, `263d · every animation past 300ms is inherited or named as a decision (${unnamed.map(a => a.name).join(", ") || "none"})`);
+  /*
+   * And the one decision survives the reduced motion clamp as something rather
+   * than as nothing. The clamp at the top of the file runs every animation once at
+   * 0.01ms, so what a reader sees is the element's own declared state, and a
+   * border whose only opacity lived in keyframes would vanish for exactly the
+   * people the clamp is for.
+   */
+  const glowBase = /\.ag-board-cell\[data-life\]::after\s*\{([^}]*)\}/.exec(cssLive)?.[1] ?? "";
+  check(glowBase.length > 0, `263f · the lifecycle border's own rule is found (negative control for the read, ${glowBase.length})`);
+  check(/opacity:\s*0?\.[1-9]/.test(glowBase), `263g · and it declares an opacity of its own, so reduced motion leaves it gentler rather than gone (${/opacity:[^;]*/.exec(glowBase)?.[0] ?? "none"})`);
   check(longAnimations.length > 0, `263e · and those inherited ones are still there (${longAnimations.length}, negative control)`);
   check(["all 200ms ease"].filter(t => /\ball\b/.test(t)).length === 1, "263c · the all check can see one (negative control)");
 
@@ -919,13 +934,36 @@ export async function pageChecks(check: Check) {
    * Read over the button elements alone rather than the file, because confirm and
    * reject appear in the page's own copy as negatives, in the sentence saying no
    * credential of the agent's can confirm or attest.
+   *
+   * And over what a control says rather than what it carries. A board cell reports
+   * its own lifecycle in a data attribute whose value is a state name, and reading
+   * the raw chunk counted `data-life="confirmed"` as a control offering to confirm
+   * a clip. Attribute values go, except the handful a person actually reads, which
+   * are exactly where a Confirm label could hide from a check that dropped them
+   * all.
    */
   const decision = /\b(confirm|approve|reject|accept|decide|attest)\w*\b/i;
+  const READABLE = /^(aria-label|title|alt|placeholder|value)$/;
+  const saidBy = (control: string) =>
+    control
+      .replace(/([a-zA-Z-]+)=(\{(?:[^{}]|\{[^{}]*\})*\}|"[^"]*")/g, (whole, name: string) => (READABLE.test(name) ? whole : " "))
+      // Comments too: a note above an attribute saying why a border turns teal is
+      // neither a label nor an attribute, and it matched before this line existed.
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, " ")
+      .replace(/<\/?[a-zA-Z][^\s/>]*/g, " ");
   const controls = ui.split("<button").slice(1).map(chunk => chunk.slice(0, chunk.indexOf("</button>")));
-  const deciding = controls.filter(c => decision.test(c));
+  const deciding = controls.filter(c => decision.test(saidBy(c)));
   check(controls.length > 0, `227 · the interface has controls to read (${controls.length})`);
   check(deciding.length === 0, `227a · and not one of them is a decision about a clip (${deciding.length})`);
-  check(decision.test("<button>Confirm this clip</button>"), "227b · the decision check can see one (negative control)");
+  check(decision.test(saidBy(' type="button" onClick={() => go()}>Confirm this clip</button>')),
+    "227b · the check reads a label that decides (negative control)");
+  check(decision.test(saidBy(' aria-label="Reject it" onClick={() => go()}>Go</button>')),
+    "227c · including one carried where only a screen reader hears it (negative control)");
+  check(!decision.test(saidBy(' data-life={x ? "confirmed" : "proposed"}>2026-09-04</button>')),
+    "227d · while a state a control reports about itself is not a decision it offers");
+  check(!decision.test(saidBy(' /* teal once one has decided */ type="button">2026-09-04</button>')),
+    "227e · nor prose in a comment about why the control looks as it does");
 
   // A settlement is linked by the chain the receipt names rather than by a chain
   // the page assumes, so a receipt from anywhere else is drawn without a link
