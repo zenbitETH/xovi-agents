@@ -659,8 +659,8 @@ export async function pageChecks(check: Check) {
    */
   check(SCREENS.length === 5, `266 · five destinations in the array (${SCREENS.length})`);
   check(SCREENS[0].id === "board", `266f · beginning with the board, since the onboarding is the way in and not a destination (${SCREENS[0].id})`);
-  check(!screensFor(false).some(d => d.id === "run"), "266g · and Run is absent until a cell is chosen");
-  check(screensFor(true).some(d => d.id === "run"), "266h · and present once one is (negative control)");
+  check(!screensFor(false).some(d => d.id === "run"), "266g · and Run is absent when no run is in progress");
+  check(screensFor(true).some(d => d.id === "run"), "266h · and present while one is (negative control)");
   check(ACCOUNT_TABS.length === 4, `266a · and four account tabs (${ACCOUNT_TABS.length})`);
   const withoutBranch = SCREENS.filter(d => d.id !== "run" && !new RegExp(`screen === "${d.id}"`).test(ui));
   check(withoutBranch.length === 0, `266b · every destination but the default has a branch (${withoutBranch.map(d => d.id).join(", ") || "none"})`);
@@ -722,11 +722,18 @@ export async function pageChecks(check: Check) {
   const current = positionRule("current");
   check(current !== undefined && /opacity:\s*1/.test(current.body), "281 · the card being read is at full opacity");
   check(current !== undefined && /rotateX\(0deg\)/.test(current.body), "281a · and level");
-  const behind = positionRule("behind");
+  // The slot the leaf tips into is named `previous` now, because it is drawn
+  // rather than hidden: a wheel shows its neighbours, so the card just read stays
+  // on screen faded above and the next waits faded below.
+  const previous = positionRule("previous");
   const next = positionRule("next");
-  check(behind !== undefined && /rotateX\(-42deg\)/.test(behind.body), "281b · the leaf that tipped away carries the site's own angle");
+  const away = positionRule("away");
+  check(previous !== undefined && /rotateX\(-42deg\)/.test(previous.body), "281b · the leaf that tipped away carries the site's own angle");
   check(next !== undefined && /rotateX\(42deg\)/.test(next.body), "281c · and the one waiting carries its opposite");
-  check(behind !== undefined && /transition-duration:\s*160ms/.test(behind.body), "281d · with the exit faster than the entrance");
+  check(previous !== undefined && /transition-duration:\s*160ms/.test(previous.body), "281d · with the exit faster than the entrance");
+  const faded = (body: string | undefined) => /opacity:\s*0?\.3[0-9]/.test(body ?? "");
+  check(faded(previous?.body) && faded(next?.body), "281e · both neighbours are drawn faded rather than hidden");
+  check(away !== undefined && /opacity:\s*0\b/.test(away.body), "281f · while every other state is drawn nowhere (negative control)");
 
   // The projected box is wider than the card, so the region clips rather than
   // hides: hidden would make it a scroll container.

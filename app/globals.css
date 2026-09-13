@@ -978,6 +978,10 @@ body::after {
 --------------------------------------------------------------------------- */
 .ag-run-dialog {
   width: min(40rem, calc(100vw - 2rem));
+  /* One height for every state. The min and the max are both clamped to the
+     viewport and the min is the smaller, so a short screen narrows the frame
+     rather than leaving a min taller than its own max. */
+  min-height: min(34rem, calc(100dvh - 4rem));
   max-height: min(38rem, calc(100dvh - 4rem));
   padding: 1rem 1.125rem;
   border: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent);
@@ -1094,12 +1098,19 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   padding: 0.25rem;
 }
 
+/* One height, whatever card is in the middle.
+   The dialog changed height from state to state and the frame jumped under a
+   person reading it. The stage is fixed and tall enough for the card being read
+   with a neighbour tipped away above and below it, so nothing outside moves as
+   the wheel turns; a card longer than the stage scrolls inside the dialog, which
+   is the one region that scrolls. */
 .ag-roll-stage {
   position: relative;
   display: grid;
-  min-height: 11rem;
+  height: 17rem;
   place-items: center;
   overflow-x: clip;
+  overflow-y: clip;
 }
 
 /* Every card occupies the same cell, so the stack is one place rather than a
@@ -1123,19 +1134,37 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   pointer-events: auto;
 }
 
-/* Tipped away, above. Exits are faster than entrances. */
-.ag-roll-card[data-position="behind"] {
-  opacity: 0;
-  transform: perspective(60rem) rotateX(-42deg) translateY(-18%) scale(0.94);
+/* The state just read, tipped away above and still visible. A wheel shows its
+   neighbours; a swap shows one thing replacing another, and the founder asked for
+   the wheel. Exits are faster than entrances. */
+.ag-roll-card[data-position="previous"] {
+  opacity: 0.33;
+  transform: perspective(60rem) rotateX(-42deg) translateY(-62%) scale(0.92);
   pointer-events: none;
   transition-duration: 160ms;
 }
 
-/* Waiting below, near edge toward the viewer. */
+/* The state about to arrive, below, its near edge toward the viewer. */
 .ag-roll-card[data-position="next"] {
-  opacity: 0;
-  transform: perspective(60rem) rotateX(42deg) translateY(18%) scale(0.94);
+  opacity: 0.33;
+  transform: perspective(60rem) rotateX(42deg) translateY(62%) scale(0.92);
   pointer-events: none;
+}
+
+/* Everything further out. Drawn nowhere, so the stage holds three cards and not a
+   pile of ghosts behind the sentence somebody is reading. */
+.ag-roll-card[data-position="away"] {
+  opacity: 0;
+  transform: perspective(60rem) rotateX(42deg) translateY(62%) scale(0.92);
+  pointer-events: none;
+}
+
+/* Gentler, not none: the neighbours still show where the sequence is, and nothing
+   rolls between them. The dwell is unaffected, since it is a timer and not motion. */
+@media (prefers-reduced-motion: reduce) {
+  .ag-roll-card {
+    transition: none;
+  }
 }
 
 .ag-roll-head {

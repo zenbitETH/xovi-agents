@@ -12,7 +12,7 @@ import { setRegistryForTest } from "../lib/human/registry";
 import { setCapForTest } from "../lib/human/cap";
 import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
-import { SCREENS, identityChips, namePill, onboardingFrom, registrationLine, registrationPill } from "../app/app-shell";
+import { CREDENTIAL_REFUSED, NO_CREDENTIAL, ROLL_DWELL_MS, SCREENS, identityChips, lineFor, namePill, onboardingFrom, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
 
@@ -436,6 +436,66 @@ export async function boardChecks(check: Check) {
   check(press && stillUnderReduced, `309e · the controls press and stop pressing where movement is refused (${press}, ${stillUnderReduced})`);
 
   /*
+   * THE WHEEL: EVERY STATE IS A CARD, AND THREE OF THEM ARE ON SCREEN.
+   *
+   * The steps arrive in a burst, so of ten states two or three were seen and the
+   * rest passed unrendered. Every one is still its own card and the wheel walks
+   * them one at a time; what this counts is that a burst of ten leaves ten cards
+   * with exactly one in the middle and one neighbour on each side.
+   */
+  const burst = 10;
+  const slotsAt = (at: number) => Array.from({ length: burst }, (_, i) => rollPosition(i, at));
+  const middle = slotsAt(3);
+  check(middle.length === burst, `312 · a burst of ten states leaves ten cards (${middle.length})`);
+  check(middle.filter(p => p === "current").length === 1, "312a · with exactly one of them in the middle");
+  check(middle.filter(p => p === "previous").length === 1 && middle.filter(p => p === "next").length === 1,
+    "312b · and one neighbour above and one below");
+  check(middle.filter(p => p === "away").length === burst - 3, `312c · every other state drawn nowhere (${middle.filter(p => p === "away").length})`);
+  check(slotsAt(0).filter(p => p === "previous").length === 0 && slotsAt(0).filter(p => p === "next").length === 1,
+    "312d · at the first state nothing is above it");
+  check(slotsAt(burst - 1).filter(p => p === "next").length === 0 && slotsAt(burst - 1).filter(p => p === "previous").length === 1,
+    "312e · and at the last nothing is below it");
+  check(ROLL_DWELL_MS >= 600 && ROLL_DWELL_MS <= 1500, `312f · each state holds the middle long enough to read (${ROLL_DWELL_MS}ms)`);
+  // The pager still moves it, and the dwell stops while a person is holding one.
+  check(/if \(pinned !== null\) return;/.test(page) && /setCursor\(c => c \+ 1\), ROLL_DWELL_MS\)/.test(page),
+    "312g · the wheel turns on that timer and stops while a card is pinned");
+  const roll = page.slice(page.indexOf("function Rolodex("), page.indexOf("function Onboarding("));
+  check(roll.length > 0 && /aria-hidden=\{i === at \? undefined : "true"\}/.test(roll) && /inert=\{i !== at\}/.test(roll),
+    "312h · the neighbours are scenery: read by no screen reader and reachable by no keyboard");
+
+  /*
+   * One height, whatever state is in the middle. The dialog changed height from
+   * card to card and the frame jumped under somebody reading it.
+   */
+  const sheetLive = readFileSync("app/globals.css", "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const dialogRule = /\.ag-run-dialog\s*\{[^}]*\}/.exec(sheetLive)?.[0] ?? "";
+  check(/min-height:/.test(dialogRule) && /max-height:/.test(dialogRule), `313 · the dialog declares one height for every state (${dialogRule ? "found" : "no rule read"})`);
+  const stageRule = /\.ag-roll-stage\s*\{[^}]*\}/.exec(sheetLive)?.[0] ?? "";
+  check(/height:\s*[0-9]/.test(stageRule) && !/min-height/.test(stageRule), `313a · and the card area is a fixed height rather than a floor (${stageRule ? "found" : "no rule read"})`);
+
+  /*
+   * Run is a destination only while there is a run.
+   */
+  check(!screensFor(false).some(d => d.id === "run"), "314 · the strip carries no Run at rest or after one has finished");
+  check(screensFor(true).some(d => d.id === "run"), "314a · and carries it while one is in progress (negative control)");
+  check(/const runInProgress = phase === "signing" \|\| phase === "running";/.test(page),
+    "314b · with a run lasting from the signature to its last step");
+  check(!/screensFor\(chosen !== null\)/.test(page), "314c · and no longer standing on whether a cell was chosen");
+
+  /*
+   * The one refusal a person can do nothing about, said in words rather than as a
+   * word. It is said for the status that means it and for no other, because
+   * `refused` is the catch all for everything that is not a duplicate or a
+   * throttle.
+   */
+  const credential = lineFor({ step: "declined", kind: "refused", detail: "the ingest route refused the proposal", status: CREDENTIAL_REFUSED });
+  check(credential.text === NO_CREDENTIAL, `315 · the credential refusal says what happened (${credential.text})`);
+  check(/paid and served/.test(NO_CREDENTIAL) && /no credential for this agent/.test(NO_CREDENTIAL), "315a · naming the read as paid and the credential as missing");
+  const other = lineFor({ step: "declined", kind: "refused", detail: "the ingest route refused the proposal", status: 500 });
+  check(other.text !== NO_CREDENTIAL, `315b · while another status is not explained by that cause (negative control, ${other.text})`);
+  check(credential.tone === "stopped" && other.tone === "stopped", "315c · both stop the run");
+
+  /*
    * WHO THE AGENT IS, AFTER THE CARDS THAT SET IT UP HAVE GONE.
    *
    * The onboarding disappears when it completes and took with it everything that
@@ -470,6 +530,25 @@ export async function boardChecks(check: Check) {
   check(headerStart > 0 && headerEnd > headerStart && accountStart > 0, "311 · the header and the account body are found (negative control for the slices)");
   check(/<IdentityChips chips=\{identity\} \/>/.test(page.slice(headerStart, headerEnd)), "311a · the header carries them on every destination");
   check(/<IdentityChips chips=\{identity\} \/>/.test(page.slice(accountStart, accountStart + 400)), "311b · and the account body opens with the same two");
+  /*
+   * Derived, not remembered, which was a claim in a comment and held by nothing.
+   * Driven twice with one input changed, and the same call site read for the
+   * memo that would freeze it: with empty dependencies the chips would be
+   * whatever they were on the first render and an enrolment made in the page
+   * would not reach the header until a reload.
+   */
+  const chipsBefore = identityChips({ registration: "not-registered", source: null, nameState: "none", name: null });
+  const chipsAfter = identityChips({ registration: "registered", source: "worldid", nameState: "requested", name: "agent3.xovi.eth" });
+  check(chipsBefore.registration === null && chipsAfter.registration === "registered by World ID" && chipsBefore.name === null && chipsAfter.name === "agent3.xovi.eth · requested",
+    "311c · the same rule answers differently the moment its inputs change");
+  check(/const identity = identityChips\(\{ registration, source, nameState, name: routeName \}\);/.test(page),
+    "311d · and the page computes it in the render rather than holding a remembered copy");
+  // `[^)]*` could never reach the call: `useMemo(() => ...` closes a parenthesis
+  // in its first three characters, so the pattern stopped before the name it was
+  // hunting and the check could not have gone red for any memo ever written.
+  const memoed = /useMemo\([\s\S]{0,120}?identityChips/;
+  check(!memoed.test(page), "311e · with no memo standing between the reads and the chips");
+  check(memoed.test("const identity = useMemo(() => identityChips({}), []);"), "311f · and the memo check can see one (negative control)");
   // A rung and not a button: the settings screen has the connect and the board
   // actions and no third that would do nothing.
   const settingsBlock = page.slice(page.indexOf("function Onboarding("), page.indexOf("function Board("));

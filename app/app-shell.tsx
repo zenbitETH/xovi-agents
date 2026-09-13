@@ -130,6 +130,12 @@ export type Line = {
   object?: Drawn;
 };
 
+/** The status Xovi answers when the credential does not cover the submitter. */
+export const CREDENTIAL_REFUSED = 403;
+
+/** What that means, for the person who paid. It makes no promise about when. */
+export const NO_CREDENTIAL = "The read was paid and served. Xovi holds no credential for this agent, so it cannot propose yet.";
+
 export function lineFor(step: RunStep): Line {
   switch (step.step) {
     case "presenting":
@@ -209,6 +215,25 @@ export function lineFor(step: RunStep): Line {
         object: { kind: "clip", id: step.id, status: step.status },
       };
     case "declined":
+      /*
+       * The one refusal a person can do nothing about, said in words.
+       *
+       * Xovi's ingest credential belongs to one agent, so a proposal whose
+       * submitter is another wallet is refused with a 403, and the page said only
+       * *declined: refused*, which tells a person nothing and reads as their
+       * mistake. It is said for that status and for no other: `refused` is the
+       * catch all for every status that is not a duplicate or a throttle, so
+       * naming the credential under all of them would explain a 400 or a 500 with
+       * a cause nobody measured.
+       */
+      if (step.kind === "refused" && step.status === CREDENTIAL_REFUSED) {
+        return {
+          text: NO_CREDENTIAL,
+          detail: `HTTP ${step.status}`,
+          actor: "agent",
+          tone: "stopped",
+        };
+      }
       return {
         text: `The proposal was declined: ${step.kind}`,
         detail: step.status === undefined ? step.detail : `${step.detail} (HTTP ${step.status})`,
@@ -399,8 +424,17 @@ export const SCREENS: { id: Screen; label: string }[] = [
   { id: "notyet", label: "Not yet" },
 ];
 
-export function screensFor(cellChosen: boolean): { id: Screen; label: string }[] {
-  return SCREENS.filter(s => s.id !== "run" || cellChosen);
+/**
+ * The destinations, and Run is only there while there is a run.
+ *
+ * It used to appear as soon as a cell was chosen and stay for good, so a finished
+ * run left a destination in the strip that reopened a dialog about something
+ * already over. A run lasts from Pay and run to its last step; after that the
+ * header chip carries how it ended, and the receipts in Account are where a
+ * finished run is read. A new Pay and run brings the tab back.
+ */
+export function screensFor(runInProgress: boolean): { id: Screen; label: string }[] {
+  return SCREENS.filter(s => s.id !== "run" || runInProgress);
 }
 
 /** A cell of the board, as the page holds it once a person picks one. */
@@ -998,6 +1032,32 @@ export function onboardingFrom(input: {
  * site's own rule at its narrow breakpoint, for the reason it gives: partial
  * opacity on text being read is a contrast loss and not a flourish.
  */
+/**
+ * Where each card sits on the wheel.
+ *
+ * Four slots and only three are drawn. The card being read is level and at full
+ * opacity, its two neighbours are faded and tipped away above and below so the
+ * sequence reads as a wheel rather than as a swap, and everything else is away.
+ * Only the neighbours: every other card faded would be a stack of ghosts behind a
+ * sentence somebody is trying to read.
+ *
+ * At the first state nothing is above and at the last nothing is below, which
+ * falls out of the arithmetic rather than being special cased.
+ */
+export type RollPosition = "current" | "previous" | "next" | "away";
+
+export function rollPosition(index: number, at: number): RollPosition {
+  if (index === at) return "current";
+  if (index === at - 1) return "previous";
+  if (index === at + 1) return "next";
+  return "away";
+}
+
+/** How long each state holds the middle before the wheel turns. Steps arrive in a
+ *  burst, so without a dwell most of them are never seen; the log behind the
+ *  disclosure keeps arriving live either way, and the pager overrides it. */
+export const ROLL_DWELL_MS = 900;
+
 function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to: number) => void }) {
   if (lines.length === 0) return null;
   return (
@@ -1007,8 +1067,12 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
           <article
             key={i}
             className={`ag-roll-card ag-tone-${line.tone} ag-actor-${line.actor}`}
-            data-position={i === at ? "current" : i < at ? "behind" : "next"}
+            data-position={rollPosition(i, at)}
+            // The neighbours are scenery: read by nobody's screen reader and
+            // reachable by nobody's keyboard, so a link inside one cannot be
+            // tabbed into behind the card in front of it.
             aria-hidden={i === at ? undefined : "true"}
+            inert={i !== at}
           >
             <header className="ag-roll-head">
               {/* The dot alone. The tone is a hue and a weight everywhere else on
@@ -1716,6 +1780,9 @@ export function AppShell() {
   /** Bumped when the name card records a request, so the read runs again and the
    *  state comes back from the route rather than being assumed here. */
   const [nameAgain, setNameAgain] = useState(0);
+  /** How far the wheel has turned. The log fills as fast as the stream yields; this
+   *  walks behind it one state at a time so a burst is watchable. */
+  const [cursor, setCursor] = useState(0);
   const [requestingName, setRequestingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [walletNote, setWalletNote] = useState<string | null>(null);
@@ -1926,6 +1993,22 @@ export function AppShell() {
     // both controls were decoration: they set a number nothing depended on.
   }, [address, readAgain]);
 
+  /*
+   * The wheel turns on a timer, one state at a time.
+   *
+   * The stream yields its steps in a burst, so drawing each as it arrives showed
+   * two or three of ten and the rest passed unrendered. Every step is still a card
+   * and the log behind the disclosure still fills live; what this governs is only
+   * which card is in the middle, and it stops at the last one, which is the state
+   * that stays on screen.
+   */
+  useEffect(() => {
+    if (pinned !== null) return;
+    if (cursor >= lines.length - 1) return;
+    const turn = setTimeout(() => setCursor(c => c + 1), ROLL_DWELL_MS);
+    return () => clearTimeout(turn);
+  }, [cursor, lines.length, pinned]);
+
   /**
    * Ask for a name, and read the answer back rather than assuming it.
    *
@@ -2025,6 +2108,7 @@ export function AppShell() {
     setLines([]);
     setSteps([]);
     setPinned(null);
+    setCursor(0);
     setChallengeRead(false);
     setSigned(false);
     setPhase("signing");
@@ -2095,6 +2179,9 @@ export function AppShell() {
   // The reason a run stopped, taken from the run's own last stopped line rather
   // than from a second source that could disagree with the feed beside it.
   const stoppedWhy = running ? null : (lines.filter(l => l.tone === "stopped").at(-1)?.text ?? null);
+  // A run lasts from the signature to its last step. The strip carries Run for
+  // exactly that long, and the chip carries how it ended afterwards.
+  const runInProgress = phase === "signing" || phase === "running";
   // Read off the steps rather than off the sentences, so the state is the run's
   // and not a phrase match over its narration.
   const supply = running ? null : supplyFrom(steps);
@@ -2103,7 +2190,10 @@ export function AppShell() {
   // done. Re-derived on every render from the reads themselves, so a remembered
   // acknowledgement never stands in for a registration that is no longer there.
   const onboarded = onboardingFrom({ address, chain, registration, nameState }).done;
-  const at = pinned === null ? Math.max(0, lines.length - 1) : Math.min(pinned, Math.max(0, lines.length - 1));
+  const last = Math.max(0, lines.length - 1);
+  // The person's hand wins over the wheel: while a card is pinned the dwell stops
+  // advancing and the pager alone moves it.
+  const at = Math.min(pinned ?? cursor, last);
   const identity = identityChips({ registration, source, nameState, name: routeName });
 
   return (
@@ -2153,7 +2243,7 @@ export function AppShell() {
                 : "Three things have to be true before an agent can pay for a read on your behalf."}
             </p>
                         {onboarded && (
-            <nav className="ag-rail" aria-label="Sections" style={{ "--xv-strip-n": screensFor(chosen !== null).length } as React.CSSProperties}>
+            <nav className="ag-rail" aria-label="Sections" style={{ "--xv-strip-n": screensFor(runInProgress).length } as React.CSSProperties}>
               {/* The indicator is one element moved with `transform`, so the state
                   travels between items rather than being switched off one and on
                   another. Equal columns are what make the arithmetic a percentage
@@ -2161,9 +2251,9 @@ export function AppShell() {
               <span
                 className="ag-rail-indicator"
                 aria-hidden="true"
-                style={{ transform: `translateX(${Math.max(0, screensFor(chosen !== null).findIndex(s => s.id === screen)) * 100}%)` }}
+                style={{ transform: `translateX(${Math.max(0, screensFor(runInProgress).findIndex(s => s.id === screen)) * 100}%)` }}
               />
-              {screensFor(chosen !== null).map(s => (
+              {screensFor(runInProgress).map(s => (
                 <button
                   key={s.id}
                   type="button"
