@@ -1,18 +1,26 @@
-# Registering the agent's name
+# Registering the name
 
 The agent reads the endpoint it pays for out of a text record on a name, so that an operator can move the endpoint without shipping the agent again, and so that a reader can see what the agent is pointed at without being handed its configuration.
 
-The name is **`xovi.eth`**. It is registered on Ethereum Sepolia and carries a resolver, `0xAe2084CB…`, measured through `bin/ens-verify.ts`, which reads three controls before it reads anything: two names that must resolve and an invented one that must not. The last is what shows a resolver belongs to the name asked rather than to an endpoint answering for everything. `x402:windows` is null, so **steps 1 and 2 are done and the next action is step 3**.
+The name is **`xovi.eth`**. It is registered on Ethereum Sepolia and carries a resolver, `0xAe2084CB…`, measured through `bin/ens-verify.ts`, which reads three controls before it reads anything: two names that must resolve and an invented one that must not. The last is what shows a resolver belongs to the name asked rather than to an endpoint answering for everything. `x402:windows` resolves to `https://xovi-agents.vercel.app/api/agent/windows`, measured 2026-09-12 at exit 0.
+
+**Every step is done, step 3 included.** The `http` value stood on the record for eighteen blocks on 2026-09-12, transaction `0xe2411b3dcb…` at block 11686365, and the verifier answered `REFUSED: the x402:windows record on xovi.eth must be https, got http` against the real name through the real adapter. Block 11686383 replaced it with the endpoint. **So the protocol guard is proven against a real record and is not owed.**
+
+An earlier version of this paragraph said step 3 had been skipped, inferred from the record holding an `https` value with no `http` anywhere in state. A text record is **overwritten rather than appended**, so a completed step leaves nothing behind: *it is not there* and *it was never there* read identically, and only the resolver's event log separates them. Current state is not history.
+
+The warning that outlived the wrong inference: an `http` record on a name the agent now reads would take the agent down for as long as it stood. That was true when step 3 was pending and it is still true. It is a reason to be careful about repeating step 3, not a reason to.
 
 This is an ordinary Sepolia name with one text record, but there **is** a second version to evaluate and registering here lands on it. ENSv2 beta is live on Sepolia, and ENS documents the v1 contracts as still existing there but no longer in use, with the Universal Resolver and the Sepolia apps linked against v2. An earlier version of this document said there was no second version, and that sentence is what put a hardcoded v1 registry address in the verifier. Nothing in the agent changes: ENS states that an application which only reads ENS data needs no changes with a supported library, and the installed viem is 2.56.3 against a documented floor of 2.35.0.
 
 ## The order, and why it is not arbitrary
 
-**`AGENT_ENS_NAME` is set last, after a verified read, and never before.**
+**`AGENT_ENS_NAME` is never set before the record it points at resolves.**
+
+> **Corrected 2026-09-12: this said `is set last, after a verified read, and never before`.** *Last* was true of an ordering that has changed twice, and it contradicted the paragraph three lines below it in the same section. What survives both orderings is the dependency, not the position.
 
 Setting it does not add a name alongside the configured url. It makes `WINDOWS_URL` **unused**, deliberately: a name that resolves to nothing is not permission to read from somewhere else, so the agent raises rather than falling back. That is the correct behaviour and it is why the order matters. Set the variable before the record resolves and the agent is not degraded, it is off.
 
-So every step below is verified before the one after it, and the variable is the last thing that changes.
+So every step below is verified before the one after it, and the name is not set until the record it points at resolves. It is no longer the last thing that changes: step 6 sets `WINDOWS_URL` after step 7 has passed, for the recovery rather than for the read.
 
 ## Steps
 
@@ -38,17 +46,33 @@ AGENT_ENS_NAME=<the name> npm run ens:verify
 
 Expect the resolved url and a zero exit. The script runs the same function `bin/agent.ts` runs, with no injected lookup, so what passes here is what the agent will execute.
 
-**6. Set `AGENT_ENS_NAME` in the deployment environment and redeploy.** Only now, and read the sequencing note in step 8 before you do. **Leave `WINDOWS_URL` set.** It will not be read: once a name is configured the module resolves through the name or raises, and it never falls back to the url. **That is deliberate and it is not a safety net.** If the name stops resolving the agent stops, and leaving `WINDOWS_URL` in place prevents none of that. What it does is make the recovery in step 8 a one variable change rather than two.
+**6. Set `AGENT_ENS_NAME` in the environment where the agent is run.** Only now, and read the sequencing note in step 8 before you do.
 
-**7. Confirm the deployed agent reads through the name**, not merely that the deployment succeeded.
+> **Corrected 2026-09-12: this step said to set the variable in the deployment environment and redeploy.** Nothing under `app/` calls `resolveWindowsEndpoint`. It has three callers, `bin/agent.ts`, `bin/ens-verify.ts` and the checks, and the deployed route builds its windows url with `windowsUrlFor(request.url)`, from the incoming request and on its own origin. So the variable in the hosting environment is **read by nobody**, and setting it there would have produced a green deploy, an app still working for the reason it already worked, and a ticked criterion claiming a resolution that never happens. It belongs where `bin/agent.ts` runs.
 
-**8. If the deployed agent starts failing after step 7, this is what it looks like and this is the fix.**
+**Run step 7 with `WINDOWS_URL` absent, then set it.** Those two want opposite things and the order is the whole point. With the url absent, a windows endpoint appearing in the output can only have come from the record, which is what makes step 7 evidence rather than a green light. Once it has passed, **set `WINDOWS_URL` in that same environment**, which is what makes step 8 a one variable fix instead of two and a different message.
+
+> This is an instruction rather than *leave it set*, which is how it read until 2026-09-12 and which assumed somebody already had. Checked on the machine the agent runs on: `.env.local` carries `AGENT_PRIVATE_KEY`, `DATABASE_URL`, `HUMAN_ID_KEY`, `XOVI_INGEST_KEY` and `XOVI_INGEST_URL`, and **`WINDOWS_URL` zero times**. Nothing broke while these steps pointed at a hosting environment, because the precondition was true there and nobody was following them here. Re-pointing step 6 at the real process is what made step 8's recovery depend on a variable that does not exist, without a word of step 8 changing.
+
+Setting it weakens nothing in between: once a name is configured the module resolves through the name or raises, and it never falls back to the url. **That is deliberate and it is not a safety net.** If the name stops resolving the agent stops, and `WINDOWS_URL` sitting there prevents none of that.
+
+**7. Confirm the agent reads through the name**, not merely that it ran.
+
+```
+AGENT_ENS_NAME=<the name> npm run agent -- --dry-run --limit 1
+```
+
+With `WINDOWS_URL` unset, the windows url it prints came from `x402:windows` and from nothing else. That is the confirmation; a successful run with the url still configured confirms only that the agent works, which it did before.
+
+**This step costs a read.** `--dry-run` gates the proposal, not the fetch, so the agent still calls `payingFetch`: it spends one free allowance if the payer is a verified human with allowance left, and settles USDC on Base Sepolia otherwise. **Run it once, when establishing that the agent consumes the record.** It does not need re-running before each recording, and step 5 is the one to repeat, because step 5 proves the resolution for nothing and the resolution is the part that goes stale.
+
+**8. If the agent starts failing after step 7, this is what it looks like and this is the fix.**
 
 **What you see.** The run fails with `EndpointUnresolvable` and this message: *`<name>` resolved to no `x402:windows` record: either the name is not registered on this chain, or it is registered and carries no such record.* That message is byte identical for a name that never existed and for a registered name carrying no record, which is why it names both and why it cannot tell you which.
 
 **What to run.** `AGENT_ENS_NAME=<name> npx tsx bin/ens-verify.ts`. **`NO RESOLVER` on a name that resolved yesterday is the reset.** It is distinguishable from a name that never existed only by the fact that it used to work, so the evidence is your memory of step 7 passing rather than anything the tool can print.
 
-**The fix.** Unset `AGENT_ENS_NAME` and redeploy. Blanking it works as well as deleting it, since the module trims the value and an empty one takes the url branch. The agent reads `WINDOWS_URL` again and the run recovers. One variable.
+**The fix.** Unset `AGENT_ENS_NAME` for the run. Blanking it works as well as deleting it, since the module trims the value and an empty one takes the url branch. The agent reads `WINDOWS_URL` again and recovers. One variable, and no deployment is involved: nothing that is deployed reads either of them.
 
 **This works only while `WINDOWS_URL` is still set**, which is what step 6 is for. With both empty the failure changes to `neither AGENT_ENS_NAME nor WINDOWS_URL is set`, a different message than the one that sent you here, and the recovery becomes two variables rather than one.
 
@@ -56,9 +80,17 @@ It is written down because the agent is fail closed by design: a configured name
 
 It has happened at least once. ENS's Beta announcement says of the redeployed registry: *"This creates a clean testing environment for the updated architecture, which means names registered during earlier Alpha phases won't appear in the Beta registry"*, and that *"If you participated in previous App or Explorer testing, you should expect to start fresh in Beta"* (`ens.domains/blog/post/ensv2-beta-public-testing`, read 2026-09-12). So the banner describes something with a precedent rather than a possibility.
 
-**Sequencing, which is the cheap half of this.** Set `AGENT_ENS_NAME` after the video is recorded and verified, never before. The recording is the artefact that cannot be redone in an hour, while the deployed endpoint is repaired with one variable. A reset before recording then costs nothing, because the name is not wired yet, and a reset after costs a redeploy.
+**Sequencing, and it points the other way now.** Set `AGENT_ENS_NAME` **for the recording**, not after it. The recording is the demonstration, so a video made with the endpoint supplied directly demonstrates an endpoint being supplied directly; what is worth showing is the agent taking it from the record.
 
-It does not remove the exposure and nothing here claims it does. Judging continues after submission, so the window extends past anything an operator controls. What the sequencing buys is that the failure is one variable deep and that the variable is named here, which is the difference between a recoverable outage and a dead demo nobody can explain.
+> **Corrected 2026-09-12: this said `Set AGENT_ENS_NAME after the video is recorded and verified, never before`.** That was written when the variable was believed to live in a deployment, where *not wired yet* named a real state worth protecting. Once it became a per invocation variable there is no unwired state, so the justification did not merely become false, **its subject stopped existing**, and the sentence went on parsing and sounding prudent while being advice about nothing.
+
+**Re-run step 5 immediately before recording, and again immediately before submitting.** One command, it costs nothing, and it is the only thing separating a working demonstration from a recording of one.
+
+> **Corrected 2026-09-12: this said re-run step 7.** Step 7 spends a read each time, so that sentence commissioned two purchases to learn what step 5 answers for free. The reasoning for not doing that was already written a commit earlier, against running the agent here, and it did not transfer because the cost had moved from the writer to the reader. **A step that tells somebody to run something has to be priced as though you were about to run it yourself.**
+
+**The residual is a judgement rather than a fix, and this step will not pretend otherwise.** A recording cannot break, so the exposure is no longer a dead demo. It is that a reset after recording leaves a video showing something the repository can no longer do. If the verifier fails at that point there are two moves: re-register the name and re-record, or submit with the video as it stands and the repository unable to reproduce it. Both are defensible and they cost different things, one is time that may not exist and the other is a claim a judge cannot check. **Nothing here decides that, and no step should imply a fix exists where a choice does.**
+
+The exposure is not removed by any of this and nothing here claims it is. Judging continues after submission, so the window extends past anything an operator controls. What the ordering buys is that the failure is one variable deep, that the variable is named here, and that whoever meets it knows they are choosing rather than repairing.
 
 ## What the verifier tells you that the agent cannot
 
