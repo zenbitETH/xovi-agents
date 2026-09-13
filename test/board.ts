@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GET as boardGET } from "../app/api/agent/board/route";
@@ -2182,6 +2182,36 @@ export async function boardChecks(check: Check) {
   const forged = await askFree(strangerHeader);
   check(forged.status !== 200, `416f · an authorization another key signed is refused (${forged.status})`);
   check(!spent.has(`0x${"d".repeat(64)}`), "416g · its nonce is never taken, so the allowance is never reached");
+
+  /*
+   * WHAT REFUSES A REPLAY IN PRODUCTION IS THE PRIMARY KEY, AND IT IS IN A FILE.
+   *
+   * The checks above drive the route against a fake store whose map refuses a
+   * second take, which proves the route asks and honours the answer. It does not
+   * prove anything about the deployment: there the refusal is the insert's
+   * `ON CONFLICT (nonce) DO NOTHING` landing on a primary key declared in
+   * `sql/0009_free_read_nonces.sql`, and emptying that file left the whole suite
+   * green. Read here as 348a to 348e read migration 0005, so the guard that ships
+   * is held by something and not only the one the fixtures inject.
+   */
+  const nonceMigration = "sql/0009_free_read_nonces.sql";
+  check(existsSync(nonceMigration), `420 · the migration is ${nonceMigration}, the next number after the eight`);
+  const nonceDdl = existsSync(nonceMigration) ? readFileSync(nonceMigration, "utf8") : "";
+  const nonceCreates = nonceDdl.match(/CREATE (TABLE|UNIQUE INDEX|INDEX)/g) ?? [];
+  check(nonceCreates.length > 0 && nonceCreates.length === (nonceDdl.match(/IF NOT EXISTS/g) ?? []).length,
+    `420a · every create in it is IF NOT EXISTS, so applying it twice is applying it once (${nonceCreates.length})`);
+  const nonceColumns = [...(nonceDdl.match(/CREATE TABLE IF NOT EXISTS free_read_nonces \(([\s\S]*?)\);/)?.[1] ?? "").matchAll(/^\s+([a-z_]+)\s/gm)].map(m => m[1]);
+  check(nonceColumns.join(",") === "nonce,signer,taken_at",
+    `420b · the table holds the nonce, the signer it was recovered as and the time (${nonceColumns.join(",") || "none"})`);
+  // The primary key ON THE NONCE, not merely somewhere in the file: it is what the
+  // route's ON CONFLICT (nonce) lands on, and a key on any other column would let
+  // the same header buy a second free read.
+  check(/\bnonce\s+TEXT\s+PRIMARY KEY\b/.test(nonceDdl),
+    "420c · the nonce is the primary key, which is what the route's ON CONFLICT lands on");
+  check(/ON CONFLICT \(nonce\) DO NOTHING/.test(readFileSync("lib/human/nonces.ts", "utf8")),
+    "420d · and the insert names that same column, so the two agree rather than happening to");
+  check(/CREATE INDEX IF NOT EXISTS \w+ ON free_read_nonces \(taken_at\)/.test(nonceDdl),
+    "420e · with the time indexed, since the retention sweep reads it");
 
   /*
    * EVERY REQUIREMENT DRIVEN WITH A HEADER THAT BREAKS IT, ONE AT A TIME.
