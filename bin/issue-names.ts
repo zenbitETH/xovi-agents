@@ -1,5 +1,13 @@
 /**
- * Issue every requested name. Run by the owner, on the owner's machine, never by a server.
+ * Issue every requested name ON CHAIN. Run by the owner, on the owner's machine, never by a server.
+ *
+ * THIS IS THE PRE SWITCH PATH, AND IT SAYS SO. The offchain resolver under `contracts/`
+ * makes a row in the `names` table the issuance: once the founder switches `xovi.eth`'s
+ * resolver to it, the gateway answers every row's payer for its label from the row
+ * alone, no transaction per name, and the address records this script writes on the
+ * per account resolver are read by nobody. Until that switch this script is how a
+ * label reaches the chain, and after it there is nothing left for it to do; it stays
+ * so the on chain path is still runnable if the switch is ever reversed.
  *
  *   NAMES_OWNER_KEY_FILE=~/.config/axolodao/xovi-eth-owner.key \
  *   DATABASE_URL=... AGENT_ENS_RPC_URL=... npx tsx bin/issue-names.ts [--execute]

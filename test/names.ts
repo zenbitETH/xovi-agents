@@ -155,30 +155,46 @@ export async function namesChecks(check: Check) {
     check(after.label !== burned, `301d · a deleted row's label is not handed out again, because the counter is a sequence (${burned} vs ${after.label})`);
   }
 
-  // ── the name matches only on equality, and state comes from the chain ─────────
+  // ── the name matches on the chain only on equality, and a row is the issuance ──
+  //
+  // Rewritten under the offchain resolver ruling. Before it, a row with nothing on
+  // chain read `requested` and only the chain could draw `issued`. Now the gateway
+  // answers the row's payer for its label the moment the row exists, so a row IS
+  // the issuance and the route reports which source drew it. `matches` stays the
+  // chain's answer alone, so the two sources are never confused in the response.
   {
     const store = fakeNamesStore();
     setNamesStoreForTest(store);
     setRegistryForTest(async () => 99n);
-    await ask(OTHER); // OTHER now holds agent2, requested, nothing on chain
+    await ask(OTHER); // OTHER now holds agent2, a row, nothing on chain
 
-    const requested = (await (await read(OTHER)).json()) as { state: string; matches: boolean; name: string };
-    check(requested.state === "requested", `302 · a row with nothing on chain reads requested (got ${requested.state})`);
-    check(requested.matches === false, "302a · requested never draws a match");
-    check(requested.name === "agent2.xovi.eth", `302b · the read answers this wallet's own name (got ${requested.name})`);
+    type Read = { state: string; matches: boolean; name: string; address: string | null; source: string | null };
+    const fromRow = (await (await read(OTHER)).json()) as Read;
+    check(fromRow.state === "issued" && fromRow.source === "gateway",
+      `302 · a row with nothing on chain reads issued through the gateway, since the row is the issuance (${fromRow.state}, ${fromRow.source})`);
+    check(fromRow.matches === false, "302a · while the chain's own answer stays false, so the source is never confused");
+    check(fromRow.name === "agent2.xovi.eth" && fromRow.address === OTHER,
+      `302b · the read answers this wallet's own name and the address the gateway would answer (${fromRow.name}, ${fromRow.address})`);
 
-    // The chain gains the record, to this payer.
+    // The chain gains the record, to this payer: the chain is the source reported.
     onChain.set("agent2.xovi.eth", OTHER);
-    const issued = (await (await read(OTHER)).json()) as { state: string; matches: boolean };
-    check(issued.state === "issued" && issued.matches, "302c · the record resolving to this payer draws issued");
+    const fromChain = (await (await read(OTHER)).json()) as Read;
+    check(fromChain.state === "issued" && fromChain.matches && fromChain.source === "chain",
+      `302c · the record resolving to this payer draws issued from the chain (${fromChain.source})`);
 
     // The chain holds the name, but for somebody else. This is the case the wildcard
-    // makes ordinary rather than exotic, and it must never draw a match.
+    // makes ordinary rather than exotic, and it must never draw a chain match.
     onChain.set("agent2.xovi.eth", THIRD);
-    const elsewhere = (await (await read(OTHER)).json()) as { state: string; matches: boolean };
-    check(!elsewhere.matches, "302d · a name resolving to another wallet never matches");
-    check(elsewhere.state === "requested", `302e · and it is not drawn as issued either (got ${elsewhere.state})`);
+    const elsewhere = (await (await read(OTHER)).json()) as Read;
+    check(!elsewhere.matches, "302d · a name resolving to another wallet on chain never matches there");
+    check(elsewhere.source === "gateway", `302e · and the row still stands as the issuance the gateway answers (${elsewhere.source})`);
     onChain.delete("agent2.xovi.eth");
+
+    // The control the ruling needs: a wallet with no row and nothing on chain is
+    // issued nothing by either source.
+    const nobody = (await (await read(THIRD)).json()) as Read;
+    check(nobody.state === "none" && nobody.source === null && nobody.address === null,
+      `302f · a wallet with no row is issued nothing by either source (${nobody.state}, ${nobody.source})`);
   }
 
   // ── the fallback still passes for the recording wallet, with no row ───────────
@@ -209,7 +225,7 @@ export async function namesChecks(check: Check) {
 
     const res = (await (await ask(OTHER)).json()) as { label: string; state: string };
     check(res.label === "agent3", `304 · a label already issued to another wallet is abandoned and the next taken (got ${res.label})`);
-    check(res.state === "requested", `304a · and the wallet still ends up with a request (got ${res.state})`);
+    check(res.state === "issued", `304a · and the wallet ends up with a row, which is the issuance (got ${res.state})`);
     check(store.rows.length === 1, `304b · the abandoned label leaves no row behind (rows ${store.rows.length})`);
     check(store.released.length === 1 && store.released[0] === "agent2",
       `304c · exactly one label was released, and it was the taken one (${store.released.join(",") || "none"})`);
@@ -219,31 +235,35 @@ export async function namesChecks(check: Check) {
     onChain.delete("agent2.xovi.eth");
   }
 
-  // ── 305 · issued is the chain's answer, never the row's ──────────────────────
+  // ── 305 · the pre switch hash is not what draws issued, the row is ─────────────
   //
-  // Finding 2. The read route's comment says drawing issued from the table alone is
-  // the mutation the checks are shaped to catch. It was not: a row carrying a hash
-  // with the chain empty stayed green. A hash is evidence that an issuance was
-  // attempted, not that the record exists; it can belong to a reverted transaction,
-  // or the record can have been changed since.
+  // Finding 2, rewritten under the ruling. Before it, a row carrying a transaction
+  // hash with the chain empty had to read `requested`, because a hash is evidence
+  // that an issuance was attempted and not that the record exists. Now the row is
+  // the issuance and the hash is the pre switch path's marker only: it draws
+  // nothing, and removing it changes nothing about what the route answers.
   {
     const store = fakeNamesStore();
     setNamesStoreForTest(store);
     setRegistryForTest(async () => 99n);
     const asked = (await (await ask(OTHER)).json()) as { label: string };
+    const before = (await (await read(OTHER)).json()) as { state: string; source: string | null };
     await store.markIssued(asked.label, `0x${"ab".repeat(32)}`, new Date());
 
     const row = await store.byPayer(OTHER);
     check(row?.txHash !== null, "305 · the row now carries a transaction hash (the fixture is the case)");
+    check(row?.issuedAt !== null && row?.issuedAt === row?.requestedAt,
+      "305d · and issued_at is the time the row was written, kept rather than overwritten by the marker");
 
-    const read1 = (await (await read(OTHER)).json()) as { state: string; matches: boolean };
-    check(read1.state === "requested", `305a · a row marked issued with the chain empty still reads requested (got ${read1.state})`);
-    check(read1.matches === false, "305b · and draws no match");
+    const read1 = (await (await read(OTHER)).json()) as { state: string; matches: boolean; source: string | null };
+    check(read1.state === "issued" && read1.source === "gateway" && before.source === "gateway",
+      `305a · the hash draws nothing: the row read issued through the gateway before it and after it (${before.source}, ${read1.source})`);
+    check(read1.matches === false, "305b · and the chain's own answer is still false");
 
-    // Positive control: the same row, once the chain agrees.
+    // The same row, once the chain agrees: the source moves to the chain.
     onChain.set(`${asked.label}.xovi.eth`, OTHER);
-    const read2 = (await (await read(OTHER)).json()) as { state: string };
-    check(read2.state === "issued", `305c · and reads issued once the record exists (positive control, got ${read2.state})`);
+    const read2 = (await (await read(OTHER)).json()) as { state: string; source: string | null };
+    check(read2.state === "issued" && read2.source === "chain", `305c · and reads from the chain once the record exists (${read2.source})`);
     onChain.delete(`${asked.label}.xovi.eth`);
   }
 
