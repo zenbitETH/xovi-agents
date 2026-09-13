@@ -383,12 +383,12 @@ export async function pageChecks(check: Check) {
    */
   const recordsBody = records;
   const panelless = CHAIN.filter(l => !new RegExp(`tab === "${l.id}"`).test(recordsBody));
-  check(CHAIN.length === 4, `321 · the record is four links (${CHAIN.length})`);
-  check(panelless.length === 0, `321a · and each of them has a panel of its own (${panelless.map(l => l.id).join(", ") || "none"})`);
+  check(CHAIN.length === 4, `403 · the record is four links (${CHAIN.length})`);
+  check(panelless.length === 0, `403a · and each of them has a panel of its own (${panelless.map(l => l.id).join(", ") || "none"})`);
   check(/\) : \(\s*exhausted\(tab\)\s*\)\}/.test(recordsBody),
-    "321b · with the arm no tab takes uninhabitable, so a fifth link without a panel stops compiling");
+    "403b · with the arm no tab takes uninhabitable, so a fifth link without a panel stops compiling");
   check(/<p className="ag-sub">\{link\.says\}<\/p>/.test(recordsBody),
-    "321c · and a panel's first line is its link's own sentence, read off the array rather than written twice");
+    "403c · and a panel's first line is its link's own sentence, read off the array rather than written twice");
 
   /*
    * Each panel carries its own object and no other's. The hazard this is against
@@ -405,19 +405,19 @@ export async function pageChecks(check: Check) {
   };
   const panels = CHAIN.map(l => ({ id: l.id, body: panelOf(l.id) }));
   const empty = panels.filter(p => p.body.length < 80);
-  check(empty.length === 0, `321d · the four panels are found (negative control for the slices, ${empty.map(p => p.id).join(", ") || "none"})`);
+  check(empty.length === 0, `403d · the four panels are found (negative control for the slices, ${empty.map(p => p.id).join(", ") || "none"})`);
   const [clipPanel, confirmationPanel, attestationPanel, anchorPanel] = panels.map(p => p.body);
   check(/Seven fields/.test(confirmationPanel) && /Zenbit asserts/.test(confirmationPanel) &&
     />The check</.test(confirmationPanel) && /Recover the signer/.test(confirmationPanel),
-    "321e · the seven, the two Zenbit asserts and the check are under the confirmation");
+    "403e · the seven, the two Zenbit asserts and the check are under the confirmation");
   const strays = panels.filter(p => p.id !== "confirmation" && /Seven fields|Zenbit asserts|>The check<|Recover the signer/.test(p.body));
-  check(strays.length === 0, `321f · and under nothing else (${strays.map(p => p.id).join(", ") || "none"})`);
+  check(strays.length === 0, `403f · and under nothing else (${strays.map(p => p.id).join(", ") || "none"})`);
   check(/offchainUid/.test(attestationPanel) && !/onchainUid/.test(attestationPanel),
-    "322 · the attestation panel carries the offchain identifier and not the onchain one");
+    "404 · the attestation panel carries the offchain identifier and not the onchain one");
   check(/onchainUid/.test(anchorPanel) && !/offchainUid/.test(anchorPanel),
-    "322a · and the anchor panel the onchain one and not the offchain, since the two share nothing");
+    "404a · and the anchor panel the onchain one and not the offchain, since the two share nothing");
   check(/RECORD\.clipHash/.test(clipPanel) && !/ANCHOR_259/.test(clipPanel),
-    "322b · while the clip panel carries the clip and no identifier from the chain");
+    "404b · while the clip panel carries the clip and no identifier from the chain");
 
   /*
    * An empty proposals section must not read as "you proposed nothing".

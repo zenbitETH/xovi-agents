@@ -955,10 +955,10 @@ export async function boardChecks(check: Check) {
   });
 
   writeSkipped(RETURNING);
-  check(readSkipped(RETURNING), "318 · a wallet's decline is remembered for that wallet");
-  check(!readSkipped(DECLINED), "318a · and for no other (negative control)");
+  check(readSkipped(RETURNING), "400 · a wallet's decline is remembered for that wallet");
+  check(!readSkipped(DECLINED), "400a · and for no other (negative control)");
   check(enrolmentState({ address: RETURNING, registration: "not-registered", skipped: true }) === "skipped",
-    "318b · so the page draws it as a wallet that went on without");
+    "400b · so the page draws it as a wallet that went on without");
 
   const returningTable = fakeVerifications();
   const returningAt = new Date("2026-09-13T01:00:00Z");
@@ -966,7 +966,7 @@ export async function boardChecks(check: Check) {
   setClockForTest(() => returningAt);
   setRegistryForTest(async () => 0n);
   setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: returningTable, freePerDay: 2 });
-  check((await takeFreeRead(RETURNING, returningEnv, returningAt)) === false, "318c · and the allowance is closed to it, which is what declining costs");
+  check((await takeFreeRead(RETURNING, returningEnv, returningAt)) === false, "400c · and the allowance is closed to it, which is what declining costs");
 
   // It enrols, from the account. This is the row the page's own route writes.
   returningTable.rows.set(RETURNING.toLowerCase(), {
@@ -978,12 +978,12 @@ export async function boardChecks(check: Check) {
     expiresAt: new Date(returningAt.getTime() + 86_400_000),
   });
   const nowStanding = await standingBehind(RETURNING, capFrom(), returningEnv, returningAt);
-  check(nowStanding !== null, `319 · once it enrols, somebody stands behind it (${JSON.stringify(nowStanding)})`);
+  check(nowStanding !== null, `401 · once it enrols, somebody stands behind it (${JSON.stringify(nowStanding)})`);
   clearSkipped(RETURNING);
-  check(!readSkipped(RETURNING), "319a · the decline is forgotten, so it is remembered only until the wallet enrols");
+  check(!readSkipped(RETURNING), "401a · the decline is forgotten, so it is remembered only until the wallet enrols");
   check(enrolmentState({ address: RETURNING, registration: "registered", skipped: true }) === "enrolled",
-    "319b · and a registration outranks a stored refusal even before the browser catches up");
-  check((await takeFreeRead(RETURNING, returningEnv, returningAt)) === true, "319c · so it reaches the free read it was refused");
+    "401b · and a registration outranks a stored refusal even before the browser catches up");
+  check((await takeFreeRead(RETURNING, returningEnv, returningAt)) === true, "401c · so it reaches the free read it was refused");
   /*
    * And the page runs that clear, rather than the check having been the only
    * caller. Read over the two effects that own the stored refusal, since
@@ -991,9 +991,9 @@ export async function boardChecks(check: Check) {
    */
   const skipEffectsAt = page.indexOf("useEffect(() => setSkipped(readSkipped(address))");
   const skipEffects = skipEffectsAt === -1 ? "" : page.slice(skipEffectsAt, skipEffectsAt + 700);
-  check(skipEffects.length > 0, "319d · the effects that own the refusal are found (negative control for the read)");
+  check(skipEffects.length > 0, "401d · the effects that own the refusal are found (negative control for the read)");
   check(/registration !== "registered"/.test(skipEffects) && /clearSkipped\(address\)/.test(skipEffects) && /setSkipped\(false\)/.test(skipEffects),
-    "319e · and the page clears it on the registration answering registered, not only this check");
+    "401e · and the page clears it on the registration answering registered, not only this check");
   setCapForTest(null);
   setClockForTest(undefined);
   setRegistryForTest(undefined);
@@ -1011,19 +1011,19 @@ export async function boardChecks(check: Check) {
    */
   const wayBackSites = (page.match(/<WayBack /g) ?? []).length;
   const guardedSites = (page.match(/enrolment === "skipped" && <WayBack /g) ?? []).length;
-  check(wayBackSites === 2, `320 · the way back is drawn in two places (${wayBackSites})`);
-  check(guardedSites === wayBackSites, `320a · each behind the declined state and not one behind anything looser (${guardedSites})`);
+  check(wayBackSites === 2, `402 · the way back is drawn in two places (${wayBackSites})`);
+  check(guardedSites === wayBackSites, `402a · each behind the declined state and not one behind anything looser (${guardedSites})`);
   // The account's own body, not the first IdentityChips on the page: the header
   // draws the same chips above every screen, and anchoring on them found that one.
   const accountAt = page.indexOf('className="ag-account-body"');
-  check(accountAt > 0 && /<WayBack /.test(page.slice(accountAt, accountAt + 500)), "320b · one of them in the account, under the chips it explains");
+  check(accountAt > 0 && /<WayBack /.test(page.slice(accountAt, accountAt + 500)), "402b · one of them in the account, under the chips it explains");
   const nameDialogAt = page.indexOf('className="ag-run-dialog ag-name-dialog"');
-  check(nameDialogAt > 0 && /<WayBack /.test(page.slice(nameDialogAt, nameDialogAt + 800)), "320c · and one in the name dialog, where the request is refused for want of it");
+  check(nameDialogAt > 0 && /<WayBack /.test(page.slice(nameDialogAt, nameDialogAt + 800)), "402c · and one in the name dialog, where the request is refused for want of it");
   const wayBackBody = page.slice(page.indexOf("function WayBack("), page.indexOf("function Board("));
   check(wayBackBody.length > 0 && /<WorldIdCard payer=\{address\} onRegistered=\{onRegistered\} \/>/.test(wayBackBody),
-    "320d · and it draws the enrolment's own card rather than a second implementation of the widget");
+    "402d · and it draws the enrolment's own card rather than a second implementation of the widget");
   const widgets = (page.match(/<WorldIdCard /g) ?? []).length;
-  check(widgets === 2, `320e · which the file holds twice, on the enrolment step and in this one component (${widgets})`);
+  check(widgets === 2, `402e · which the file holds twice, on the enrolment step and in this one component (${widgets})`);
 
   check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
   check(/const enrolment = enrolmentState\(\{ address, registration, skipped \}\);/.test(page) &&
