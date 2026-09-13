@@ -708,7 +708,7 @@ export async function pageChecks(check: Check) {
    * shorthand is split on.
    */
   const INHERITED_LONG = ["xvFadeUp", "xvAurora", "xvRays", "xvPulse"];
-  const DECIDED_LONG = ["xvClosePulse"];
+  const DECIDED_LONG = ["xvClosePulse", "xvNodeWait"];
   const longAnimations = [...cssLive.matchAll(/animation:\s*([^;}]+)/g)]
     .flatMap(m => m[1].split(","))
     .map(part => /([a-zA-Z][\w-]*)\s+([\d.]+)(m?s)/.exec(part.trim()))
@@ -911,8 +911,14 @@ export async function pageChecks(check: Check) {
   const rolodexBlock = rolodexStart >= 0 && rolodexEnd > rolodexStart ? ui.slice(rolodexStart, rolodexEnd) : "";
   check(rolodexBlock.length > 0 && rolodexBlock.length < ui.length / 2, `283c · the rolodex block is found and is a block (${rolodexBlock.length})`);
   const maps = (rolodexBlock.match(/lines\.map\(\(line, i\) =>/g) ?? []).length;
-  check(maps === 2 && /i !== at \? null : \(/.test(rolodexBlock),
-    `283 · every line the log holds is a node on the rail, and the card area draws the one being read (${maps} maps over the lines)`);
+  /*
+   * The rail is one node per stage now, so it maps the stages rather than the
+   * lines: several steps of one stage advance inside one node. What still has to
+   * be true is that no line is dropped before either is built, which 283b holds,
+   * and that every stage the stream produced is on the rail, which 419 drives.
+   */
+  check(maps === 1 && /railFrom\(lines, at, failed\)\.map/.test(rolodexBlock) && /i !== at \? null : \(/.test(rolodexBlock),
+    `283 · the card area draws the state being read and the rail draws the stages (${maps} maps over the lines)`);
   check(!/lines\.slice/.test(rolodexBlock), "283b · and none of them is dropped before either is built");
   /*
    * Reachable by the rail rather than by a pager.
@@ -922,7 +928,7 @@ export async function pageChecks(check: Check) {
    * now and the node steps to its own index, which is a stronger claim than two
    * arrows: a pager reaches every line by walking, a rail reaches each one at once.
    */
-  check(/onClick=\{\(\) => onStep\(i\)\}/.test(rolodexBlock), "283a · and every one of them is reachable from its own node");
+  check(/onClick=\{\(\) => onStep\(node\.at\)\}/.test(rolodexBlock), "283a · and a node steps to the first state of its own stage");
   check(!/onStep\(at - 1\)|onStep\(at \+ 1\)/.test(ui), "283d · with no pager left to walk them one at a time");
 
   /*

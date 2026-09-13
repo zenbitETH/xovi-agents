@@ -1234,17 +1234,48 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   opacity: 1;
 }
 
+/* The stage a run is on breathes, and stops the moment it completes: the mark and
+   the cross are states that have happened and motion on them would say otherwise.
+   Only opacity moves, and 2800ms because this reports a stage rather than a wait
+   somebody is counting. */
+.ag-steps-item[data-state="at"] .ag-steps-dot {
+  animation: xvNodeWait 2800ms var(--xv-ease-in-out) infinite;
+}
+
+@keyframes xvNodeWait {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Gentler, not none: the node keeps the scale that marks it and stops breathing. */
+@media (prefers-reduced-motion: reduce) {
+  .ag-steps-item[data-state="at"] .ag-steps-dot {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 .ag-steps-item[data-state="at"] .ag-steps-dot {
   opacity: 1;
   transform: scale(1.45);
 }
 
 /* In flow inside the column it belongs to. Absolute took it out of the layout
-   entirely, so nothing measured it and nothing stopped it. */
+   entirely, so nothing measured it and nothing stopped it.
+
+   The font is named here rather than inherited: a button does not inherit the
+   page's family, so these labels were rendering in the browser's default while
+   every other word on the surface was in the page's own. */
 .ag-steps-label {
   position: static;
   min-width: 0;
   flex: 1;
+  font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 0.75rem;
   line-height: 1.2;
   text-align: left;

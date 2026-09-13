@@ -24,7 +24,7 @@ import { AUTHORIZATION_TYPES, PAYMENT_TOKEN, ruledValue } from "../lib/human/fre
 import { setNonceStoreForTest } from "../lib/human/nonces";
 import { getAddress, hashDomain } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { AGENTBOOK_ON_WORLD_CHAIN, ENS_APP, LIFECYCLE, NEXT_STEP, NODE_NAMES, NODE_NAME_MAX, failedAt, stepState, NOT_SEEN_REASON, WORLDSCAN_ADDRESS, WORLD_ID_PAGE, reasonForStage, registrationHref, registrationHrefTitle, type BoardCellView, cellMetaLine, lifecycleLine, lifecycleOf, readableLength, stopReason, windowsUrlFor } from "../app/app-shell";
+import { AGENTBOOK_ON_WORLD_CHAIN, ENS_APP, LIFECYCLE, NEXT_STEP, NODE_NAMES, NODE_NAME_MAX, failedAt, railFrom, stepState, NOT_SEEN_REASON, WORLDSCAN_ADDRESS, WORLD_ID_PAGE, reasonForStage, registrationHref, registrationHrefTitle, type BoardCellView, cellMetaLine, lifecycleLine, lifecycleOf, readableLength, stopReason, windowsUrlFor } from "../app/app-shell";
 import { type AnchorRow, nextAction, setStoreForTest } from "../lib/anchor/store";
 import { resetServerForTest } from "../lib/x402";
 
@@ -597,8 +597,8 @@ export async function boardChecks(check: Check) {
     `324a · a state already read is drawn as a mark, in two strokes rather than a glyph (${doneStrokes.length} rules, ${withContent} with content, ${rotated} rotated)`);
   check(/\.ag-steps-item\[data-state="at"\] \.ag-steps-dot\s*\{[^}]*transform:\s*scale\(1\.45\)/.test(sheetRoll),
     "324b · and the one being read is marked apart by the site's own scale");
-  check(/data-state=\{stepState\(i, at, failed\)\}/.test(roll),
-    "324c · a node's state is the wheel's own arithmetic and not a second count");
+  check(/data-state=\{node\.state\}/.test(roll) && /railFrom\(lines, at, failed\)/.test(roll),
+    "324c · a node's state is the rail's own arithmetic and not a second count");
   /*
    * A FAILURE READS AS ONE, ON THE LINE AND NOT ONLY ON A PILL.
    *
@@ -655,7 +655,7 @@ export async function boardChecks(check: Check) {
   check(/\.ag-roll-next\s*\{[^}]*font-size/.test(sheetRoll), "324t3 · with a rule of its own, so it is drawn as a line and not as a paragraph like the reason");
   const secondCopy = (page.match(/this wallet holds no USDC on Base Sepolia/g) ?? []).length;
   check(secondCopy === 0, `324u · the reason is the run's own constant and is not typed again on the card (${secondCopy})`);
-  check(/aria-current=\{i === at \? "step" : undefined\}/.test(roll), "324d · with the one being read named to a screen reader");
+  check(/aria-current=\{node\.state === "at" \? "step" : undefined\}/.test(roll), "324d · with the one being read named to a screen reader");
 
   /*
    * THE DEFAULT HOME, BEFORE A WALLET.
@@ -2310,7 +2310,7 @@ export async function boardChecks(check: Check) {
     "417d · a run that stopped is named failed by the step that stopped it");
   check(lineFor({ step: "proposed", id: 1, clipHash: "0x", status: "proposed" }).node === "propose" && lineFor({ step: "done" }).node === "stop",
     "417e · while a run that proposed and finished carries those two (negative control)");
-  check(/<span className="ag-steps-label">\{line\.node\}<\/span>/.test(roll),
+  check(/<span className="ag-steps-label">\{node\.name\}<\/span>/.test(roll),
     "417f · the rail draws the name rather than the text");
   check(!/ag-plan\b/.test(page), "417g · with the plan list retired, so the dialog does not draw the stepper twice");
 
@@ -2337,6 +2337,85 @@ export async function boardChecks(check: Check) {
   const dialogWidth = /\n\.ag-run-dialog\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
   check(/width:\s*min\(64rem,\s*90vw\)/.test(dialogWidth), `418f · with a dialog wide enough for both (${/width:[^;]*/.exec(dialogWidth)?.[0] ?? "none"})`);
   check(/min-height:/.test(dialogWidth) && /max-height:/.test(dialogWidth), "418g · and its height rule unchanged");
+
+  /*
+   * ONE NODE PER STAGE, NOT ONE PER STEP.
+   *
+   * A stage takes several steps: presenting, paid and read are all "pay and read",
+   * and selected, proposing and proposed are all "propose". A node per step made
+   * the rail repeat its own names, three "propose" in a row on an ordinary run,
+   * which is a list of five stages written out as eleven. Driven on a stream that
+   * has two steps in one stage, because a stream with one step per stage cannot
+   * tell the grouping from the absence of it.
+   */
+  const twoInAStage = [
+    lineFor({ step: "presenting" }),
+    lineFor({ step: "paid", free: true }),
+    lineFor({ step: "read", served: 2, ids: ["a", "b"] }),
+    lineFor({ step: "done" }),
+  ];
+  const railed = railFrom(twoInAStage, 0, null);
+  check(railed.length === 3, `419 · four steps across three stages draw three nodes (${railed.map(n => n.name).join(", ")})`);
+  check(new Set(railed.map(n => n.name)).size === railed.length, "419a · with no name drawn twice");
+  const payAndRead = railed.find(n => n.name === "pay and read");
+  check(payAndRead !== undefined && payAndRead.at === 1, `419b · and a node steps to the first state of its own stage (${payAndRead?.at})`);
+  /*
+   * The mark lands when the stage's last step is behind the cursor, not its first:
+   * a stage with steps still to come has not finished because one of them passed.
+   */
+  const midStage = railFrom(twoInAStage, 2, null).find(n => n.name === "pay and read");
+  check(midStage?.state === "at", `419c · a stage is still the one being read while any of its steps is (${midStage?.state})`);
+  const pastStage = railFrom(twoInAStage, 3, null).find(n => n.name === "pay and read");
+  check(pastStage?.state === "done", `419d · and is marked only once its last step is behind the cursor (${pastStage?.state})`);
+  const beforeStage = railFrom(twoInAStage, 0, null).find(n => n.name === "pay and read");
+  check(beforeStage?.state === "ahead", `419e · while a stage not reached is neither (negative control, ${beforeStage?.state})`);
+  /*
+   * And on a stage whose steps are not contiguous, which is where first and last
+   * differ at all. Marking from the first step passed every contiguous fixture:
+   * for indices side by side the cursor is either inside the stage or past all of
+   * it, so the two readings agree and the mutation went green.
+   */
+  const interleaved = [
+    lineFor({ step: "presenting" }),
+    lineFor({ step: "paid", free: true }),
+    lineFor({ step: "proposing", windowId: "a" }),
+    lineFor({ step: "read", served: 1, ids: ["a"] }),
+  ];
+  const splitStage = railFrom(interleaved, 2, null).find(n => n.name === "pay and read");
+  check(splitStage?.state === "ahead",
+    `419e2 · a stage with a step still to come is not marked because an earlier one passed (${splitStage?.state})`);
+  const splitDone = railFrom(interleaved, 4, null).find(n => n.name === "pay and read");
+  check(splitDone?.state === "done", `419e3 · and is marked once its last is behind the cursor (negative control, ${splitDone?.state})`);
+  /*
+   * A failure takes the node its own step is in, and nothing after it is reached.
+   */
+  const failedStream = [lineFor({ step: "presenting" }), lineFor({ step: "payment-refused", status: 402, detail: "insufficient_funds" })];
+  const failedRail = railFrom(failedStream, 1, failedAt(failedStream));
+  check(failedRail.find(n => n.name === "failed")?.state === "failed",
+    `419f · a run that stopped draws the cross on its own node (${failedRail.map(n => `${n.name}:${n.state}`).join(", ")})`);
+  check(failedRail.filter(n => n.state === "failed").length === 1, "419g · and on that one alone");
+
+  /*
+   * The rail's labels are the page's own words, and the one being read breathes.
+   *
+   * A button does not inherit the page's font family, so these rendered in the
+   * browser's default while every other word on the surface was in the page's own.
+   */
+  const labelNow = /\n\.ag-steps-label\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/font-family:\s*var\(--font-sans\)/.test(labelNow),
+    `419h · the label takes its family from the token rather than from the button's default (${/font-family:[^;]*/.exec(labelNow)?.[0] ?? "none"})`);
+  check(/font-size:/.test(labelNow), `419i · and a size of its own (${/font-size:[^;]*/.exec(labelNow)?.[0] ?? "none"})`);
+  const pulsing = [...sheetRoll.matchAll(/\.ag-steps-item\[data-state="([a-z]+)"\] \.ag-steps-dot\s*\{([^}]*)\}/g)]
+    .filter(m => /animation:\s*xvNodeWait/.test(m[2]))
+    .map(m => m[1]);
+  check(pulsing.join(",") === "at", `419j · the stage being read breathes and no other does (${pulsing.join(", ") || "none"})`);
+  const reducedNode = /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.ag-steps-item\[data-state="at"\] \.ag-steps-dot\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/animation:\s*none/.test(reducedNode) && /opacity:\s*1/.test(reducedNode),
+    `419k · and under reduced motion it is lit and still (${reducedNode.replace(/\s+/g, " ").trim() || "none"})`);
+  const nodeFrames = /@keyframes xvNodeWait\s*\{([\s\S]*?)\n\}/.exec(sheetRoll)?.[1] ?? "";
+  const nodeMoves = [...new Set(nodeFrames.match(/^\s*([a-z-]+):/gm)?.map(x => x.trim().replace(":", "")) ?? [])];
+  check(nodeMoves.length > 0 && nodeMoves.every(prop => prop === "opacity" || prop === "transform"),
+    `419l · moving opacity and nothing that paints (${nodeMoves.join(", ") || "none"})`);
 
   check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
   check(/const enrolment = enrolmentState\(\{ address, registration, skipped \}\);/.test(page) &&

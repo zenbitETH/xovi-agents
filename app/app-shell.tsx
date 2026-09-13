@@ -178,6 +178,47 @@ export function failedAt(lines: Line[]): number | null {
  * as a state the run is on its way to would say the run is still going. The node
  * that failed keeps its mark whatever the wheel is showing.
  */
+/**
+ * The line, one node per stage rather than one per step.
+ *
+ * A stage takes several steps: presenting and paid and read are all "pay and
+ * read", and selected and proposing and proposed are all "propose". Drawing a node
+ * per step made the rail repeat its own names, three "propose" in a row on an
+ * ordinary run, which is a list of five stages written out as eleven. The steps
+ * that share a stage advance inside one node now, so the rail reads as the five
+ * stage list it replaced.
+ *
+ * Grouped by name and not by adjacency, so a name appears once however the stream
+ * interleaves. A node holds the index of its first step, which is where stepping
+ * to it goes, and is done only when its last one is behind the cursor: a stage
+ * with steps still to come is not finished because its first has passed.
+ */
+export type RailNode = { name: NodeName; at: number; state: "done" | "at" | "ahead" | "failed" };
+
+export function railFrom(lines: Line[], at: number, failed: number | null): RailNode[] {
+  const order: NodeName[] = [];
+  const steps = new Map<NodeName, number[]>();
+  lines.forEach((line, i) => {
+    const held = steps.get(line.node);
+    if (held === undefined) {
+      order.push(line.node);
+      steps.set(line.node, [i]);
+    } else {
+      held.push(i);
+    }
+  });
+  return order.map(name => {
+    const indices = steps.get(name) as number[];
+    const first = indices[0];
+    const last = indices[indices.length - 1];
+    if (failed !== null && indices.includes(failed)) return { name, at: first, state: "failed" as const };
+    // Nothing after the stop is reached, whatever the cursor has walked to.
+    if (failed !== null && first > failed) return { name, at: first, state: "ahead" as const };
+    if (indices.includes(at)) return { name, at: first, state: "at" as const };
+    return { name, at: first, state: last < at ? ("done" as const) : ("ahead" as const) };
+  });
+}
+
 export function stepState(index: number, at: number, failed: number | null): "done" | "at" | "ahead" | "failed" {
   if (failed !== null && index === failed) return "failed";
   if (failed !== null && index > failed) return "ahead";
@@ -1362,17 +1403,17 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
           was in a number and gave them no way to see what the run had done. */}
       <nav className="ag-steps" aria-label="The run's states">
         <span className="ag-steps-spine" aria-hidden="true" />
-        {lines.map((line, i) => (
+        {railFrom(lines, at, failed).map(node => (
           <button
-            key={i}
+            key={node.name}
             type="button"
             className="ag-steps-item"
-            data-state={stepState(i, at, failed)}
-            aria-current={i === at ? "step" : undefined}
-            onClick={() => onStep(i)}
+            data-state={node.state}
+            aria-current={node.state === "at" ? "step" : undefined}
+            onClick={() => onStep(node.at)}
           >
             <span className="ag-steps-dot" aria-hidden="true" />
-            <span className="ag-steps-label">{line.node}</span>
+            <span className="ag-steps-label">{node.name}</span>
           </button>
         ))}
       </nav>
