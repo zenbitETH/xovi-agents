@@ -1,5 +1,6 @@
 import type { HumanRegistry } from "../lib/human/registry";
 import type { HumanStore, Receipt } from "../lib/human/store";
+import type { EnrollOutcome, Enrollment, VerificationStore } from "../lib/human/verifications";
 
 /**
  * A registry and a store, faked, so the paths that only run when something is
@@ -103,6 +104,70 @@ export function fakeStore(): FakeStore {
     reset() {
       receipts = [];
       usage.clear();
+    },
+  };
+}
+
+export type FakeVerifications = VerificationStore & {
+  rows: Map<string, Enrollment>;
+  claims: Map<string, string>;
+  /** How many times each method was reached, so "the table was not consulted"
+   *  is a count rather than a belief. */
+  calls: { standingOf: number; claimResult: number; enroll: number };
+  reset(): void;
+};
+
+/**
+ * The enrollments, faked with the same two rules the statement carries, so a
+ * check can plant a second wallet for one person or a second person for one
+ * wallet and watch the refusal rather than assume it.
+ */
+export function fakeVerifications(): FakeVerifications {
+  const rows = new Map<string, Enrollment>();
+  const claims = new Map<string, string>();
+  const calls = { standingOf: 0, claimResult: 0, enroll: 0 };
+  return {
+    rows,
+    claims,
+    calls,
+    standingOf: async (payer, at) => {
+      calls.standingOf++;
+      const row = rows.get(payer);
+      if (!row || row.expiresAt.getTime() <= at.getTime()) return null;
+      return { nullifierDigest: row.nullifierDigest, credential: row.credential, expiresAt: row.expiresAt };
+    },
+    claimResult: async (nonce, proofDigest) => {
+      calls.claimResult++;
+      if (claims.has(nonce)) return false;
+      if ([...claims.values()].includes(proofDigest)) return false;
+      claims.set(nonce, proofDigest);
+      return true;
+    },
+    releaseResult: async nonce => {
+      claims.delete(nonce);
+    },
+    enroll: async (row): Promise<EnrollOutcome> => {
+      calls.enroll++;
+      const at = row.verifiedAt.getTime();
+      for (const [payer, other] of rows) {
+        if (payer !== row.payer && other.action === row.action && other.nullifierDigest === row.nullifierDigest && other.expiresAt.getTime() > at) {
+          return "another-wallet";
+        }
+      }
+      const held = rows.get(row.payer);
+      if (held && held.nullifierDigest !== row.nullifierDigest && held.expiresAt.getTime() > at) return "another-person";
+      rows.set(row.payer, { ...row });
+      return "recorded";
+    },
+    forgetExpired: async at => {
+      for (const [payer, row] of [...rows]) if (row.expiresAt.getTime() <= at.getTime()) rows.delete(payer);
+    },
+    reset() {
+      rows.clear();
+      claims.clear();
+      calls.standingOf = 0;
+      calls.claimResult = 0;
+      calls.enroll = 0;
     },
   };
 }
