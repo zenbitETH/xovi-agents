@@ -2,7 +2,10 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { getAddress, keccak256 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { x402Client, x402HTTPClient } from "@x402/core/client";
+import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { GET as registrationGET, POST as registrationPOST } from "../app/api/agent/registration/route";
+import { GET as windowsGET } from "../app/api/agent/windows/route";
 import {
   type CredentialRow,
   type CredentialStore,
@@ -15,11 +18,14 @@ import {
   setMinterForTest,
 } from "../lib/agent/credentials";
 import { type NameRow, type NamesStore, setNamesStoreForTest } from "../lib/agent/names-store";
+import { type RunStep, runOnce } from "../lib/agent/run";
 import { setCapForTest } from "../lib/human/cap";
 import { setClockForTest } from "../lib/human/clock";
 import { setRegistryForTest } from "../lib/human/registry";
 import { enrollmentThrottle } from "../lib/human/throttle";
 import { type Verifier, enrolmentMessage, setVerifierForTest, signalHashFor } from "../lib/human/worldid";
+import { resetServerForTest } from "../lib/x402";
+import { startFakeFacilitator } from "./facilitator";
 import { HUMAN_A, fakeRegistry, fakeStore, fakeVerifications } from "./human";
 import { startFakeIngest } from "./ingest";
 import { startFakeMint } from "./mint";
@@ -95,11 +101,35 @@ function resultFor(wallet: string) {
   };
 }
 
+/** The browser's half of a run: the live challenge signed by one wallet's key. */
+async function signAt(url: string, key: `0x${string}`): Promise<string | undefined> {
+  const core = new x402Client();
+  registerExactEvmScheme(core, { signer: privateKeyToAccount(key) });
+  const http = new x402HTTPClient(core);
+  const challenge = await windowsGET(new Request(url));
+  if (challenge.status !== 402) return undefined;
+  const body = await challenge.json().catch(() => ({}));
+  const required = http.getPaymentRequiredResponse(n => challenge.headers.get(n), body);
+  const payload = await http.createPaymentPayload(required);
+  return (http.encodePaymentSignatureHeader(payload) as Record<string, string>)["PAYMENT-SIGNATURE"];
+}
+
+const windowsFetch: typeof fetch = async (input, init) => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+  return windowsGET(new Request(url, init));
+};
+
+async function collect(gen: AsyncGenerator<RunStep>): Promise<RunStep[]> {
+  const steps: RunStep[] = [];
+  for await (const s of gen) steps.push(s);
+  return steps;
+}
+
 export async function credentialChecks(check: Check) {
   console.log("\n  the credential an enrolled wallet proposes with");
 
   const before: Record<string, string | undefined> = {};
-  for (const k of [...Object.keys(ENV), "XOVI_INGEST_URL"]) before[k] = process.env[k];
+  for (const k of [...Object.keys(ENV), "XOVI_INGEST_URL", "XOVI_INGEST_KEY", "XOVI_INGEST_KEY_PAYER", "X402_PAY_TO", "X402_NETWORK", "X402_FACILITATOR_URL", "X402_PRICE", "WINDOWS_SNAPSHOT"]) before[k] = process.env[k];
   Object.assign(process.env, ENV);
 
   /* The two pieces the module rests on, without a route around them. */
@@ -117,6 +147,7 @@ export async function credentialChecks(check: Check) {
   /* The routes, against every fake. */
   const mint = await startFakeMint(ENV.INGEST_MINT_SECRET);
   const ingest = await startFakeIngest();
+  const fac = await startFakeFacilitator();
   process.env.XOVI_INGEST_URL = ingest.url;
   const credentials = fakeCredentials();
   setCredentialStoreForTest(credentials);
@@ -230,11 +261,47 @@ export async function credentialChecks(check: Check) {
   check(lostKey !== "" && lostLine.includes(lostKey.split("_")[1]) && !lostLine.includes(lostKey.split("_")[2]) && /re-mint/.test(lostLine),
     `365e · and is logged with the prefix and the way out, never the credential (${lostLine.slice(0, 60)}…)`);
 
+  /* The run, under the wallet's own credential. */
+  process.env.X402_PAY_TO = "0x000000000000000000000000000000000000dEaD";
+  process.env.X402_NETWORK = "eip155:84532";
+  process.env.X402_FACILITATOR_URL = fac.url;
+  process.env.X402_PRICE = "$0.01";
+  process.env.WINDOWS_SNAPSHOT = "fixtures/windows.synthetic.jsonl";
+  resetServerForTest();
+  fac.reset();
+  fac.transaction = `0x${"ab".repeat(32)}`;
+  ingest.reset();
+  const WINDOWS = "http://127.0.0.1/api/agent/windows";
+  const own = (payer: string) => credentialFor(payer, credentials, ENV);
+  const runAs = async (key: `0x${string}`, over: Record<string, unknown> = {}) =>
+    collect(runOnce({ windowsUrl: WINDOWS, paymentHeader: await signAt(WINDOWS, key), windowsFetch, ingestUrl: ingest.url, credentialFor: own, ingestFetch: fetch, ...over }));
+
+  const runA = await runAs(`0x${"e1".repeat(32)}`);
+  check(runA.some(s => s.step === "proposed"), `366 · a run paid by an enrolled wallet proposes (${runA.map(s => s.step).join(", ")})`);
+  check(ingest.presented.length === 1 && ingest.presented[0] === mintedForA, "366a · presenting that wallet's own credential to the ingest route");
+  check(mint.keys.get(ingest.presented[0] ?? "") === WALLET_A.toLowerCase(), "366b · so the submitter the credential binds is the payer");
+  check(!JSON.stringify(runA).includes(secretPart), "366c · and the credential appears nowhere in the streamed run");
+
+  ingest.reset();
+  const noneKey = privateKeyToAccount(`0x${"e5".repeat(32)}`);
+  const runNone = await runAs(`0x${"e5".repeat(32)}`, { ingestKey: "k-env", ingestKeyPayer: REC });
+  check(runNone.some(s => s.step === "not-submitted" && s.reason === "no-credential") && !runNone.some(s => s.step === "proposed") && ingest.hits === 0,
+    `366d · a wallet with no credential stops at not submitted, for want of a credential, and nothing reaches the ingest (${noneKey.address.slice(0, 8)})`);
+  ingest.reset();
+  const runRec = await runAs(`0x${"e4".repeat(32)}`, { ingestKey: "k-env", ingestKeyPayer: REC, credentialFor: async () => null });
+  check(runRec.some(s => s.step === "proposed") && ingest.presented[0] === "k-env", "366e · the environment's credential is presented for the one wallet it belongs to (negative control)");
+  ingest.reset();
+  const runOther = await runAs(`0x${"e5".repeat(32)}`, { ingestKey: "k-env" });
+  check(!runOther.some(s => s.step === "proposed") && ingest.hits === 0, "366f · and for nobody when the wallet it belongs to is not named");
+  ingest.reset();
+  const runUnconfigured = await runAs(`0x${"e1".repeat(32)}`, { ingestUrl: undefined });
+  check(runUnconfigured.some(s => s.step === "not-submitted" && s.reason === "unconfigured"), "366g · no ingest url is the other reason, told apart from a missing credential");
+
   /* The sweep: the secret and every credential reach nothing this serves. */
   const served: string[] = [];
   for (const r of wires) served.push(await r.text(), ...[...r.headers.entries()].map(([k, v]) => `${k}: ${v}`));
   const needles = [ENV.INGEST_MINT_SECRET, ...[...mint.keys.keys()].map(k => k.split("_")[2])];
-  const hits = needles.filter(n => served.some(s => s.includes(n)) || logged.some(l => l.includes(n)) || false);
+  const hits = needles.filter(n => served.some(s => s.includes(n)) || logged.some(l => l.includes(n)) || JSON.stringify([runA, runNone, runRec]).includes(n));
   check(hits.length === 0 && needles.length >= 4, `367 · the mint secret and every minted credential appear in no answer, no log line and no run stream (${wires.length} answers, ${logged.length} lines, ${needles.length} needles)`);
   check(mint.calls.every(c => c.authorization === `Bearer ${ENV.INGEST_MINT_SECRET}` || c.authorization === "Bearer the-wrong-secret"), "367a · while the secret did travel to the mint and only there (control)");
   check(logged.some(l => /prefix/.test(l)) && !logged.some(l => /xvi_[0-9a-f]{12}_/.test(l)), "367b · a failed mint logs the wallet and the prefix, never a credential");
@@ -252,13 +319,14 @@ export async function credentialChecks(check: Check) {
   check(columns.join(",") === "payer,ciphertext,nonce,key_prefix,minted_at", `369 · migration 0008 holds the wallet, the ciphertext, the nonce, the prefix and the time (${columns.join(",")})`);
   check(!/^\s+(key|credential|plaintext)\s/m.test(ddl) && /PRIMARY KEY/.test(ddl), "369a · no column for the credential itself, and the wallet is the key");
   const example = readFileSync(".env.example", "utf8");
-  const missing = ["INGEST_MINT_SECRET", "CREDENTIAL_KEY"].filter(n => !new RegExp(`^${n}=`, "m").test(example));
-  check(missing.length === 0, `369b · the example names the two variables (${missing.join(", ") || "none missing"})`);
+  const missing = ["INGEST_MINT_SECRET", "CREDENTIAL_KEY", "XOVI_INGEST_KEY_PAYER"].filter(n => !new RegExp(`^${n}=`, "m").test(example));
+  check(missing.length === 0, `369b · the example names the three variables (${missing.join(", ") || "none missing"})`);
 
   console.warn = real.warn;
   console.error = real.error;
   await mint.close();
   await ingest.close();
+  await fac.close();
   setCredentialStoreForTest(undefined);
   setMinterForTest(undefined);
   setNamesStoreForTest(undefined);
@@ -267,6 +335,7 @@ export async function credentialChecks(check: Check) {
   setRegistryForTest(undefined);
   setClockForTest(undefined);
   enrollmentThrottle.reset();
+  resetServerForTest();
   for (const [k, v] of Object.entries(before)) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;

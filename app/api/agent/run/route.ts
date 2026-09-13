@@ -1,4 +1,5 @@
 import { GET as windowsRoute } from "../windows/route";
+import { credentialFor, credentialStoreFrom } from "~~/lib/agent/credentials";
 import { DECLINE_SENTENCE, runOnce, windowsUrlFor } from "~~/lib/agent/run";
 
 export const dynamic = "force-dynamic";
@@ -40,8 +41,12 @@ export async function POST(request: Request) {
     ingestUrl: process.env.XOVI_INGEST_URL,
     // Read here and never sent anywhere but the ingest route. It is why the run
     // happens on this side: a browser holding this key could propose without
-    // paying, and a stranger's wallet must not become a credential.
+    // paying, and a stranger's wallet must not become a credential. The
+    // environment's key belongs to one wallet; every other wallet proposes with
+    // the credential minted for it at enrolment, decrypted for the header only.
     ingestKey: process.env.XOVI_INGEST_KEY,
+    ingestKeyPayer: process.env.XOVI_INGEST_KEY_PAYER,
+    credentialFor: payer => credentialFor(payer, credentialStoreFrom()),
     windowsFetch: async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       return windowsRoute(new Request(url, init));

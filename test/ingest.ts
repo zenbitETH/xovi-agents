@@ -18,6 +18,9 @@ export type FakeIngest = {
   hits: number;
   /** Every body received, parsed. Absence assertions read this. */
   bodies: Record<string, unknown>[];
+  /** The bearer credential each request presented, in order, so a check can
+   *  say which wallet's credential a proposal was made under. */
+  presented: string[];
   /** What the next request gets. Defaults to a created clip. */
   outcome: "created" | "rejected" | "duplicate" | "badStation" | "noTarget" | "badKey" | "throttled" | "oddConflict";
   reset(): void;
@@ -30,6 +33,7 @@ export async function startFakeIngest(): Promise<FakeIngest> {
   const state = {
     hits: 0,
     bodies: [] as Record<string, unknown>[],
+    presented: [] as string[],
     outcome: "created" as FakeIngest["outcome"],
     nextId: 1,
   };
@@ -46,6 +50,7 @@ export async function startFakeIngest(): Promise<FakeIngest> {
         body = {};
       }
       state.bodies.push(body);
+      state.presented.push((req.headers.authorization ?? "").replace(/^bearer\s+/i, ""));
 
       const send = (status: number, payload: unknown) => {
         res.writeHead(status, { "content-type": "application/json" });
@@ -108,6 +113,9 @@ export async function startFakeIngest(): Promise<FakeIngest> {
     get bodies() {
       return state.bodies;
     },
+    get presented() {
+      return state.presented;
+    },
     get outcome() {
       return state.outcome;
     },
@@ -117,6 +125,7 @@ export async function startFakeIngest(): Promise<FakeIngest> {
     reset() {
       state.hits = 0;
       state.bodies.length = 0;
+      state.presented.length = 0;
       state.outcome = "created";
     },
     close() {

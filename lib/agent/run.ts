@@ -80,11 +80,21 @@ export type RunStep =
    * so it stayed green. Numbers are safe to carry and are carried.
    */
   | { step: "declined"; kind: DeclineKind; detail: string; status?: number; retryAfterSeconds?: number }
-  /** No ingest credential configured, so the run stops one step short on purpose. */
-  | { step: "not-submitted"; detail: string }
+  /**
+   * The run stops one step short on purpose: no ingest url is configured, or
+   * this wallet holds no credential. `reason` says which, so a page can draw a
+   * deployment that cannot submit apart from a wallet that has not enrolled.
+   */
+  | { step: "not-submitted"; detail: string; reason?: NotSubmitted }
   | { step: "done" };
 
 export type DeclineKind = "duplicate" | "rejected" | "throttled" | "refused" | "error";
+export type NotSubmitted = "unconfigured" | "no-credential";
+
+export const NOT_SUBMITTED_SENTENCE: Record<NotSubmitted, string> = {
+  unconfigured: "no ingest route is configured on this deployment",
+  "no-credential": "this wallet holds no credential, so nothing is proposed",
+};
 
 /** One sentence per kind, written here rather than forwarded from the route. */
 export const DECLINE_SENTENCE: Record<DeclineKind, string> = {
@@ -102,7 +112,17 @@ export type RunConfig = {
   /** The PAYMENT-SIGNATURE header the browser produced. */
   paymentHeader?: string;
   ingestUrl?: string;
+  /**
+   * The credential kept in the environment, and the one wallet it belongs to.
+   * Every other wallet proposes with its own credential from `credentialFor` or
+   * not at all: a shared key would make every clip the same submitter's, which
+   * is the thing the enrolment exists to end. Both unset, the environment holds
+   * no credential for anyone.
+   */
   ingestKey?: string;
+  ingestKeyPayer?: string;
+  /** This wallet's own credential, from the store, or null. */
+  credentialFor?: (payer: string) => Promise<string | null>;
   /** The paid route's own handler, injected so the checks drive the real one. */
   windowsFetch: typeof fetch;
   ingestFetch?: typeof fetch;
@@ -134,6 +154,41 @@ function detailOf(body: unknown, fallback: string): string {
  */
 export function windowsUrlFor(requestUrl: string): string {
   return new URL("/api/agent/windows", requestUrl).toString();
+}
+
+/**
+ * The wallet that signed the payment, read off the header the browser sent.
+ *
+ * Client supplied bytes, and trustworthy only after the paid route has served:
+ * the facilitator recovers the EIP-3009 signature against this same address, so
+ * a header naming somebody else's wallet never gets past the read. The run reads
+ * it AFTER the paid step for that reason, and uses it for one thing, which
+ * credential to propose with.
+ *
+ * Base64 of JSON with the authorization under `payload`, measured against the
+ * running route rather than read from the protocol documentation, and decoded
+ * with atob so this module carries no Node only API.
+ */
+export function payerFromHeader(header: string | undefined): string | null {
+  if (!header) return null;
+  try {
+    const decoded = JSON.parse(atob(header)) as { payload?: { authorization?: { from?: unknown } } };
+    const from = decoded.payload?.authorization?.from;
+    return typeof from === "string" && /^0x[0-9a-fA-F]{40}$/.test(from) ? from.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Which credential this run proposes with, or null for none. The wallet's own
+ *  first; the environment's only for the wallet it was minted for. */
+async function credentialToUse(cfg: RunConfig, payer: string | null): Promise<string | null> {
+  if (payer && cfg.credentialFor) {
+    const own = await cfg.credentialFor(payer);
+    if (own) return own;
+  }
+  if (cfg.ingestKey && cfg.ingestKeyPayer && payer && payer === cfg.ingestKeyPayer.toLowerCase()) return cfg.ingestKey;
+  return null;
 }
 
 export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
@@ -229,7 +284,10 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
     return;
   }
 
-  if (!cfg.ingestUrl || !cfg.ingestKey) {
+  // Read after the paid step, which is what makes it the verified payer: see
+  // payerFromHeader. Decrypted here and held for the ingest header only.
+  const key = cfg.ingestUrl ? await credentialToUse(cfg, payerFromHeader(cfg.paymentHeader)) : null;
+  if (!cfg.ingestUrl || !key) {
     yield {
       step: "selected",
       windowId: chosen.windowId,
@@ -238,7 +296,8 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
     // Stops one step short rather than inventing a success. The run is still worth
     // watching to here, and saying so is better than a green "proposed" that never
     // reached anything.
-    yield { step: "not-submitted", detail: "no ingest credential is configured on this deployment" };
+    const reason: NotSubmitted = cfg.ingestUrl ? "no-credential" : "unconfigured";
+    yield { step: "not-submitted", detail: NOT_SUBMITTED_SENTENCE[reason], reason };
     yield { step: "done" };
     return;
   }
@@ -256,7 +315,7 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
     yield { step: "proposing", windowId: window.windowId };
     const result = await propose(window, {
       url: cfg.ingestUrl,
-      key: cfg.ingestKey,
+      key,
       ledger,
       fetchImpl: cfg.ingestFetch,
     });
