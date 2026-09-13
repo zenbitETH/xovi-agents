@@ -318,7 +318,11 @@ export async function boardChecks(check: Check) {
   check(uiFiles.length >= 3, `279b0 · the interface sweep reads every file the page is built from (${uiFiles.length})`);
   check(!/Registering is not done here/.test(ui), "279b · and neither sentence the enrolment falsified is left in any of them");
   check(!/No path\s+issues one from this page/.test(ui.replace(/\s+/g, " ")), "279b2 · including the one about issuing a name");
-  check(/Zenbit issues names by hand from its own key/.test(ui), "279b3 · which says instead who issues a name (negative control)");
+  check(/resolved through Zenbit's gateway, without a transaction/.test(ui),
+    "279b3 · which says instead how a name is issued (negative control)");
+  // The sentence it replaced said a person signs a transaction for every name, which
+  // stopped being true when a row became the issuance.
+  check(!/by hand from its own key/.test(ui), "279b4 · and no longer says a key is what issues one");
 
   /*
    * TWO SOURCES ANSWER ONE QUESTION, AND THE PAGE SAYS WHICH.

@@ -882,7 +882,7 @@ const RUNGS: { rung: string; sentences: string }[] = [
   {
     rung: "a name",
     sentences:
-      "Every other name under `xovi.eth` is issued by Zenbit from a request made on this page. No server holds a key that issues one.",
+      "Every other name under `xovi.eth` is issued by Zenbit from a request made on this page. No key on a server owns `xovi.eth` or can move it; the gateway key signs answers and nothing else.",
   },
   { rung: "the money", sentences: "Receipts land in a ledger. No rule routes any of it onward." },
   { rung: "the look", sentences: "A human confirms or rejects every proposal and signs the decision. No institution has paid for one." },

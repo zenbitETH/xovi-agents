@@ -16,6 +16,7 @@ import {
   getAddress,
   http,
   keccak256,
+  toBytes,
   namehash,
   parseAbi,
   toHex,
@@ -516,12 +517,37 @@ async function anvilProof(check: Check, gatewayOrigin: string, template: string)
     console.log("    skip  anvil proof: anvil or forge is not on this machine");
     return;
   }
-  if (!existsSync(artifactPath)) spawnSync("forge", ["build"], { cwd: "contracts", stdio: "ignore" });
+  /*
+   * BUILT EVERY TIME, AND THEN PROVED TO BE THIS SOURCE.
+   *
+   * This built only when the artifact was missing, so whatever `contracts/out`
+   * happened to hold from an earlier build was deployed and proved as the current
+   * contract: an edit to the `.sol` with a stale artifact beside it would have been
+   * answered by the old bytecode and reported as the new one.
+   *
+   * Building is the fix and the comparison is the check, because a build that
+   * silently fails leaves the stale artifact exactly where it was. Foundry records
+   * a keccak of every source in the artifact's own metadata, so the artifact says
+   * which text it was compiled from and that is compared with the text on disk.
+   */
+  spawnSync("forge", ["build"], { cwd: "contracts", stdio: "ignore" });
   if (!existsSync(artifactPath)) {
     console.log("    skip  anvil proof: the contract did not build");
     return;
   }
-  const artifact = JSON.parse(readFileSync(artifactPath, "utf8")) as { abi: readonly unknown[]; bytecode: { object: Hex } };
+  const artifact = JSON.parse(readFileSync(artifactPath, "utf8")) as {
+    abi: readonly unknown[];
+    bytecode: { object: Hex };
+    metadata: { sources: Record<string, { keccak256: string }> };
+  };
+  const compiledFrom = artifact.metadata.sources["src/OffchainResolver.sol"]?.keccak256 ?? null;
+  const onDisk = keccak256(toBytes(readFileSync("contracts/src/OffchainResolver.sol", "utf8")));
+  check(compiledFrom !== null, "383 · the artifact records which source it was compiled from (negative control for the read)");
+  check(compiledFrom === onDisk, `383a · and the contract proved here is the one in the tree (${compiledFrom === onDisk ? "same" : `${String(compiledFrom).slice(0, 12)} against ${onDisk.slice(0, 12)}`})`);
+  if (compiledFrom !== onDisk) {
+    console.log("    skip  anvil proof: the artifact is not this source, so proving it would prove the wrong contract");
+    return;
+  }
   const port = 40000 + Math.floor(Math.random() * 10000);
   const anvil = spawn("anvil", ["--port", String(port), "--silent"], { stdio: "ignore" });
   const url = `http://127.0.0.1:${port}`;
