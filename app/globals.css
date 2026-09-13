@@ -964,6 +964,91 @@ body::after {
 }
 
 /* ---------------------------------------------------------------------------
+   The run, as a modal over the page.
+
+   A native `dialog` opened with `showModal`, so focus is trapped, Escape closes
+   it and the page behind is inert, none of which is worth rebuilding by hand.
+   Closing it never stops the run: the stream is the page's, not the dialog's.
+
+   **The blur is on the page, not on the backdrop.** The stylesheet's rule is that
+   `backdrop-filter` is not used here, and check 175 holds it; blurring the
+   surface behind gets the same picture with `filter`, which has none of that
+   history and needs no prefix pair read back out of the built CSS. The backdrop
+   is a flat translucent scrim.
+--------------------------------------------------------------------------- */
+.ag-run-dialog {
+  width: min(40rem, calc(100vw - 2rem));
+  max-height: min(38rem, calc(100dvh - 4rem));
+  padding: 1rem 1.125rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent);
+  border-radius: 1rem;
+  background-color: var(--color-base-100);
+  color: inherit;
+  /* The one region that scrolls while it is open. */
+  overflow-y: auto;
+  overflow-x: clip;
+}
+
+.ag-run-dialog::backdrop {
+  background-color: color-mix(in srgb, var(--color-base-200) 72%, transparent);
+}
+
+/* The page behind. `filter` and not `backdrop-filter`, for the reason above. */
+body:has(.ag-run-dialog[open]) .ag-surface {
+  filter: blur(3px);
+}
+
+.ag-run-dialog[open] {
+  animation: xvDialogIn 200ms var(--xv-ease-out) both;
+}
+
+/* A modal is anchored to nothing, so it grows from its own centre rather than
+   from the control that opened it. Never from scale 0: a thing that appears from
+   nothing reads as a glitch. */
+@keyframes xvDialogIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+.ag-run-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.ag-run-dialog-head .ag-plan {
+  margin-bottom: 0.5rem;
+  padding-top: 0;
+}
+
+.ag-run-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ag-run-log {
+  margin-top: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The scale goes and the fade stays, and the blur is applied without a
+     transition rather than animated on. */
+  .ag-run-dialog[open] {
+    animation: xvDialogInReduced 160ms var(--xv-ease-out) both !important;
+  }
+}
+
+@keyframes xvDialogInReduced {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
    The rolodex, ported from the Zenbit site's stack, stack.css:447-471.
 
    The site runs those keyframes off a view timeline as a reader scrolls. Here
@@ -1095,6 +1180,16 @@ body::after {
   }
 }
 
+/* A screen's own head. One line of title and one of sub, the mockup's `shead`.
+   Smaller than the run's title block, because the run's is the page's argument
+   and these are labels on a place. */
+.ag-shead-title {
+  margin: 0;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 1.375rem;
+  line-height: 1.15;
+}
+
 /* ---------------------------------------------------------------------------
    The board: days across, the three species down.
 
@@ -1107,6 +1202,15 @@ body::after {
   flex-direction: column;
   gap: 0.75rem;
   padding: 0.25rem;
+}
+
+/* The run's action, beside the cell it will read and nowhere else. */
+.ag-board-run {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .ag-board-grid {

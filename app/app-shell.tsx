@@ -21,6 +21,21 @@ import { CONFIRMATION_259 } from "~~/lib/anchor/confirmation-259";
 
 const REPO = "https://github.com/zenbitETH/xovi-agents";
 
+/**
+ * A head line per screen, the mockup's `shead`: one title and one sub.
+ *
+ * The run's eyebrow and its invariant were standing over every destination,
+ * including the ones where no run is possible, which reads as the page being one
+ * screen with things swapped underneath it.
+ */
+const HEADS: Record<string, { title: string; sub: string }> = {
+  settings: { title: "Settings", sub: "The wallet, what AgentBook says about it, and whether a name is issued to it." },
+  board: { title: "On offer", sub: "A day and a species to read. The agent chooses the window and forms the proposal." },
+  account: { title: "Account", sub: "What this wallet settled, proposed, and can check." },
+  record: { title: "Record", sub: "A confirmation, and the check a stranger can run beside it." },
+  notyet: { title: "Not yet", sub: "What this repository does not do, each with the thing that would have to change." },
+};
+
 // The clip confirmation schema on Ethereum Sepolia, README under "Subgraph and
 // paid query" and the schema row beside it. Public and
 // unauthenticated, and the only destination of this kind that resolves today: there is
@@ -951,12 +966,18 @@ function Board({
   cells,
   chosen,
   onChoose,
+  onRun,
+  running,
+  connected,
 }: {
   state: "loading" | "ready" | "unconfigured" | "failed";
   days: string[];
   cells: { day: string; species: string; onOffer: boolean }[];
   chosen: Chosen | null;
   onChoose: (cell: Chosen) => void;
+  onRun: () => void;
+  running: boolean;
+  connected: boolean;
 }) {
   if (state === "loading") return <p className="xv-desc ag-empty">Reading what is on offer.</p>;
   if (state === "unconfigured") return <p className="xv-desc ag-empty">This deployment has no windows configured, so there is nothing on offer.</p>;
@@ -969,6 +990,16 @@ function Board({
         Choose a day and a species to read. The agent chooses the window and forms the proposal; no word and no choice
         of window from here reaches the clip.
       </p>
+      {chosen !== null && (
+        <div className="ag-board-run">
+          <span className="ag-sub">
+            {chosen.day}, {chosen.species}
+          </span>
+          <button className="btn xv-action ag-primary" onClick={onRun} disabled={running || !connected}>
+            {running ? "Running" : "Pay and run"}
+          </button>
+        </div>
+      )}
       <div className="ag-board-grid" style={{ "--xv-board-n": days.length } as React.CSSProperties}>
         <span className="ag-board-corner" aria-hidden="true" />
         {days.map(day => (
@@ -1400,7 +1431,10 @@ export function AppShell() {
   const [lines, setLines] = useState<Line[]>([]);
   const [steps, setSteps] = useState<RunStep[]>([]);
   const [challengeRead, setChallengeRead] = useState(false);
-  const [at, setAt] = useState(0);
+  // Where a person has stepped back to, or null for the newest card. Derived
+  // rather than tracked, so the index cannot drift out of the array it points
+  // into and leave every card drawn as one that has tipped away.
+  const [pinned, setPinned] = useState<number | null>(null);
   const [signed, setSigned] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>("settings");
@@ -1415,15 +1449,11 @@ export function AppShell() {
   const [issuedName, setIssuedName] = useState<string | null>(null);
   const [walletNote, setWalletNote] = useState<string | null>(null);
   const busy = useRef(false);
+  const runDialog = useRef<HTMLDialogElement | null>(null);
   const feedEnd = useRef<HTMLLIElement | null>(null);
 
   const say = useCallback((line: Line) => {
-    setLines(prev => {
-      // The newest card is the one being read. A person who has stepped back
-      // keeps their place rather than being yanked forward by the next step.
-      setAt(current => (current === prev.length - 1 || prev.length === 0 ? prev.length : current));
-      return [...prev, line];
-    });
+    setLines(prev => [...prev, line]);
     // The newest line is the one being watched, and the body is the only region
     // that scrolls, so it follows the run rather than making a reader chase it.
     queueMicrotask(() => feedEnd.current?.scrollIntoView({ block: "end", behavior: "smooth" }));
@@ -1579,6 +1609,13 @@ export function AppShell() {
     };
   }, [address]);
 
+  /** `showModal` and not an open attribute: it traps focus, makes the page behind
+   *  inert and gives Escape for nothing, none of which is worth rebuilding. */
+  const openRun = useCallback(() => {
+    const dialog = runDialog.current;
+    if (dialog !== null && !dialog.open) dialog.showModal();
+  }, []);
+
   const onDisconnect = useCallback(async () => {
     const how = await disconnect();
     setAddress(null);
@@ -1628,10 +1665,14 @@ export function AppShell() {
   const onRun = useCallback(async () => {
     if (!address || busy.current) return;
     busy.current = true;
+    // The viewer goes where the run is, before the first line arrives. A run that
+    // happens behind a screen nobody is looking at is a run with no feedback,
+    // which is what the founder met when the action stood on every screen.
+    openRun();
     setError(null);
     setLines([]);
     setSteps([]);
-    setAt(0);
+    setPinned(null);
     setChallengeRead(false);
     setSigned(false);
     setPhase("signing");
@@ -1706,6 +1747,7 @@ export function AppShell() {
   // and not a phrase match over its narration.
   const supply = running ? null : supplyFrom(steps);
   const lit = planFrom(challengeRead, signed, steps);
+  const at = pinned === null ? Math.max(0, lines.length - 1) : Math.min(pinned, Math.max(0, lines.length - 1));
 
   return (
     <>
@@ -1742,13 +1784,24 @@ export function AppShell() {
       <main className="ag-app">
         <div className="ag-surface">
           <div className="ag-app-top">
-            <p className="ag-eyebrow">Delegated run · Base Sepolia</p>
-            <h1 className="ag-app-title">An agent may propose. No credential in existence may confirm.</h1>
-            <p className="ag-sub">
-              {address === null
-                ? "Connect a wallet, pay for one read, and the agent does the rest."
-                : "Pay for one read, and the agent does the rest."}
-            </p>
+            {screen === "run" ? (
+              <>
+                <p className="ag-eyebrow">Delegated run · Base Sepolia</p>
+                <h1 className="ag-app-title">An agent may propose. No credential in existence may confirm.</h1>
+              </>
+            ) : (
+              <>
+                <h1 className="ag-shead-title">{HEADS[screen]?.title}</h1>
+                <p className="ag-sub">{HEADS[screen]?.sub}</p>
+              </>
+            )}
+            {screen === "run" && (
+              <p className="ag-sub">
+                {address === null
+                  ? "Connect a wallet, pay for one read, and the agent does the rest."
+                  : "Pay for one read, and the agent does the rest."}
+              </p>
+            )}
             <nav className="ag-rail" aria-label="Sections" style={{ "--xv-strip-n": screensFor(chosen !== null).length } as React.CSSProperties}>
               {/* The indicator is one element moved with `transform`, so the state
                   travels between items rather than being switched off one and on
@@ -1765,7 +1818,7 @@ export function AppShell() {
                   type="button"
                   className={s.id === screen ? "ag-rail-item ag-rail-on" : "ag-rail-item"}
                   aria-current={s.id === screen ? "true" : undefined}
-                  onClick={() => setScreen(s.id)}
+                  onClick={() => (s.id === "run" ? openRun() : setScreen(s.id))}
                 >
                   {s.label}
                 </button>
@@ -1799,10 +1852,10 @@ export function AppShell() {
                   days={board.days}
                   cells={board.cells}
                   chosen={chosen}
-                  onChoose={cell => {
-                    setChosen(cell);
-                    setScreen("run");
-                  }}
+                  onChoose={cell => setChosen(cell)}
+                  onRun={() => void onRun()}
+                  running={running}
+                  connected={address !== null}
                 />
               ) : screen === "account" ? (
                 <div className="ag-account-body">
@@ -1855,7 +1908,7 @@ export function AppShell() {
                       </li>
                     ))}
                   </ol>
-                  {lines.length > 0 && <Rolodex lines={lines} at={at} onStep={to => setAt(Math.max(0, Math.min(lines.length - 1, to)))} />}
+                  {lines.length > 0 && <Rolodex lines={lines} at={at} onStep={to => setPinned(to >= lines.length - 1 ? null : Math.max(0, to))} />}
                   {lines.length === 0 ? (
                 <div className="ag-intro">
                   {/* The fold. Three verbs, one sentence each, and each sentence restates
@@ -2018,11 +2071,8 @@ export function AppShell() {
               </p>
             )}
             <div className="ag-actions">
-              {address !== null && (
-                <button className="btn xv-action ag-primary" onClick={onRun} disabled={running}>
-                  {running ? "Running" : "Pay and run"}
-                </button>
-              )}
+              {/* Nothing pressable here. The run's action lives beside the cell
+                  it will read, on the Board, and nowhere else. */}
               {/* Not documentation. This surface reads a wallet address and the server
                   keeps a keyed digest of the identifier behind it for thirty days, so
                   the controller has to be reachable from the surface that does it. */}
@@ -2038,6 +2088,63 @@ export function AppShell() {
             </div>
           </div>
         </div>
+        {/* The run, over the page rather than instead of it. Closing it never
+            stops the stream: the status chip keeps moving and the strip's Run
+            item reopens it on whatever card the run has reached. */}
+        <dialog ref={runDialog} className="ag-run-dialog" aria-label="The run">
+          <div className="ag-run-dialog-head">
+            <ol className="ag-plan">
+              {PLAN.map((node, i) => (
+                <li
+                  key={node.label}
+                  className={lit[i] ? `ag-plan-node ag-actor-${node.actor} ag-plan-lit` : `ag-plan-node ag-actor-${node.actor}`}
+                >
+                  <span className="ag-plan-dot" aria-hidden="true" />
+                  <span className="ag-plan-label">{node.label}</span>
+                </li>
+              ))}
+            </ol>
+            <form method="dialog">
+              <button className="ag-rail-item">Close</button>
+            </form>
+          </div>
+
+          <div className="ag-run-dialog-body">
+            <Rolodex lines={lines} at={at} onStep={to => setPinned(to >= lines.length - 1 ? null : Math.max(0, to))} />
+            {supply !== null && (
+              <div className="ag-supply">
+                <p className="ag-supply-line">{supplySentence(supply)}</p>
+                <span className="ag-tiles">
+                  {supply.ids.map(id => (
+                    <span key={id} className="ag-tile">
+                      {id}
+                    </span>
+                  ))}
+                </span>
+              </div>
+            )}
+            {error !== null && (
+              <p className="xv-desc ag-error" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+
+          <details className="ag-more ag-run-log">
+            <summary className="ag-more-summary">The whole sequence</summary>
+            <ol className="ag-feed">
+              {lines.map((line, i) => (
+                <li key={i} className={`ag-feed-row ag-tone-${line.tone} ag-actor-${line.actor}`}>
+                  <span className="ag-feed-dot" aria-hidden="true" />
+                  <span>
+                    <span className="ag-feed-text">{line.text}</span>
+                    {line.detail !== undefined && <span className="ag-feed-detail">{line.detail}</span>}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </details>
+        </dialog>
       </main>
     </>
   );

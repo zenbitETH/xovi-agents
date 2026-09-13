@@ -188,6 +188,7 @@ export async function boardChecks(check: Check) {
   check(/\d/.test(JSON.stringify({ state: 12345n.toString() })), "278f · the digit check can see one (negative control)");
 
   const page = readFileSync("app/app-shell.tsx", "utf8");
+  const css = readFileSync("app/globals.css", "utf8");
   check(/REGISTRATION_LINE/.test(page), "279 · the gate draws AgentBook's answer as a sentence per state");
   // Read off the line the gate actually shows for unread. The substring was also
   // the Names section's sentence, so a wrong line here left it green.
@@ -213,6 +214,39 @@ export async function boardChecks(check: Check) {
   check(/on offer/.test(boardBlock) && !/\{cell\?\.count|length\}/.test(boardBlock), "280 · a cell says on offer or none and never how many");
   check(/searchParams\.set\("day", chosen\.day\)/.test(page) && /searchParams\.set\("species", chosen\.species\)/.test(page),
     "280a · and the chosen cell is what the run reads");
+
+  /*
+   * A run lands the viewer on the screen the run is on.
+   *
+   * The action stood in the bottom bar on every destination with no guard, and
+   * `onRun` never changed screen, so pressing it on Settings ran the whole thing
+   * on a Run screen nobody was looking at: a run with no feedback, which is worse
+   * on camera than the rows it replaced.
+   */
+  const runBlock = page.slice(page.indexOf("const onRun = useCallback"), page.indexOf("const running ="));
+  check(/openRun\(\)/.test(runBlock), "284 · starting a run opens the dialog it happens in");
+  check(runBlock.indexOf("openRun()") < runBlock.indexOf('setPhase("signing")'), "284a · before the first line can arrive");
+  check(/dialog\.showModal\(\)/.test(page), "284b · with showModal, so focus is trapped and the page behind is inert");
+  // Closing is a form method, which ends the dialog and touches no run state, so
+  // a person who closes it mid run loses nothing.
+  const dialogBlock = page.slice(page.indexOf('<dialog ref={runDialog}'), page.indexOf("</dialog>"));
+  check(/<form method="dialog">/.test(dialogBlock), "284c · closing it is a dialog form and aborts nothing");
+  check(!/abort|reader\.cancel|controller/.test(dialogBlock), "284d · and nothing in it stops the stream");
+  // The action lives beside the cell it will read and nowhere else.
+  const boardRun = page.slice(page.indexOf("ag-board-run"), page.indexOf("ag-board-run") + 500);
+  check(/Pay and run/.test(boardRun), "284e · the action is on the board beside the chosen cell");
+  // Over a copy with the comments stripped, for the reason 279e strips them: the
+  // note explaining where the action lives names the action.
+  const renderedPage = page.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const payControls = (renderedPage.match(/"Pay and run"/g) ?? []).length;
+  check(payControls === 1, `284f · and exists exactly once on the page (${payControls})`);
+  // The blur is on the page. The stylesheet's rule against backdrop-filter and
+  // the check that holds it are untouched.
+  check(/body:has\(\.ag-run-dialog\[open\]\) \.ag-surface/.test(css) && /filter: blur/.test(css),
+    "284g · the page behind is blurred rather than the backdrop");
+  const heads = page.slice(page.indexOf("const HEADS"), page.indexOf("const HEADS") + 900);
+  check(/settings:/.test(heads) && /board:/.test(heads), "285 · every screen but the run carries its own head line");
+  check(/screen === "run" \? \(/.test(page), "285a · and the run's title block belongs to the run");
 
   if (before === undefined) delete process.env.WINDOWS_SNAPSHOT;
   else process.env.WINDOWS_SNAPSHOT = before;
