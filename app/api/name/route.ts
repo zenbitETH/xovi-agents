@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { http, createPublicClient, getAddress, isAddress } from "viem";
 import { sepolia } from "viem/chains";
 import { ZERO_ADDRESS, matchesPayer, nameResolver } from "~~/lib/agent/name";
+import { PARENT, storeFrom } from "~~/lib/agent/names-store";
 
 export const dynamic = "force-dynamic";
 
@@ -32,10 +33,27 @@ export async function GET(request: Request) {
   if (!payer) return refuse(400, "name a payer");
   if (!isAddress(payer)) return refuse(400, "that is not an address");
 
-  const name = (process.env.AGENT_IDENTITY_NAME ?? "").trim();
-  // No name configured is a real answer and not a failure: this deployment claims
-  // no name, and the page states the negative.
-  if (!name) return NextResponse.json({ name: null, address: null, matches: false }, { headers: NO_STORE });
+  /*
+   * The table first, the configured name second.
+   *
+   * A wallet that asked for a name has a label of its own, and answering with the
+   * configured name for it would tell that person about somebody else's name. The
+   * fallback exists for the wallet that never asked: the founder's recording wallet
+   * matches `agent1.xovi.eth` from the chain alone, with no row in the table, and
+   * that path is unchanged by any of this.
+   */
+  const store = storeFrom();
+  const row = store ? await store.byPayer(getAddress(payer)).catch(() => null) : null;
+
+  const configured = (process.env.AGENT_IDENTITY_NAME ?? "").trim();
+  const name = row ? `${row.label}.${PARENT}` : configured;
+
+  // No row and no name configured is a real answer and not a failure: this wallet
+  // has asked for nothing and this deployment claims no name, and the page states
+  // the negative.
+  if (!name) {
+    return NextResponse.json({ state: "none", name: null, address: null, matches: false }, { headers: NO_STORE });
+  }
 
   const client = createPublicClient({ chain: sepolia, transport: http(process.env.AGENT_ENS_RPC_URL || undefined) });
 
@@ -56,14 +74,33 @@ export async function GET(request: Request) {
   // parent, where every subname resolves and an unissued name looks exactly like a
   // typo. Both are reported as no name issued rather than as an error.
   const issued = address !== null && address !== ZERO_ADDRESS;
+  const matches = matchesPayer(address, payer);
+  /*
+   * THE STATE COMES FROM THE CHAIN AND NEVER FROM THE ROW.
+   *
+   * `issued` is drawn only when the address record equals the wallet asking. A row
+   * carrying a transaction hash is evidence that an issuance was attempted, not that
+   * the chain holds the record: the hash could belong to a reverted transaction, or
+   * the record could have been changed since. Drawing issued from the table alone is
+   * the mutation the checks are shaped to catch.
+   *
+   * So a row without a match reads `requested`, which is exactly right while the
+   * founder has not run the issuer yet, and it is what the card shows a person who
+   * has clicked and is waiting.
+   */
+  const state = matches ? "issued" : row ? "requested" : "none";
+
   return NextResponse.json(
     {
+      state,
+      label: row ? row.label : null,
+      requestedAt: row ? row.requestedAt : null,
       name,
       address: issued ? getAddress(address as string) : null,
       // Issued and issued to this payer are two questions, and only the second may
       // draw the positive. Replacing this with `issued` is the mutation the checks
       // are shaped to catch, because under a wildcard parent every name is issued.
-      matches: matchesPayer(address, payer),
+      matches,
     },
     { headers: NO_STORE },
   );
