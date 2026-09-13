@@ -61,7 +61,81 @@ export class DayUnknown extends Error {}
 
 /** A window with the two facts the board sorts by, neither of them new: the day
  *  its footage belongs to and the species its station holds. */
-export type BoardWindow = CandidateWindow & { day: string };
+export type BoardWindow = CandidateWindow & { day: string; meta?: RecordingMeta };
+
+/**
+ * What the board may say about the recording behind a cell, and nothing more.
+ *
+ * TWO FIELDS, AND THE LIST IS CLOSED. A recording's metadata is a rich object and
+ * almost all of it is exactly what this repository spends its checks keeping off a
+ * public surface: the title carries the species and the date, and a description or a
+ * tag list can carry a station or an alias. So the sidecar is not "the metadata", it
+ * is these two values, and a file carrying a third key is REFUSED rather than read
+ * past. Refusing is the point: a loader that ignored unknown keys would let a title
+ * sit in a committed file, unread today and read by whatever wants it tomorrow.
+ */
+export type RecordingMeta = { durationSeconds: number; thumbnail: string };
+
+/** A meta sidecar that exists and is wrong. Refused rather than dropped: a file
+ *  sitting beside the windows saying there should be a thumbnail, while the board
+ *  serves none, is a misconfiguration nobody would see. */
+export class MetaInvalid extends SnapshotUnavailable {}
+
+/** The one host a thumbnail may come from. A URL is a request the browser makes on
+ *  behalf of whoever opens the board, so the host is pinned rather than trusted. */
+const THUMBNAIL_HOST = "i.ytimg.com";
+const META_KEYS = ["durationSeconds", "thumbnail"];
+
+/**
+ * The recording's two facts, or null when there is no meta file.
+ *
+ * Absent is fine and is not an error: meta is optional and a windows file without one
+ * is served without one. Present and wrong is an error, for the reason above.
+ */
+function readMetaSidecar(file: string): RecordingMeta | null {
+  const path = `${file}.meta.json`;
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new MetaInvalid(`${path} is not JSON`);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new MetaInvalid(`${path} is not an object`);
+  }
+
+  const keys = Object.keys(parsed as Record<string, unknown>).sort();
+  const extra = keys.filter(k => !META_KEYS.includes(k));
+  if (extra.length > 0) throw new MetaInvalid(`${path} carries ${extra.join(", ")}; only ${META_KEYS.join(" and ")} may be served`);
+  const missing = META_KEYS.filter(k => !keys.includes(k));
+  if (missing.length > 0) throw new MetaInvalid(`${path} is missing ${missing.join(", ")}`);
+
+  const { durationSeconds, thumbnail } = parsed as Record<string, unknown>;
+  // Integer, because it is read from the recording rather than estimated, and a
+  // fractional second would be a sign it was computed from something else.
+  if (typeof durationSeconds !== "number" || !Number.isInteger(durationSeconds) || durationSeconds <= 0) {
+    throw new MetaInvalid(`${path}: durationSeconds must be a positive whole number of seconds`);
+  }
+  if (typeof thumbnail !== "string") throw new MetaInvalid(`${path}: thumbnail must be a url`);
+  let url: URL;
+  try {
+    url = new URL(thumbnail);
+  } catch {
+    throw new MetaInvalid(`${path}: thumbnail is not a url`);
+  }
+  if (url.protocol !== "https:" || url.hostname !== THUMBNAIL_HOST) {
+    throw new MetaInvalid(`${path}: thumbnail must be https on ${THUMBNAIL_HOST}, got ${url.protocol}//${url.hostname}`);
+  }
+
+  return { durationSeconds, thumbnail };
+}
 
 function readDaySidecar(file: string): string | null {
   try {
@@ -170,6 +244,9 @@ export function loadSnapshot(env: EnvLike = process.env): BoardWindow[] {
       throw new SnapshotUnavailable(`snapshot not readable at ${file}`);
     }
     const sidecar = readDaySidecar(file);
+    // Read before any window is parsed, so a wrong meta file refuses the snapshot
+    // rather than half of it.
+    const meta = readMetaSidecar(file);
     // Invented data has no recording day to state, and it is named explicitly or
     // not read at all. It is served with no day, so it draws no cell: `boardFrom`
     // keeps only the days that exist.
@@ -192,7 +269,13 @@ export function loadSnapshot(env: EnvLike = process.env): BoardWindow[] {
       if (problems.length > 0) rejected.push(`${file} line ${i + 1}: ${problems.join("; ")}`);
       else {
         const w = parsed as CandidateWindow;
-        out.push({ ...w, day: sidecar === null ? "" : dayOf(sidecar) });
+        out.push({
+          ...w,
+          day: sidecar === null ? "" : dayOf(sidecar),
+          // Spread only when there is one, so a window without meta has no key at
+          // all rather than an undefined one that serialises into the wire shape.
+          ...(meta === null ? {} : { meta }),
+        });
       }
     });
   }
