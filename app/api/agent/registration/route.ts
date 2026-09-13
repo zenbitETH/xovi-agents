@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAddress } from "viem";
+import { credentialStoreFrom, ensureCredential } from "~~/lib/agent/credentials";
+import { storeFrom as namesStoreFrom } from "~~/lib/agent/names-store";
 import { capFrom, registrationOf } from "~~/lib/human/cap";
 import { now } from "~~/lib/human/clock";
 import { enrollmentThrottle } from "~~/lib/human/throttle";
@@ -26,14 +28,25 @@ function refuse(status: number, error: string, headers: Record<string, string> =
  * about the wallet; unread is an answer about the read, and drawing it as not
  * registered would tell a person to enrol when they already have. `source` says
  * which of the two sources answered, and a wallet in both answers AgentBook.
+ *
+ * `agentCredential` says whether the wallet holds the credential it proposes
+ * with. A registered wallet without one is minted one here, on the first read
+ * that finds it missing, which is how a wallet AgentBook knows gets its
+ * credential without an enrolment in the page; the mint is once per wallet on
+ * the other side, so a read that finds a row makes no call.
  */
 export async function GET(request: Request) {
   const payer = new URL(request.url).searchParams.get("payer");
   if (!payer) return refuse(400, "name a payer");
   if (!isAddress(payer)) return refuse(400, "that is not an address");
 
-  const answer = await registrationOf(payer, capFrom(), now());
-  return NextResponse.json({ state: answer.state, source: answer.source, credential: answer.credential }, { headers: NO_STORE });
+  const at = now();
+  const answer = await registrationOf(payer, capFrom(), at);
+  const agentCredential =
+    answer.state === "registered"
+      ? await ensureCredential(payer, { store: credentialStoreFrom(), names: namesStoreFrom(), at }).catch(() => "none" as const)
+      : "none";
+  return NextResponse.json({ state: answer.state, source: answer.source, credential: answer.credential, agentCredential }, { headers: NO_STORE });
 }
 
 /**
@@ -74,9 +87,12 @@ export async function POST(request: Request) {
 
   const outcome = await verifyEnrollment({ payer, result, signature, store: capFrom().verifications, at });
   if (!outcome.ok) return refuse(outcome.status, outcome.error);
+  // The credential, minted now that a person stands behind the wallet. A mint
+  // that fails leaves the enrolment as it is; the read asks again next time.
+  const agentCredential = await ensureCredential(payer, { store: credentialStoreFrom(), names: namesStoreFrom(), at }).catch(() => "none" as const);
   // Built field by field, for the reason the receipts route gives: what the
   // verifier answered is not what the wire gets, and a field grown on the way
   // reaches nobody until it is named here.
-  const served = { state: "registered", source: "worldid", credential: outcome.credential, expiresAt: outcome.expiresAt.toISOString() };
+  const served = { state: "registered", source: "worldid", credential: outcome.credential, expiresAt: outcome.expiresAt.toISOString(), agentCredential };
   return NextResponse.json(served, { headers: NO_STORE });
 }
