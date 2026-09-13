@@ -31,7 +31,7 @@ const REPO = "https://github.com/zenbitETH/xovi-agents";
  * including the ones where no run is possible, which reads as the page being one
  * screen with things swapped underneath it.
  */
-const HEADS: Record<string, { title: string; sub: string }> = {
+const HEADS: Record<Screen, { title: string; sub: string }> = {
   board: { title: "On offer", sub: "A day and a species to read. The agent chooses the window and forms the proposal." },
   account: { title: "Account", sub: "What this wallet settled, proposed, and can check." },
   record: { title: "Record", sub: "A confirmation, and the check a stranger can run beside it." },
@@ -330,47 +330,6 @@ export function planFrom(challengeRead: boolean, signed: boolean, steps: RunStep
   ];
 }
 
-/** The marks on the tiles. `currentColor` throughout, so the hue is a class and
- *  never a literal: the agent hue is declared once as a token and check 212b
- *  holds it there. Width and height on the element, as check 216 requires. */
-function MarkReceipt() {
-  return (
-    <svg className="ag-verb-mark ag-mark-agent" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M4.5 2.5h11v15l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-1 .7z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-      />
-      <path d="M7.5 7h5M7.5 10.5h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function MarkSignature() {
-  return (
-    <svg className="ag-verb-mark ag-mark-human" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M2.5 13.5c3 0 3.5-8 5.5-8s1.5 8 3.5 8 2-4 3-4 1.2 1.6 3 1.6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-      <path d="M2.5 17h15" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.45" />
-    </svg>
-  );
-}
-
-function MarkEquality() {
-  return (
-    <svg className="ag-verb-mark ag-mark-system" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-      <path d="M4 8h12M4 12h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 type Phase = "idle" | "connecting" | "ready" | "signing" | "running" | "finished";
 
 const PHASE_LABEL: Record<Phase, string> = {
@@ -407,7 +366,27 @@ type Settlement = {
  *
  * A destination is added the day it is built, so no item opens on nothing.
  */
-type Screen = "settings" | "board" | "run" | "account" | "record" | "notyet";
+type Screen = "board" | "account" | "record" | "notyet";
+
+/**
+ * A destination in the strip, which is the four screens and the run.
+ *
+ * The run is not a screen and never was one: `openRun` shows a dialog over
+ * whatever is behind it, and nothing sets a run screen. While the two were one
+ * type the body carried an arm for a state it could not be in, and that arm was
+ * where the page's rest state lived: a plan nobody could reach and a fold that
+ * explained the product above it. Splitting the two makes the body's arms
+ * exhaustive, so `exhausted` below stops compiling the day a fifth screen is
+ * added without a surface.
+ */
+type Destination = Screen | "run";
+
+/** The branch no screen takes. It exists to be uninhabitable: give it anything
+ *  but `never` and the type checker refuses the file. */
+function exhausted(screen: never): null {
+  void screen;
+  return null;
+}
 
 /**
  * The destinations, and the flow through the first three.
@@ -417,7 +396,7 @@ type Screen = "settings" | "board" | "run" | "account" | "record" | "notyet";
  * present and inert, because a control that does nothing is a control that lies,
  * which is the same rule that keeps a drawn but unbuilt action off this page.
  */
-export const SCREENS: { id: Screen; label: string }[] = [
+export const SCREENS: { id: Destination; label: string }[] = [
   { id: "board", label: "Board" },
   { id: "run", label: "Run" },
   { id: "account", label: "Account" },
@@ -434,7 +413,7 @@ export const SCREENS: { id: Screen; label: string }[] = [
  * header chip carries how it ended, and the receipts in Account are where a
  * finished run is read. A new Pay and run brings the tab back.
  */
-export function screensFor(runInProgress: boolean): { id: Screen; label: string }[] {
+export function screensFor(runInProgress: boolean): { id: Destination; label: string }[] {
   return SCREENS.filter(s => s.id !== "run" || runInProgress);
 }
 
@@ -1191,11 +1170,18 @@ export function newestRecording(cells: { day: string; onOffer: boolean; videoId?
  * one before it has happened. No state on any of them, since none of these cards
  * knows anything about the person reading it.
  */
-const PROCESS: { title: string; line: string }[] = [
+export const PROCESS: { title: string; line: string }[] = [
   { title: "Connect a wallet", line: "On Base Sepolia, which is where the payment settles." },
-  { title: "Verify with World ID", line: "Optional. It earns the free reads of the day and a name under xovi.eth." },
+  // A name is issued by Zenbit on request, not conferred by registering, so the
+  // card says what registering opens rather than what it hands over.
+  { title: "Verify with World ID", line: "Optional. It earns the free reads of the day and lets a person ask for a name under xovi.eth." },
   { title: "Choose a day and a species", line: "A board of what is on offer, cut from recordings of the museum's own stream." },
-  { title: "Pay and run", line: "The agent reads the windows it was paid for and proposes one clip." },
+  // The condition the fold used to carry. On this deployment the two ingest
+  // variables are not set, so a run here ends at not-submitted, which is the path
+  // `test/agent-run.ts` asserts and which `DISCLOSURE.md` states as a negative.
+  // "Proposes one clip" without the condition is the exact claim the sweep
+  // carries as false, and it would stand on the first surface a visitor reads.
+  { title: "Pay and run", line: "The agent reads the windows it was paid for and stops. Where a credential is configured, it proposes one clip." },
   { title: "A person decides", line: "Somebody confirms or rejects the proposal, signs it, and the record follows." },
 ];
 
@@ -1884,14 +1870,11 @@ export function AppShell() {
   const busy = useRef(false);
   const runDialog = useRef<HTMLDialogElement | null>(null);
   const nameDialog = useRef<HTMLDialogElement | null>(null);
-  const feedEnd = useRef<HTMLLIElement | null>(null);
-
-  const say = useCallback((line: Line) => {
-    setLines(prev => [...prev, line]);
-    // The newest line is the one being watched, and the body is the only region
-    // that scrolls, so it follows the run rather than making a reader chase it.
-    queueMicrotask(() => feedEnd.current?.scrollIntoView({ block: "end", behavior: "smooth" }));
-  }, []);
+  // No scroll to a tail. The run is read on the wheel, which moves itself and
+  // holds one card at a time, and the whole sequence below it is a disclosure a
+  // person opens. The scroll this replaced pointed at a row in the arm above,
+  // so it had been following a node that never mounted.
+  const say = useCallback((line: Line) => setLines(prev => [...prev, line]), []);
 
   /**
    * Read this wallet's settlements once it is known, and again when a run ends.
@@ -2343,10 +2326,10 @@ export function AppShell() {
           <div className="ag-app-top">
             {/* The onboarding is a state of the page rather than a destination,
                 so it has its own head instead of borrowing the board's. */}
-            <h1 className="ag-shead-title">{onboarded ? HEADS[screen]?.title : "Before a run"}</h1>
+            <h1 className="ag-shead-title">{onboarded ? HEADS[screen].title : "Before a run"}</h1>
             <p className="ag-sub">
               {onboarded
-                ? HEADS[screen]?.sub
+                ? HEADS[screen].sub
                 : "Three things have to be true before an agent can pay for a read on your behalf."}
             </p>
                         {onboarded && (
@@ -2454,174 +2437,7 @@ export function AppShell() {
               ) : screen === "notyet" ? (
                 <NotYet />
               ) : (
-                <>
-                  {/* Above both states, because the plan is what the run is about
-                      to do and then what it is doing. Idle at rest; each node
-                      lights from the event that means it happened and never from
-                      the node before it. */}
-                  <ol className="ag-plan">
-                    {PLAN.map((node, i) => (
-                      <li
-                        key={node.label}
-                        className={lit[i] ? `ag-plan-node ag-actor-${node.actor} ag-plan-lit` : `ag-plan-node ag-actor-${node.actor}`}
-                      >
-                        <span className="ag-plan-dot" aria-hidden="true" />
-                        <span className="ag-plan-label">{node.label}</span>
-                      </li>
-                    ))}
-                  </ol>
-                  {lines.length > 0 && <Rolodex lines={lines} at={at} onStep={to => setPinned(to >= lines.length - 1 ? null : Math.max(0, to))} />}
-                  {lines.length === 0 ? (
-                <div className="ag-intro">
-                  {/* The fold. Three verbs, one sentence each, and each sentence restates
-                      something already merged in this repository. What the page opens with
-                      is what a person can do here, not an explanation of it: the paragraph
-                      that used to sit at the top said in four sentences what the third tile
-                      and the command line say in two. */}
-                  <div className="ag-verbs">
-                    <div className="ag-verb">
-                      <h2 className="ag-verb-name">
-                        <MarkReceipt />
-                        Own
-                      </h2>
-                      {/* DISCLOSURE, "A receipts ledger": a settlement is recorded against
-                          the payer who made it. The second sentence is this branch's own
-                          route rather than merged text, and it is what `/api/receipts`
-                          does and what checks 218b and 219 hold it to. "You keep them"
-                          claimed custody the ledger does not give anybody. */}
-                      <p className="ag-verb-line">
-                        Every read your agent pays for leaves a receipt on a public chain. It is read back for that
-                        payer alone.
-                      </p>
-                    </div>
-                    <div className="ag-verb">
-                      <h2 className="ag-verb-name">
-                        <MarkSignature />
-                        Manage
-                      </h2>
-                      {/* DISCLOSURE, "Delegation from a reader's own wallet"; bin/agent.ts,
-                          "Read a window, propose a clip, stop".
-
-                          The proposing is conditional and the tile has to say so. On the
-                          deployment the two ingest variables are not set, so a run there
-                          ends at not-submitted, which is the path `test/agent-run.ts`
-                          asserts and which `DISCLOSURE.md` states as a negative. An
-                          unconditional "proposes once" would put the exact claim the
-                          sweep carries as false onto the judged page. */}
-                      <p className="ag-verb-line">
-                        The agent reads what it paid for and stops. Where a credential is configured, it proposes once.
-                      </p>
-                    </div>
-                    <div className="ag-verb">
-                      <h2 className="ag-verb-name">
-                        <MarkEquality />
-                        Check
-                      </h2>
-                      {/* docs/spec/05-anchor-and-query.md:66, "in a way anybody can check
-                          with one call", for the call; the operator being out of the path is
-                          the same document's trust boundary. */}
-                      <p className="ag-verb-line">
-                        A confirmed record can be checked by a stranger with one call. Zenbit is not in the path.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Four words, because the Manage tile above already carries the
-                      sentence this line used to repeat. It restates DISCLOSURE's
-                      delegation bullet, that the reader signs one payment and supplies
-                      nothing else; the phrasing is carried over from the intro paragraph
-                      this branch removed, which came in with the payment card and is not
-                      on `main`. */}
-                  <p className="ag-command">A signature, and go.</p>
-
-                  {/* Every sentence below is already merged, public and reviewed in this
-                      repository, and each carries the line it came from. The page states
-                      nothing that a reviewed surface does not, so it cannot drift from one.
-
-                      Behind a disclosure rather than deleted. They are merged text and a
-                      judge may want them, and they were the rest state's bulk: five
-                      definitions before a reader had seen what the page does. */}
-                  <details className="ag-more">
-                    <summary className="ag-more-summary">The facts</summary>
-                    <dl className="ag-facts">
-                    <div>
-                      <dt>What a window is</dt>
-                      {/* docs/spec/02-candidate-windows.md:101 */}
-                      <dd>
-                        A claim that something was worth a human&rsquo;s attention. Not a claim that an animal was
-                        identified, or that a behaviour occurred.
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>What paying does not buy</dt>
-                      {/* README, "The human operator confirms; the confirmation is attested", both sentences */}
-                      <dd>
-                        The attestation certifies no identity, no reputation, no payment and no biological fact. The
-                        agent proposes; no credential of its own can confirm or attest.
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>One person, one allowance</dt>
-                      {/* README, "per person caps", for the allowance; DISCLOSURE, "not defeated by generating wallets", for why it is per person. Quoted around the word the interface may not carry, since check 177 reads this file whole. */}
-                      <dd>
-                        The free daily allowance is administered per person rather than per wallet, because a per wallet
-                        limit is not defeated by generating wallets.
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Checkable without Zenbit</dt>
-                      {/* docs/spec/05-anchor-and-query.md:118 */}
-                      <dd>
-                        A confirmation carries the reviewer&rsquo;s signature. The operator can be uncooperative, or
-                        gone, and the confirmation is still checkable by anyone who kept the identifier.{" "}
-                        <a className="ag-link" href={SCHEMA}>
-                          The schema on Sepolia
-                        </a>
-                        .
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Why it exists</dt>
-                      {/* README, "So the thing worth selling is not the observation" */}
-                      <dd>
-                        Observations are public. What is scarce is derivation and provenance, and that join is the
-                        product.
-                      </dd>
-                    </div>
-                    </dl>
-                  </details>
-                </div>
-              ) : (
-                <ol className="ag-feed">
-                  {lines.map((line, i) => (
-                    <li key={i} className={`ag-feed-row ag-tone-${line.tone} ag-actor-${line.actor}`}>
-                      <span className="ag-feed-dot" aria-hidden="true" />
-                      <span>
-                        <span className="ag-feed-text">{line.text}</span>
-                        {line.detail !== undefined && <span className="ag-feed-detail">{line.detail}</span>}
-                        {line.object !== undefined && <Drawing object={line.object} />}
-                      </span>
-                    </li>
-                  ))}
-                  <li ref={feedEnd} className={`ag-feed-row ag-tone-working ag-actor-agent${running ? "" : " ag-feed-hidden"}`}>
-                    <span className="ag-feed-dot ag-feed-pulse" aria-hidden="true" />
-                    <span className="ag-feed-text ag-feed-waiting">working</span>
-                  </li>
-                  {supply !== null && (
-                    <li className="ag-supply">
-                      <p className="ag-supply-line">{supplySentence(supply)}</p>
-                      <span className="ag-tiles">
-                        {supply.ids.map(id => (
-                          <span key={id} className="ag-tile">
-                            {id}
-                          </span>
-                        ))}
-                      </span>
-                    </li>
-                  )}
-                    </ol>
-                  )}
-                </>
+                exhausted(screen)
               )}
             </div>
           </div>

@@ -399,69 +399,21 @@ export async function pageChecks(check: Check) {
   check(!/Nothing touches mainnet/.test(ui), "253a · and not the categorical one it contradicted");
 
   /*
-   * The fold is three verbs and one sentence each.
+   * 254 to 257b are retired with the fold they held.
    *
-   * At rest the page used to open with a paragraph and five definitions, which is
-   * an explanation of the product before a reader has seen what it does. The tiles
-   * are what a person can do here; the definitions are kept, because they are
-   * merged text a judge may want, and folded away.
-   */
-  // Over a whitespace collapsed copy, because the heading now holds a mark above
-  // the word and JSX puts the two on separate lines.
-  const verbs = [...ui.replace(/\s+/g, " ").matchAll(/<h2 className="ag-verb-name"> <Mark\w+ \/> (\w+) <\/h2>/g)].map(m => m[1]);
-  check(verbs.join(",") === "Own,Manage,Check", `254 · the fold carries three verbs (${verbs.join(",") || "none"})`);
-  const verbLines = [...ui.matchAll(/className="ag-verb-line">\s*([^<]+?)\s*<\/p>/g)].map(m => m[1].replace(/\s+/g, " "));
-  check(verbLines.length === 3, `254a · one line under each (${verbLines.length})`);
-  const twoSentences = verbLines.filter(l => l.split(/(?<=\.)\s+/).filter(x => x.length > 0).length === 2);
-  check(twoSentences.length === 3, `254b · each of them two sentences, as the rungs are (${twoSentences.length})`);
-  const withFigure = verbLines.filter(l => /\b\d+\b/.test(l));
-  check(withFigure.length === 0, `254c · and none carries a figure (${withFigure.length})`);
-
-  /*
-   * The command line says nothing a tile already said.
+   * They read three verb tiles, a command line, the condition under the verb
+   * "proposes" and five definitions behind a disclosure, all of which stood in
+   * the body's last arm. Nothing sets that state: `openRun` shows a dialog and
+   * the strip's other items set the four screens `HEADS` carries, so the arm was
+   * unreachable and the page it drew was read by nobody. The rest state is the
+   * board, which is the recording and the grid.
    *
-   * It read "One signature. The agent reads what it paid for, proposes once, and
-   * stops", which is the Manage tile's second sentence verbatim, about forty words
-   * below it, in the rest state that had just been cut for being text heavy.
+   * What the condition became is check 327 over the home's fourth card, which is
+   * where a person now reads that the agent proposes; the tiles and the command
+   * line are gone rather than moved, and the definitions live in DISCLOSURE.md
+   * and the specs they were quoted from.
    */
-  const commandLine = (ui.match(/className="ag-command">\s*([^<]+?)\s*<\/p>/) ?? [])[1] ?? "";
-  check(commandLine.length > 0, `256 · the fold carries a command line (${commandLine})`);
-  const echoes = (lines: string[], command: string) =>
-    lines.filter(l => l.split(/(?<=\.)\s+/).some(sentence => sentence.length > 12 && command.includes(sentence)));
-  check(echoes(verbLines, commandLine).length === 0, `256a · and it repeats no sentence a tile already carries (${echoes(verbLines, commandLine).length})`);
-  // Self contained, over a synthetic pair. The first version compared against the
-  // live tiles, so it went red the day the tile it named was reworded: a control
-  // that depends on the copy it is controlling for stops being a control.
-  check(
-    echoes(["A tile sentence long enough to count. And a second."], "Before it. A tile sentence long enough to count.").length === 1,
-    "256b · the echo check can see a repeated sentence (negative control)",
-  );
 
-  /*
-   * A tile that says the agent proposes says under what condition.
-   *
-   * On the deployment the two ingest variables are not set, so a run there ends at
-   * not-submitted, which is the path `test/agent-run.ts` asserts and which
-   * `DISCLOSURE.md` states as a negative. An unconditional "proposes once" on the
-   * judged page would be the exact claim the sweep carries as false, and no check
-   * saw it because the sentence is true wherever a credential exists.
-   */
-  const proposing = verbLines.filter(l => /\bproposes\b/.test(l));
-  const unconditional = proposing.filter(l => !/credential is configured/.test(l));
-  check(proposing.length > 0, `257 · a tile says the agent proposes (${proposing.length})`);
-  check(unconditional.length === 0, `257a · and none says it without the condition (${unconditional.length})`);
-  check(
-    ["The agent reads what it paid for, proposes once, and stops."].filter(l => !/credential is configured/.test(l)).length === 1,
-    "257b · the condition check can see a sentence without it (negative control)",
-  );
-
-  // The definitions are kept and folded, not deleted.  // The definitions are kept and folded, not deleted. A native disclosure, so they
-  // open with no script and are in the document for anything that reads it.
-  check(/<details className="ag-more">/.test(ui), "255 · the five facts sit behind a disclosure");
-  check(/<summary className="ag-more-summary">The facts<\/summary>/.test(ui), "255a · labelled for what it holds");
-  check(/<dl className="ag-facts">/.test(ui), "255b · and the definitions are still on the page");
-  check(!/You pay for one read from your own wallet and the agent does the rest/.test(ui),
-    "255c · while the paragraph that explained the page before showing it is gone");
 
   /*
    * Disconnect says which of two things it did.
@@ -696,16 +648,15 @@ export async function pageChecks(check: Check) {
   const proposed: RunStep[] = [...notSubmitted.slice(0, 4), { step: "proposing", windowId: "a1" }, { step: "done" }];
   check(planFrom(true, true, proposed)[3], "267d · while a run that did submit lights it (negative control)");
 
-  // The marks carry no word. A mark that spells its meaning is a label, and the
-  // tile already has one.
-  const markBodies = [...ui.matchAll(/function Mark(\w+)\(\) \{([\s\S]*?)\n\}/g)].map(m => ({ name: m[1], body: m[2] }));
-  check(markBodies.length === 3, `268 · three marks (${markBodies.map(m => m.name).join(", ")})`);
-  const withText = markBodies.filter(m => /<text|<tspan/.test(m.body));
-  check(withText.length === 0, `268a · and none of them spells a word (${withText.length})`);
-  const unsizedMarks = markBodies.filter(m => !/width="\d+"/.test(m.body) || !/height="\d+"/.test(m.body));
-  check(unsizedMarks.length === 0, `268b · each carries width and height (${unsizedMarks.length})`);
-  const literalHue = markBodies.filter(m => /#[0-9a-f]{3,6}/i.test(m.body));
-  check(literalHue.length === 0, `268c · and none writes a hue as a literal (${literalHue.length})`);
+  /*
+   * 268 to 268c are retired with the marks they counted.
+   *
+   * They read the three svgs above the fold's verb tiles. The tiles are gone and
+   * so are the marks, and a corpus of none makes the three filters below the
+   * count pass by having nothing to look at. What still holds the rules over the
+   * svgs the page does draw is check 216 for width and height and 212b for the
+   * agent hue being a token and never a literal.
+   */
 
   /*
    * The rolodex: the leaf being read is level and at full opacity, always.

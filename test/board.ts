@@ -13,7 +13,7 @@ import { capFrom, setCapForTest, standingBehind, takeFreeRead } from "../lib/hum
 import { ensureCredential } from "../lib/agent/credentials";
 import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
-import { CREDENTIAL_REFUSED, newestRecording, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
+import { CREDENTIAL_REFUSED, PROCESS, newestRecording, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { NOT_SUBMITTED_SENTENCE } from "../lib/agent/run";
 import { resetServerForTest } from "../lib/x402";
@@ -551,20 +551,23 @@ export async function boardChecks(check: Check) {
   check(newestRecording([{ day: "2026-09-04", onOffer: true }]) === null,
     "325e · and a board that serves no recording embeds none rather than guessing one");
   const cards = (home.match(/ag-process-card/g) ?? []).length;
-  // The array itself, not the file around it: counting `title:` across the page
-  // found nine, none of them these, and reading to the next function swept in a
-  // comment whose own prose used the words this refuses.
-  const processArray = /const PROCESS: \{ title: string; line: string \}\[\] = \[([\s\S]*?)\n\];/.exec(page)?.[1] ?? "";
-  check(processArray.length > 0, "325f0 · the process array is found (negative control for the read)");
-  const titles = (processArray.match(/title: "/g) ?? []).length;
-  check(titles >= 3 && titles <= 5, `325f · the process is three to five cards (${titles})`);
+  /*
+   * The array itself, imported rather than read out of the file.
+   *
+   * Counting `title:` across the page found nine, none of them these, so the read
+   * was narrowed to the array's own source; then the reasons the copy is worded
+   * as it is were written above two of the cards and 325h went red on the word
+   * "issued" in a comment. 325f0, the control for that read, is retired with it:
+   * an imported array that is empty fails 325f on its own.
+   */
+  check(PROCESS.length >= 3 && PROCESS.length <= 5, `325f · the process is three to five cards (${PROCESS.length})`);
   check(cards === 1 && /PROCESS\.map/.test(home), "325g · drawn from one card of one kind");
   /*
    * No state on any of them, meaning no state of the person reading: these cards
    * know nothing about a wallet. A cell being on offer is the board's own
    * vocabulary rather than a state of anybody, so it is not among these.
    */
-  const stateWords = processArray.match(/\b(not yet|waiting|done|registered|issued|requested|skipped|enrolled)\b/gi) ?? [];
+  const stateWords = PROCESS.flatMap(c => [c.title, c.line]).join(" ").match(/\b(not yet|waiting|done|registered|issued|requested|skipped|enrolled)\b/gi) ?? [];
   check(stateWords.length === 0, `325h · and says nothing about the reader's state (${stateWords.join(", ") || "none"})`);
   check(/\bnot yet\b/i.test("a card saying not yet"), "325i · the state check can see one (negative control)");
   const subRule = /\.ag-sub\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
@@ -914,6 +917,72 @@ export async function boardChecks(check: Check) {
   check(/const onboarded = opensTheBoard\(enrolmentState\(/.test(page),
     "289a · and is derived from the reads rather than from a remembered yes");
   check(!/\{ id: "settings"/.test(page), "289b · settings is no longer a destination, since it is the way in");
+
+  /*
+   * The home's cards carry what the fold carried, and no claim this deployment
+   * does not meet.
+   *
+   * The fold stood in the body's last arm, and nothing sets that state, so its
+   * three tiles and the one condition under them were drawn for nobody while the
+   * first surface a visitor does read said the agent proposes one clip flatly.
+   * Here the two ingest variables are unset and a run ends at not-submitted,
+   * which is what `test/agent-run.ts` asserts and what `DISCLOSURE.md` states as
+   * a negative, so the unconditional sentence was the sweep's own false claim
+   * standing on the page the repository is judged from.
+   *
+   * Read off the array rather than off the file, because the reason the
+   * condition exists is written above the card in a comment using the same
+   * words, and a source read would pass on the comment alone.
+   */
+  const proposingCards = PROCESS.filter(c => /\bproposes\b/.test(c.line));
+  check(proposingCards.length > 0, `327 · a home card says the agent proposes (${proposingCards.length})`);
+  const unconditioned = proposingCards.filter(c => !/credential is configured/.test(c.line));
+  check(unconditioned.length === 0, `327a · and none says it without the condition (${unconditioned.map(c => c.title).join(", ") || "none"})`);
+  check(["The agent reads the windows it was paid for and proposes one clip."].filter(l => !/credential is configured/.test(l)).length === 1,
+    "327b · the condition check can see a sentence without it (negative control)");
+  /*
+   * A name is issued by Zenbit on a request, not conferred by registering, so
+   * the card that offers one says which of the two it is. Sentence by sentence,
+   * because the one that offers it also carries the allowance, which is earned.
+   */
+  const nameSentences = PROCESS.flatMap(c => c.line.split(/(?<=\.)\s+/)).filter(l => /\bname\b/.test(l));
+  check(nameSentences.length > 0, `327c · a home card says a name is on offer (${nameSentences.length})`);
+  const conferred = nameSentences.filter(l => !/\bask for a name\b/.test(l));
+  check(conferred.length === 0, `327d · and each says it is asked for rather than handed over (${conferred.join(" ") || "none"})`);
+  check(["It earns the free reads of the day and a name under xovi.eth."].filter(l => !/\bask for a name\b/.test(l)).length === 1,
+    "327e · the check can see the sentence that conferred one (negative control)");
+
+  /*
+   * The body draws a surface for every destination and for nothing else.
+   *
+   * 266b holds one direction of that. The other was open, and an arm for a state
+   * the page cannot be in is exactly where the fold lived: `openRun` shows a
+   * dialog and nothing sets a run screen, so the chain's last arm was drawn for
+   * nobody. `Screen` is now the four the body draws, the strip's own type adds
+   * the run to them, and the arm no screen takes is `exhausted(screen)`, which
+   * the type checker refuses the day a fifth screen arrives without a surface.
+   */
+  const arms = [...page.matchAll(/screen === "(\w+)"/g)].map(m => m[1]);
+  const reachable: string[] = SCREENS.filter(d => d.id !== "run").map(d => d.id);
+  const orphanArms = arms.filter(a => !reachable.includes(a));
+  check(arms.length > 0, `328 · the body branches on the screen (${arms.length} arms)`);
+  check(orphanArms.length === 0, `328a · and on no screen the strip cannot reach (${[...new Set(orphanArms)].join(", ") || "none"})`);
+  check(/\) : \(\s*exhausted\(screen\)/.test(page), "328b · the branch no screen takes draws nothing");
+  check(/function exhausted\(screen: never\)/.test(page),
+    "328c · and is uninhabitable by its parameter rather than by a comment, so a fifth screen without a surface stops compiling");
+
+  /*
+   * The recording waits for a person.
+   *
+   * The src is the host and the id and nothing after it. An autoplay parameter
+   * would start the museum's own stream talking at somebody who has read no word
+   * of the page, and what was asked for is a player that works rather than
+   * motion on arrival.
+   */
+  const embedSrc = /className="ag-stream-frame"[\s\S]*?src=\{`([^`]*)`\}/.exec(home)?.[1] ?? "";
+  check(embedSrc.endsWith("${newest.videoId}"), `329 · the embed src ends at the recording's id (${embedSrc || "none"})`);
+  check(!embedSrc.includes("?"), `329a · so it carries no parameter and nothing plays on arrival (${embedSrc || "none"})`);
+  check("https://www.youtube-nocookie.com/embed/x?autoplay=1".includes("?"), "329b · the parameter check can see one (negative control)");
 
   if (before === undefined) delete process.env.WINDOWS_SNAPSHOT;
   else process.env.WINDOWS_SNAPSHOT = before;
