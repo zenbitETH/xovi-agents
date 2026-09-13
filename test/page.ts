@@ -7,7 +7,6 @@ import {
   planFrom,
   screensFor,
   RECORD,
-  RUNGS,
   SCREENS,
   fabricated,
   lineFor,
@@ -450,16 +449,54 @@ export async function pageChecks(check: Check) {
    * asserted rather than each sentence separately, because two copies of a claim
    * drift and the interesting failure is that they disagree.
    */
-  const mainnetRung = RUNGS.find(r => r.rung === "a mainnet");
-  const rungNegative = (mainnetRung?.sentences ?? "").split(/(?<=\.)\s+/)[1] ?? "";
+  // Out of DISCLOSURE.md rather than out of a constant. The ladder that used to
+  // carry this sentence is gone, and a new constant in this file would be a third
+  // copy for the other two to agree with instead of the document they are about.
+  const disclosure = readFileSync(join(process.cwd(), "DISCLOSURE.md"), "utf8");
+  const rungNegative = (disclosure.match(/Nothing here writes to a mainnet[^.]*\./) ?? [])[0] ?? "";
+  check(rungNegative.length > 0, `253b · DISCLOSURE states the mainnet claim (negative control for the read, ${rungNegative || "none"})`);
   // Read over the footer alone. The first version tested the whole file, which the
   // rung's own copy of the sentence satisfies, so it stayed green with the footer
   // reverted: it could not tell the two places apart, which is the one thing it
   // exists to do.
   const footerAt = flatUi.indexOf("Payments settle on Base Sepolia");
   const footer = footerAt === -1 ? "" : flatUi.slice(footerAt, footerAt + 200);
-  check(rungNegative.length > 0 && footer.includes(rungNegative), `253 · the footer states the mainnet claim the rung states (${rungNegative})`);
+  // The length guard is not redundant with 253b. A sentence the document stops
+  // carrying reads as the empty string here, which every footer contains, so
+  // without it this check goes green on the document losing the claim entirely.
+  check(rungNegative.length > 0 && footer.includes(rungNegative),
+    `253 · the footer states the mainnet claim DISCLOSURE states, word for word (${rungNegative || "none"})`);
   check(!/Nothing touches mainnet/.test(ui), "253a · and not the categorical one it contradicted");
+
+  /*
+   * The ladder's five still-true pairs, where they went.
+   *
+   * They were a tab. Each is two present tense statements, one merged fact and
+   * one negative, and the negative is the device: the day it stops being true the
+   * absence sweep's own question, has this already happened, catches it. Read out
+   * of the section they were moved into, so moving them again without the section
+   * is a red rather than a silence.
+   */
+  const designedAt = disclosure.indexOf("### Designed and not running");
+  const designed = designedAt === -1 ? "" : disclosure.slice(designedAt, disclosure.indexOf("### The surface this opens", designedAt));
+  check(designed.length > 0 && designed.length < disclosure.length, `253c · the section is found and is a section (${designed.length} characters)`);
+  const moved = [
+    "Nothing here writes to a mainnet",
+    "No rule routes any of it onward",
+    "No institution has paid for one",
+    "No key but Zenbit's has queried it",
+    "No second producer exists",
+  ];
+  const notMoved = moved.filter(x => !designed.includes(x));
+  check(notMoved.length === 0, `253d · and carries every negative the ladder carried but one (${notMoved.join("; ") || "none"})`);
+  /*
+   * The sixth is the gateway key's, and it is not a thing that has not happened:
+   * it is a property of a deployment that is running, falsified by a key on a
+   * server rather than by an issuance, so it is beside the gateway it is about.
+   */
+  const running = disclosure.slice(disclosure.indexOf("### Built and running"), designedAt);
+  check(/the gateway key signs answers and nothing else/.test(running) && /No key on a server owns `xovi\.eth` or can move it/.test(running),
+    "253e · while the gateway key negative is kept in the section about what runs");
 
   /*
    * 254 to 257b are retired with the fold they held.
@@ -666,13 +703,14 @@ export async function pageChecks(check: Check) {
    * edits it at the same time as the array.
    */
   /*
-   * Six destinations, and Run is not one of them until a cell is chosen.
+   * Four destinations, and Run is not one of them until there is a run.
    *
-   * A person arrives at Settings, chooses a cell on the Board, and only then has
-   * a Run to look at. Run present and inert would be a control that does nothing,
-   * which is the rule that keeps a drawn but unbuilt action off this page.
+   * Run present and inert would be a control that does nothing, which is the rule
+   * that keeps a drawn but unbuilt action off this page. Not yet was the fifth: a
+   * tab of what this repository does not do, drawn at a reader who had not yet
+   * seen the working surface it is about. It is in `DISCLOSURE.md` now.
    */
-  check(SCREENS.length === 5, `266 · five destinations in the array (${SCREENS.length})`);
+  check(SCREENS.length === 4, `266 · four destinations in the array (${SCREENS.length})`);
   check(SCREENS[0].id === "board", `266f · beginning with the board, since the onboarding is the way in and not a destination (${SCREENS[0].id})`);
   check(!screensFor(false).some(d => d.id === "run"), "266g · and Run is absent when no run is in progress");
   check(screensFor(true).some(d => d.id === "run"), "266h · and present while one is (negative control)");
@@ -788,19 +826,18 @@ export async function pageChecks(check: Check) {
   check(!/onStep\(at - 1\)|onStep\(at \+ 1\)/.test(ui), "283d · with no pager left to walk them one at a time");
 
   /*
-   * The ladder: each rung two present tense sentences, one merged fact and one
-   * negative, and the unlock written as the negative rather than a condition.
+   * 236 to 236d are retired with the ladder they measured.
+   *
+   * They held six rungs to two present tense sentences each, a negative second,
+   * no figure and no conditional future. The tab is gone: it was drawn at a
+   * reader who had not yet seen the working surface it is about, and the page
+   * now states what it does while `DISCLOSURE.md` states what it does not. The
+   * five still-true pairs are under "Designed and not running" there, word for
+   * word, and the gateway key negative is kept in "Built and running" beside the
+   * gateway it is about. What still binds the page to one of them is check 253,
+   * which reads the mainnet sentence out of that document and requires the
+   * footer to state the same one.
    */
-  check(RUNGS.length === 6, `236 · six rungs (${RUNGS.length})`);
-  const sentencesOf = (t: string) => t.split(/(?<=\.)\s+/).filter(x => x.length > 0);
-  const wrongCount = RUNGS.filter(r => sentencesOf(r.sentences).length !== 2);
-  check(wrongCount.length === 0, `236a · each is exactly two sentences (${wrongCount.length} were not)`);
-  const notNegative = RUNGS.filter(r => !/^(No|Nothing)\b/.test(sentencesOf(r.sentences)[1] ?? ""));
-  check(notNegative.length === 0, `236b · and the second of each is a negative (${notNegative.length} were not)`);
-  const figured = RUNGS.filter(r => /\b\d+\b/.test(r.sentences));
-  check(figured.length === 0, `236c · no rung carries a figure (${figured.length} did)`);
-  const promised = RUNGS.filter(r => /\b(will|soon|coming|unlocks?|when)\b/i.test(r.sentences));
-  check(promised.length === 0, `236d · and none states a conditional future (${promised.length} did)`);
   check(/\b\d+\b/.test("a look costs 3"), "236e · the figure check can see one (negative control)");
   check(/\b(will|soon|coming|unlocks?|when)\b/i.test("Unlocks when the founder accepts"), "236f · and the promise check can see one (negative control)");
   // A digit inside a name is not a figure, which is why the test is on a word

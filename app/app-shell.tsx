@@ -35,7 +35,6 @@ const HEADS: Record<Screen, { title: string; sub: string }> = {
   board: { title: "On offer", sub: "A day and a species to read. The agent chooses the window and forms the proposal." },
   account: { title: "Account", sub: "What this wallet settled, proposed, and can check." },
   record: { title: "Record", sub: "A confirmation, and the check a stranger can run beside it." },
-  notyet: { title: "Not yet", sub: "What this repository does not do, each with the thing that would have to change." },
 };
 
 // The clip confirmation schema on Ethereum Sepolia, README under "Subgraph and
@@ -366,7 +365,7 @@ type Settlement = {
  *
  * A destination is added the day it is built, so no item opens on nothing.
  */
-type Screen = "board" | "account" | "record" | "notyet";
+type Screen = "board" | "account" | "record";
 
 /**
  * A destination in the strip, which is the four screens and the run.
@@ -401,7 +400,6 @@ export const SCREENS: { id: Destination; label: string }[] = [
   { id: "run", label: "Run" },
   { id: "account", label: "Account" },
   { id: "record", label: "Record" },
-  { id: "notyet", label: "Not yet" },
 ];
 
 /**
@@ -820,90 +818,6 @@ function Proposals({ submitter }: { submitter: string | null }) {
           </span>
         </div>
       ))}
-    </div>
-  );
-}
-
-/**
- * Where this goes, written so that it cannot be read as a promise.
- *
- * **Each rung is two present tense sentences, one merged fact and one negative**,
- * and the unlock is the negative rather than a condition. That is the whole
- * device: *unlocks when*, *will*, *soon* and *coming* are promises, and a promise
- * about an unbuilt feature is the thing the disclosure rules refuse. Written as a
- * negative, the day it stops being true the absence sweep's own question, has this
- * already happened, catches it.
- *
- * No figure, tier, share or token appears on any rung, and no rung names a
- * detection, morphometric, correlation or hypothesis capability. Unnumbered,
- * because the unlocks are independent and an order would assert one that is not
- * real.
- *
- * Copied verbatim from section 4.2 of the redesign proposal, brain `dd056d3`, so
- * a reader can diff these strings against it by bytes. The backticks are the
- * source's and are rendered rather than stripped, which is what keeps that diff
- * meaningful.
- *
- * The look rung's merged fact, that a human signs the decision, is true where
- * migration `0027` runs. The Xovi builder measured that on the deployment this
- * page reads, through the signature served on the confirmation this repository
- * carries, rather than from the branch that holds the file.
- */
-const RUNGS: { rung: string; sentences: string }[] = [
-  // The rung moved because the old negative was about to expire by Zenbit's own
-  // hand: labels are assigned now, so "no other name is issued" flips the day the
-  // second one is. The fact states what happens and the negative is the
-  // measurement the whole name leg rests on, falsified by a key on a server
-  // rather than by an issuance.
-  {
-    rung: "a name",
-    sentences:
-      "Every other name under `xovi.eth` is issued by Zenbit from a request made on this page. No key on a server owns `xovi.eth` or can move it; the gateway key signs answers and nothing else.",
-  },
-  { rung: "the money", sentences: "Receipts land in a ledger. No rule routes any of it onward." },
-  { rung: "the look", sentences: "A human confirms or rejects every proposal and signs the decision. No institution has paid for one." },
-  { rung: "the query", sentences: "The anchor joins the confirmation. No key but Zenbit's has queried it." },
-  { rung: "a mainnet", sentences: "Every payment here settles on Base Sepolia. Nothing here writes to a mainnet; one read is on one." },
-  { rung: "a second producer", sentences: "One colony produces every record. No second producer exists." },
-];
-
-export { RUNGS };
-
-/** Renders the source's backticks as code, so a rung can be stored byte for byte
- *  as the proposal writes it and still read properly on a screen. */
-function Ticked({ text }: { text: string }) {
-  return (
-    <>
-      {text.split("`").map((part, i) =>
-        i % 2 === 1 ? (
-          <code key={i} className="ag-ticket-hash">
-            {part}
-          </code>
-        ) : (
-          <span key={i}>{part}</span>
-        ),
-      )}
-    </>
-  );
-}
-
-function NotYet() {
-  return (
-    <div className="ag-records">
-      <p className="xv-desc ag-empty">
-        What the working surface above does not do. Each of these is two statements: something this repository already
-        does, and something it does not. The second is what would have to stop being true.
-      </p>
-      <ul className="ag-chain ag-rungs">
-        {RUNGS.map(r => (
-          <li key={r.rung} className="ag-chain-link">
-            <span className="ag-panel-title">{r.rung}</span>
-            <span className="ag-sub">
-              <Ticked text={r.sentences} />
-            </span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
@@ -2540,8 +2454,6 @@ export function AppShell() {
                 </div>
               ) : screen === "record" ? (
                 <Records />
-              ) : screen === "notyet" ? (
-                <NotYet />
               ) : (
                 exhausted(screen)
               )}
