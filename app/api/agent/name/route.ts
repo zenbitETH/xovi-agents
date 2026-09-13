@@ -17,20 +17,25 @@ function refuse(status: number, error: string, headers: Record<string, string> =
 }
 
 /**
- * Ask for a name. This route NEVER issues one.
+ * Ask for a name. This route writes a row and stops, and under the offchain resolver
+ * the row is the issuance.
  *
- * **It cannot, and that is a measurement rather than a policy.** The per account
- * resolver that answers for `xovi.eth` and every subname implements neither of ENS's
- * approval mechanisms: `isApprovedForAll` and `isApprovedFor` both revert on it. So
- * there is nobody the owner could approve and no key a server could legitimately
- * hold. `setAddr` simulated from the owner succeeds and from any other address
- * reverts. Issuance is therefore the owner's own transaction, made by
- * `bin/issue-names.ts` on the founder's machine, and this route writes a row and
- * stops.
+ * **No key on a server owns `xovi.eth` or can move it, and that is a measurement
+ * rather than a policy.** The per account resolver that answered for `xovi.eth` and
+ * every subname implements neither of ENS's approval mechanisms: `isApprovedForAll`
+ * and `isApprovedFor` both revert on it, and `setAddr` simulated from any address but
+ * the owner's reverts. Nothing here holds the owner's key. What a server holds is the
+ * gateway's signing key, which signs answers about rows and nothing else: it cannot
+ * transfer the name, change its resolver or write a record on chain.
+ *
+ * So the resolver of `xovi.eth` is switched, once, by the owner, to the offchain one
+ * under `contracts/`, and from then on the gateway answers every row's payer for its
+ * label the moment the row exists. `bin/issue-names.ts` stays as the pre switch on
+ * chain path and says so in its header.
  *
  * That shape is also what keeps a judge moving. The person's step is the request and
- * Zenbit's is the issuance, so the card completes when the row is written rather than
- * when the chain catches up, and nobody is held at a step only Zenbit can clear.
+ * the name resolves from the row, so the card completes when the row is written and
+ * nobody is held at a step only Zenbit can clear.
  *
  * A REGISTRATION IS REQUIRED AND EITHER SOURCE COUNTS. AgentBook is one; an
  * enrolment made through the page is the other. Both answer the same question, which
@@ -68,11 +73,13 @@ export async function POST(request: Request) {
   if (!store) return refuse(503, "no store is configured, so a request cannot be recorded");
 
   // Already asked. Answered before any chain read, so clicking twice costs nothing
-  // and always returns the same label.
+  // and always returns the same label. A row is the issuance: the gateway answers
+  // this payer for this label from the moment the row exists, so the state is
+  // `issued` whether or not the pre switch on chain path ever wrote a record.
   const existing = await store.byPayer(wallet);
   if (existing) {
     return NextResponse.json(
-      { state: existing.txHash ? "issued" : "requested", label: existing.label, name: `${existing.label}.${PARENT}` },
+      { state: "issued", label: existing.label, name: `${existing.label}.${PARENT}` },
       { headers: NO_STORE },
     );
   }
@@ -144,8 +151,9 @@ export async function POST(request: Request) {
       continue;
     }
 
+    // Written, and therefore issued: see the note on the existing row above.
     return NextResponse.json(
-      { state: "requested", label: assigned.label, name: `${assigned.label}.${PARENT}` },
+      { state: "issued", label: assigned.label, name: `${assigned.label}.${PARENT}` },
       { headers: NO_STORE },
     );
   }

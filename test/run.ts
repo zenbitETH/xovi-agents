@@ -37,6 +37,7 @@ import { boardChecks } from "./board";
 import { metaChecks } from "./meta";
 import { credentialChecks } from "./credential";
 import { enrolChecks } from "./enrol";
+import { ensChecks } from "./ens";
 import { verificationChecks } from "./verifications";
 import { nameChecks } from "./name";
 import { namesChecks } from "./names";
@@ -783,6 +784,7 @@ async function main() {
   await verificationChecks(check);
   await enrolChecks(check);
   await credentialChecks(check);
+  await ensChecks(check);
 
   await pageChecks(check);
 

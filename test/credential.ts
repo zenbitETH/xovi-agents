@@ -79,7 +79,11 @@ function fakeNames(rowsByPayer: Record<string, NameRow>): NamesStore {
   const unused = async (): Promise<never> => {
     throw new Error("not this check's job");
   };
-  return { byPayer: async payer => rowsByPayer[payer] ?? null, requestLabel: unused, release: unused, pending: unused, markIssued: unused };
+  // `byLabel` arrived with the gateway, which reads a name the other way round.
+  // These checks only ever ask by payer, so it answers rather than throwing: a fake
+  // that threw here would fail a caller this check is not about.
+  const byLabel = async (label: string): Promise<NameRow | null> => Object.values(rowsByPayer).find(r => r.label === label) ?? null;
+  return { byPayer: async payer => rowsByPayer[payer] ?? null, byLabel, requestLabel: unused, release: unused, pending: unused, markIssued: unused };
 }
 
 let nonceCount = 0;

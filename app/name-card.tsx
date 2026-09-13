@@ -96,7 +96,7 @@ export function NameCard({
               wording is used verbatim rather than paraphrased, because the thing being
               corrected is exactly a paraphrase that drifted into a commitment. */}
           {canRequest
-            ? "A name is issued into a parent Zenbit owns. Zenbit issues names by hand from its own key."
+            ? "A name is issued into a parent Zenbit owns, from this request and resolved through Zenbit's gateway, without a transaction."
             : "A name is issued into a parent Zenbit owns, to a wallet with a person behind it."}
         </p>
       )}
