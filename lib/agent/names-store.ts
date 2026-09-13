@@ -9,7 +9,12 @@ export type NameRow = {
   payer: string;
   label: string;
   requestedAt: string;
+  /** Written with the row. Under the gateway a row is the issuance, so this is the
+   *  time the row was written and there is no separate approval mark. Null only on
+   *  rows written before that ruling. */
   issuedAt: string | null;
+  /** The pre switch on chain path's marker: set by `bin/issue-names.ts` when it wrote
+   *  the record on chain, and by nothing else. */
   txHash: string | null;
 };
 
@@ -54,6 +59,10 @@ export type NamesStore = {
 
   /** The row for this payer, or null. The read path's first question. */
   byPayer(payer: string): Promise<NameRow | null>;
+
+  /** The row for this label, or null. The gateway's question: the label arrives in
+   *  the name asked, and the payer is the answer. */
+  byLabel(label: string): Promise<NameRow | null>;
 
   /** Every row with no transaction yet, oldest first. What the issuer works through. */
   pending(): Promise<NameRow[]>;

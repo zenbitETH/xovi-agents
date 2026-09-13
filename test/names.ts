@@ -46,7 +46,9 @@ function fakeNamesStore(): NamesStore & { rows: NameRow[]; assigned: string[]; r
       // the schema and hide the exact bug the schema was changed to prevent.
       const label = `agent${next++}`;
       if (rows.some(r => r.label === label)) throw new Error("names_label_unq");
-      const row: NameRow = { payer, label, requestedAt: new Date().toISOString(), issuedAt: null, txHash: null };
+      // `issued_at` is written with the row, as the statement does: a row is the issuance.
+      const at = new Date().toISOString();
+      const row: NameRow = { payer, label, requestedAt: at, issuedAt: at, txHash: null };
       rows.push(row);
       assigned.push(label);
       return row;
@@ -57,12 +59,13 @@ function fakeNamesStore(): NamesStore & { rows: NameRow[]; assigned: string[]; r
       released.push(label);
     },
     byPayer: async payer => rows.find(r => r.payer === payer) ?? null,
+    byLabel: async label => rows.find(r => r.label === label) ?? null,
     pending: async () => rows.filter(r => r.txHash === null),
     markIssued: async (label, txHash, at) => {
       const row = rows.find(r => r.label === label && r.txHash === null);
       if (!row) return false;
       row.txHash = txHash;
-      row.issuedAt = at.toISOString();
+      row.issuedAt = row.issuedAt ?? at.toISOString();
       return true;
     },
   };
