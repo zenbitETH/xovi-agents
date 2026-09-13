@@ -19,7 +19,7 @@ import { fakeStore, fakeVerifications } from "./human";
 import { CREDENTIAL_REFUSED, PROCESS, clearSkipped, readSkipped, writeSkipped, newestRecording, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellRecording, cellState, loadSnapshot, servedCell } from "../lib/windows/snapshot";
 import { NOT_SUBMITTED_SENTENCE, environmentCredentialCovers, namesACell, windowsUrlFor as runWindowsUrlFor } from "../lib/agent/run";
-import { LIFECYCLE, type BoardCellView, cellMetaLine, lifecycleLine, lifecycleOf, readableLength, stopReason, windowsUrlFor } from "../app/app-shell";
+import { LIFECYCLE, NOT_SEEN_REASON, type BoardCellView, cellMetaLine, lifecycleLine, lifecycleOf, readableLength, stopReason, windowsUrlFor } from "../app/app-shell";
 import { type AnchorRow, nextAction, setStoreForTest } from "../lib/anchor/store";
 import { resetServerForTest } from "../lib/x402";
 
@@ -677,8 +677,30 @@ export async function boardChecks(check: Check) {
   const stateWords = PROCESS.flatMap(c => [c.title, c.line]).join(" ").match(/\b(not yet|waiting|done|registered|issued|requested|skipped|enrolled)\b/gi) ?? [];
   check(stateWords.length === 0, `325h · and says nothing about the reader's state (${stateWords.join(", ") || "none"})`);
   check(/\bnot yet\b/i.test("a card saying not yet"), "325i · the state check can see one (negative control)");
+  /*
+   * THE DESCRIPTIONS WENT UP, AND A TITLE IS LARGER THAN WHAT IT INTRODUCES.
+   *
+   * This pass first took every description a step down, to 0.75rem, and the
+   * founder read the result as small. The page's own scale steps by 0.0625rem and
+   * the descriptions now sit a step above where this interface started, at
+   * 0.875rem. A title under that has to be larger than the words it introduces,
+   * which `.ag-panel-title` was not: it is an uppercase label at label size, and a
+   * description a step larger left the heading smaller than its own paragraph.
+   *
+   * Read as numbers rather than as patterns, so the relationship is what is held
+   * and either can move as long as the gap survives.
+   */
+  const STEP = 0.0625;
+  const sizeOf = (rule: string) => Number(/font-size:\s*([0-9.]+)rem/.exec(rule)?.[1] ?? NaN);
   const subRule = /\.ag-sub\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
-  check(/font-size:\s*0\.75rem/.test(subRule), `325j · the descriptions are one step down the page's own scale (${/font-size:[^;]*/.exec(subRule)?.[0] ?? "none"})`);
+  const titleRule = /\.ag-process-title\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(sizeOf(subRule) === 0.875, `325j · a description is one step above where this interface started (${sizeOf(subRule)}rem)`);
+  check(Number.isFinite(sizeOf(titleRule)), `325j2 · the home's card title has a size of its own (negative control for the read, ${sizeOf(titleRule)})`);
+  check(sizeOf(titleRule) >= sizeOf(subRule) + 2 * STEP,
+    `325k · and a card title is at least two steps above its description (${sizeOf(titleRule)}rem over ${sizeOf(subRule)}rem)`);
+  check(!(0.75 >= 0.875 + 2 * STEP), "325k2 · the ratio check can see a title that is not (negative control)");
+  check(/<h3 className="ag-process-title">\{step\.title\}<\/h3>/.test(home),
+    "325k3 · which is the class the home's cards actually carry, not one measured beside them");
   /*
    * Three rows, so a neighbour cannot sit on the state being read.
    *
@@ -1246,32 +1268,53 @@ export async function boardChecks(check: Check) {
     `323e4 · a refusal says declined and a proposal is not a stop (${stopReason("declined:anything")})`);
 
   /*
-   * THE BOARD SAYS WHAT THE GRID CANNOT, AND NOTHING THE GRID ALREADY SAYS.
+   * THE BOARD CARRIES NO PROSE OF ITS OWN, AND NOTHING IT SAID IS LOST.
    *
-   * "Choose a day and a species to read" is the interface read out loud: the grid
-   * is days across, species down, and a control in every cell on offer. What is
-   * left is the claim no arrangement of cells can make, that the agent picks the
-   * window, and the one thing a mark below must not be read as.
+   * It carried an instruction, which is the interface read out loud over a grid
+   * of days and species with a control in every cell, and two claims. The claim
+   * the grid cannot make, that the agent picks the window, is the board's own
+   * head line and was already there. The other, why an unseen mark is not a
+   * decision, moved onto the stage that needs it, so it is read by somebody
+   * looking at an unseen cell rather than by everybody arriving.
    */
-  // From the board itself, not from the first paragraph in the function: the four
-  // states above it are each a paragraph of the same kind, and the first version
-  // read "Reading what is on offer" and called it the board's line.
-  const gridAt = boardJsx.indexOf('<div className="ag-board">');
-  const boardLead = gridAt === -1
-    ? ""
-    : (/<p className="xv-desc ag-empty">\s*([\s\S]*?)<\/p>/.exec(boardJsx.slice(gridAt))?.[1]?.replace(/\s+/g, " ").trim() ?? "");
-  check(boardLead.length > 0 && gridAt > 0, `405 · the board's own line is found (negative control for the read, ${boardLead.slice(0, 40)})`);
-  check(!/Choose a day and a species/i.test(boardJsx), "405a · and it no longer tells a person to choose a cell from a grid of cells");
-  check(/The agent chooses the window/.test(boardLead), "405b · while the claim the grid cannot make stays");
+  check(!/Choose a day and a species/i.test(boardJsx), "405 · the board no longer tells a person to choose a cell from a grid of cells");
+  // Every paragraph of this kind in the board is an early return for a state that
+  // has no grid to draw, so counting them against the returns says that none
+  // stands over the grid itself, without naming the four states here.
+  const boardParagraphs = (boardJsx.match(/<p className="xv-desc ag-empty">/g) ?? []).length;
+  const emptyReturns = (boardJsx.match(/return <p className="xv-desc ag-empty">/g) ?? []).length;
+  check(boardParagraphs > 0 && boardParagraphs === emptyReturns,
+    `405a · and every paragraph it has is an empty state, so none stands over the grid (${boardParagraphs} of ${emptyReturns})`);
+  const headsAt = page.indexOf("const HEADS");
+  const headsBlock = headsAt === -1 ? "" : page.slice(headsAt, page.indexOf("};", headsAt));
+  const boardHead = /board: \{[^}]*sub: "([^"]*)"/.exec(headsBlock)?.[1] ?? "";
+  check(boardHead.length > 0, `405b0 · the board's head line is found (negative control for the read, ${boardHead})`);
+  check(/The agent chooses the window and forms the proposal/.test(boardHead),
+    `405b · while the claim the grid cannot make stays, in the board's own head (${boardHead})`);
   /*
-   * And the reason "not seen" is not a decision is said once, where a person reads
-   * the board, rather than on every cell. The list serves confirmed rows only and
-   * returns the fifty most recent, so absence from it is three states at once.
+   * The reason is one constant, and both the pointer and the screen reader are
+   * given that same constant rather than two copies of one sentence.
    */
-  check(/Not seen means/.test(boardLead) && /confirmed clips\s*only and the fifty most recent/.test(boardLead),
-    `405c · the board says once what an unseen mark means and why (${boardLead.slice(-120)})`);
-  const perCell = (boardJsx.match(/fifty most recent/g) ?? []).length;
-  check(perCell === 1, `405d · once and not on every cell (${perCell})`);
+  check(/confirmed clips only, and the fifty most recent/.test(NOT_SEEN_REASON),
+    `405c · the reason says the list holds confirmed clips only and fifty of them (${NOT_SEEN_REASON})`);
+  const reasonCopies = (page.match(/confirmed clips only, and the fifty most recent/g) ?? []).length;
+  check(reasonCopies === 1, `405d · written once in the page and read from there twice (${reasonCopies})`);
+  check(/title=\{stages\[i\] === "not seen" \? NOT_SEEN_REASON : undefined\}/.test(boardJsx),
+    "405e · a pointer gets it as the stage's own title, and only on the stage that needs it");
+  check(/\$\{stage\}: \$\{NOT_SEEN_REASON\}/.test(boardJsx),
+    "405f · and a screen reader gets the same constant in the words the cell carries");
+  const hiddenRule = /\.ag-said\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(hiddenRule.length > 0 && /clip-path:\s*inset\(50%\)/.test(hiddenRule) && /position:\s*absolute/.test(hiddenRule),
+    `405g · those words are clipped rather than hidden, so they are said and not drawn (${hiddenRule.replace(/\s+/g, " ").trim().slice(0, 60)})`);
+  check(/\.ag-board-cell:focus-visible \.ag-life-seg\[data-state="not seen"\]::after\s*\{[^}]*content:\s*attr\(title\)/.test(css),
+    "405h · and a keyboard is shown the same attribute, since no browser shows a title on focus");
+
+  /*
+   * The legend is gone with it. Two hues named over every screen, where a person
+   * meets both on the cards themselves and the run's own rail names its actors.
+   */
+  check(!/ag-key/.test(page), "405i · and the hue legend no longer stands over every screen");
+  check(!/ag-key/.test(css), "405j · with no rule left for it either");
 
   /*
    * THE PRICE IS A RIBBON ON THE CELL, NOT A THIRD FACT ABOUT THE FOOTAGE.
@@ -1330,8 +1373,10 @@ export async function boardChecks(check: Check) {
    * technology, because the sentence says everything it says and a screen reader
    * hearing four unlabelled segments hears nothing.
    */
-  const bar = /<span className="ag-life" aria-hidden="true">([\s\S]*?)<\/span>/.exec(boardJsx)?.[1] ?? "";
-  check(bar.length > 0, `408 · the bar is drawn and is hidden from a screen reader (negative control for the read, ${bar.length})`);
+  const barAt = boardJsx.indexOf('<span className="ag-life">');
+  const bar = barAt === -1 ? "" : boardJsx.slice(barAt, boardJsx.indexOf("ag-board-read", barAt));
+  check(bar.length > 0 && bar.length < boardJsx.length / 4, `408 · the bar is found and is the bar (negative control for the read, ${bar.length})`);
+  check(!/aria-hidden/.test(bar), "408a0 · and is not hidden from a screen reader, since its stages are how far the run got");
   check(/LIFECYCLE\.map/.test(bar) && /data-state=\{stages\[i\]\}/.test(bar),
     "408a · one segment per event, read off the array and the states rather than written out");
   const segRules = [...css.matchAll(/\.ag-life-seg(\[data-state="([^"]+)"\])?\s*\{([^}]*)\}/g)];
@@ -1356,19 +1401,26 @@ export async function boardChecks(check: Check) {
     `409a · confirmed where a person decided and proposed where one has not (${lifeAttr})`);
   check(/stages === null \? undefined/.test(lifeAttr), "409b · and nothing at all on a cell nobody has read");
   const glow = /\.ag-board-cell\[data-life\]::after\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
-  const waiting2 = /\.ag-board-cell\[data-life="proposed"\]::after\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
   const decided = /\.ag-board-cell\[data-life="confirmed"\]::after\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
-  check(glow.length > 0 && waiting2.length > 0 && decided.length > 0,
-    `409c · the three rules are found (negative control for the reads, ${glow.length}/${waiting2.length}/${decided.length})`);
+  check(glow.length > 0 && decided.length > 0, `409c · the border's two rules are found (negative control for the reads, ${glow.length}/${decided.length})`);
   check(/var\(--color-xv-agent\)/.test(glow) && /var\(--color-primary\)/.test(decided),
-    "409d · gold while it waits and teal once a person decided, from the tokens rather than as literals");
-  check(/animation:\s*xvCellWait/.test(waiting2) && !/animation/.test(decided),
-    `409e · and only the waiting one moves (${/animation:[^;]*/.exec(waiting2)?.[0] ?? "none"})`);
-  const frames = /@keyframes xvCellWait\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
-  check(frames.length > 0, `409f · the breathing's own frames are found (negative control for the read, ${frames.length})`);
-  const moved = [...frames.matchAll(/^\s*([a-z-]+):/gm)].map(m => m[1]);
-  check(moved.length > 0 && moved.every(prop => prop === "opacity" || prop === "transform"),
-    `409g · which move opacity and nothing that paints (${[...new Set(moved)].join(", ") || "none"})`);
+    "409d · the agent's own hue while it waits and teal once a person decided, from the tokens rather than as literals");
+  /*
+   * AND IT DOES NOT MOVE, IN ANY STATE.
+   *
+   * It breathed while a proposal waited. A board of cells breathing at a reader is
+   * motion reporting nothing that is happening: the proposal is not moving, it is
+   * waiting, and the founder read the pulse as the page working. Read over every
+   * rule that mentions the cell rather than over the two above, so a third state
+   * cannot arrive with an animation on it.
+   */
+  const cellRules = [...css.matchAll(/([^{}]*\.ag-board-cell[^{}]*)\{([^{}]*)\}/g)].map(m => ({ sel: m[1].replace(/\s+/g, " ").trim(), body: m[2] }));
+  check(cellRules.length > 0, `409e0 · the cell's rules are found (negative control for the read, ${cellRules.length})`);
+  const moving = cellRules.filter(r => /animation\s*:/.test(r.body));
+  check(moving.length === 0, `409e · and none of them animates anything (${moving.map(r => r.sel).join(" | ") || "none"})`);
+  check(!/@keyframes xvCellWait/.test(css), "409f · with the frames it used gone rather than left unreferenced");
+  check([{ sel: ".x", body: "animation: a 1s linear;" }].filter(r => /animation\s*:/.test(r.body)).length === 1,
+    "409g · the animation check can see one (negative control)");
 
   const lookups = [...boardJsx.matchAll(/prices\[([^\]]*)\]/g)].map(m => m[1]);
   check(lookups.length === 1 && lookups[0] === "`${day}|${species}`",
@@ -1659,6 +1711,103 @@ export async function boardChecks(check: Check) {
     "402d · and it draws the enrolment's own card rather than a second implementation of the widget");
   const widgets = (page.match(/<WorldIdCard /g) ?? []).length;
   check(widgets === 2, `402e · which the file holds twice, on the enrolment step and in this one component (${widgets})`);
+
+  /*
+   * THE RUN DIALOG HOLDS ONE THING, AND IT IS THE WHEEL.
+   *
+   * A disclosure headed "The whole sequence" stood under the wheel with the same
+   * run written out as a list, so the dialog carried the run twice and the wheel
+   * shared the frame with a control most people never open. The wheel and its rail
+   * take the height now, which is what a dialog with one subject should do.
+   */
+  const dialogAt = page.indexOf('<dialog ref={runDialog}');
+  const dialogBody = dialogAt === -1 ? "" : page.slice(dialogAt, page.indexOf("</dialog>", dialogAt));
+  check(dialogBody.length > 0 && dialogBody.length < page.length / 4,
+    `411 · the run dialog is found and is the dialog (negative control for the read, ${dialogBody.length})`);
+  check(!/<details/.test(dialogBody), "411a · and carries no disclosure of any kind");
+  check(!/whole sequence/i.test(page), "411b · with the log's own heading gone from the page");
+  check(!/ag-feed/.test(page) && !/ag-feed/.test(css),
+    "411c · and the feed it drew rendered by nothing and styled by nothing");
+  check(/<Rolodex /.test(dialogBody), "411d · what is left is the wheel");
+  const openRule = /\.ag-run-dialog\[open\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(/display:\s*flex/.test(openRule) && /flex-direction:\s*column/.test(openRule),
+    `411e · which takes the frame's height, from a rule bound to the open state (${openRule.replace(/\s+/g, " ").trim().slice(0, 60)})`);
+  // On `[open]` and not on the element: an author `display` beats the user agent's
+  // `dialog:not([open]) { display: none }` whatever the specificity, so a bare rule
+  // would stand the closed dialog on the page.
+  const bareDialog = /(?<![\w\]-])\.ag-run-dialog\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(bareDialog.length > 0 && !/display\s*:/.test(bareDialog),
+    `411f · and never from the element's own rule, which would stand the closed dialog on the page (${/display:[^;]*/.exec(bareDialog)?.[0] ?? "none"})`);
+
+  /*
+   * The surfaces a person works in carry more room than the ones they read.
+   * Measured as a step up this file's own spacing scale rather than as a value.
+   */
+  const paddingOf = (rule: string) => Number(/padding:\s*([0-9.]+)rem/.exec(rule)?.[1] ?? NaN);
+  const boardRule = /\.ag-board\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  const cardRule = /\.ag-roll-card\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  const cellPad = /padding:\s*([0-9.]+)rem\s+([0-9.]+)rem/.exec(cellRule);
+  check(paddingOf(boardRule) === 0.375, `412 · the board carries a step more room than it did (${paddingOf(boardRule)}rem)`);
+  check(cellPad !== null && Number(cellPad[1]) === 0.75 && Number(cellPad[2]) === 0.625,
+    `412a · and so does every cell in it (${cellPad?.[0] ?? "none"})`);
+  check(paddingOf(cardRule) === 1.25, `412b · as does the card the run draws itself on (${paddingOf(cardRule)}rem)`);
+
+  /*
+   * THE README'S CELL ROW COUNTS ITS OWN LIST, AND NAMES WHAT THE CODE READS.
+   *
+   * It said four events from three sources and then named four, because the run's
+   * outcome was listed beside the runs table when it is a column of that table's
+   * own row. A reviewer found that by reading; putting the number back left every
+   * check green, which is how this one came to exist.
+   *
+   * Two bindings rather than a pattern over a sentence: the prose must count as
+   * many sources as it names, and the names must be the stores the board actually
+   * reads, so neither the sentence nor the list can drift alone.
+   */
+  const readme = readFileSync("README.md", "utf8");
+  const cellRow = readme.split("\n").find(l => l.startsWith("| A cell says what it is")) ?? "";
+  check(cellRow.length > 0, `413 · the README's cell row is found (negative control for the read, ${cellRow.length})`);
+  const SOURCES = ["the runs table", "Zenbit's public list", "the anchor store"];
+  const namedSources = SOURCES.filter(x => cellRow.includes(x));
+  const WORDS: Record<string, number> = { two: 2, three: 3, four: 4, five: 5 };
+  const claimedCount = WORDS[/from (\w+) sources/.exec(cellRow)?.[1] ?? ""] ?? NaN;
+  check(namedSources.length === SOURCES.length,
+    `413a · naming each source the board reads (${namedSources.length} of ${SOURCES.length})`);
+  /*
+   * Counted over the items the row actually lists, not over the names this check
+   * knows.
+   *
+   * The first version matched the three known names, so putting "the run's own
+   * outcome" back beside the runs table left it green: the defect is a fourth item
+   * in a list of three, and a check that only looks for three cannot see a fourth.
+   * The clause is split where a list is split, on its commas and its and.
+   */
+  const listed = /from \w+ sources,\s*([^.]*?),\s*none of them/.exec(cellRow)?.[1] ?? "";
+  const items = listed.split(/,\s*|\s+and\s+/).map(x => x.trim()).filter(x => x.length > 0);
+  check(items.length > 0, `413b0 · the row's own list is found (negative control for the read, ${items.join(" | ") || "none"})`);
+  check(claimedCount === items.length,
+    `413b · and the row counts as many sources as it lists (${claimedCount} claimed, ${items.length} listed: ${items.join(" | ")})`);
+  const countOf = (row: string) => {
+    const clause = /from \w+ sources,\s*([^.]*?),\s*none of them/.exec(row)?.[1] ?? "";
+    return { claimed: WORDS[/from (\w+) sources/.exec(row)?.[1] ?? ""] ?? NaN, listed: clause.split(/,\s*|\s+and\s+/).filter(x => x.trim().length > 0).length };
+  };
+  const plantedRow = "four events from three sources, the runs table, the run's own outcome, Zenbit's public list and the anchor store, none of them derived.";
+  check(countOf(plantedRow).claimed !== countOf(plantedRow).listed,
+    `413c · the count check can see a row that lists more than it claims (negative control, ${JSON.stringify(countOf(plantedRow))})`);
+  const goodRow = "four events from three sources, the runs table with the outcome it recorded, Zenbit's public list and the anchor store, none of them derived.";
+  check(countOf(goodRow).claimed === countOf(goodRow).listed,
+    `413c2 · and one that agrees (negative control, ${JSON.stringify(countOf(goodRow))})`);
+  /*
+   * And the three are the three the board asks. The outcome is not among them
+   * because it arrives on the mark the runs table returns, which is why listing it
+   * beside that table was a fourth source that does not exist.
+   */
+  const boardRoute = readFileSync("app/api/agent/board/route.ts", "utf8");
+  check(/runsStoreFrom\(\)/.test(boardRoute) && /anchorStoreFrom\(\)/.test(boardRoute),
+    "413d · the route reads the runs table and the anchor store, and no third of its own");
+  check(/fetch\(`\/api\/proposals\?submitter=/.test(page), "413e · while the page reads the public list for the third");
+  check(/outcome: mark\.outcome/.test(boardRoute),
+    "413f · and the outcome comes off the mark the runs table returned, which is why it is not a source beside it");
 
   check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
   check(/const enrolment = enrolmentState\(\{ address, registration, skipped \}\);/.test(page) &&

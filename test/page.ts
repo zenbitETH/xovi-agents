@@ -695,31 +695,28 @@ export async function pageChecks(check: Check) {
   /*
    * Animations are held by name rather than by duration.
    *
-   * Four are inherited: the app card's 320ms entrance and the ambient layers Xovi
-   * drifts behind everything. One is this repository's own and is a decision
-   * rather than an inheritance: a cell whose proposal is waiting on a person
-   * breathes at 2400ms, because it reports a state that lasts and a fast one would
-   * read as loading. Naming them keeps the bound live, because a new animation
-   * past 300ms carries a new name and fails until somebody writes down why it is
-   * there.
+   * Four run long and all four are inherited: the app card's 320ms entrance and
+   * the ambient layers Xovi drifts behind everything. There was briefly a fifth,
+   * this repository's own, on the board cell whose proposal was waiting; it is
+   * gone, and the list is back to what it inherited. Naming them keeps the bound
+   * live, because a new animation past 300ms carries a new name and fails.
    */
   const INHERITED_LONG = ["xvFadeUp", "xvAurora", "xvRays", "xvPulse"];
-  const DECIDED_LONG = ["xvCellWait"];
   const longAnimations = [...cssLive.matchAll(/animation:\s*([a-zA-Z][\w-]*)\s+([\d.]+)(m?s)/g)]
     .map(m => ({ name: m[1], ms: m[3] === "s" ? Number(m[2]) * 1000 : Number(m[2]) }))
     .filter(a => a.ms > 300);
-  const unnamed = longAnimations.filter(a => ![...INHERITED_LONG, ...DECIDED_LONG].includes(a.name));
-  check(unnamed.length === 0, `263d · every animation past 300ms is inherited or named as a decision (${unnamed.map(a => a.name).join(", ") || "none"})`);
+  const unnamed = longAnimations.filter(a => !INHERITED_LONG.includes(a.name));
+  check(unnamed.length === 0, `263d · every animation past 300ms is one of the inherited ones (${unnamed.map(a => a.name).join(", ") || "none"})`);
   /*
-   * And the one decision survives the reduced motion clamp as something rather
-   * than as nothing. The clamp at the top of the file runs every animation once at
-   * 0.01ms, so what a reader sees is the element's own declared state, and a
-   * border whose only opacity lived in keyframes would vanish for exactly the
-   * people the clamp is for.
+   * And the border that used to carry it declares its own visibility. It was
+   * written that way so the reduced motion clamp would leave something behind when
+   * it stopped the breathing; with nothing breathing it is simply the rule that
+   * makes the border visible at all, and a border whose opacity lived only in
+   * keyframes would now draw nothing for anybody.
    */
   const glowBase = /\.ag-board-cell\[data-life\]::after\s*\{([^}]*)\}/.exec(cssLive)?.[1] ?? "";
   check(glowBase.length > 0, `263f · the lifecycle border's own rule is found (negative control for the read, ${glowBase.length})`);
-  check(/opacity:\s*0?\.[1-9]/.test(glowBase), `263g · and it declares an opacity of its own, so reduced motion leaves it gentler rather than gone (${/opacity:[^;]*/.exec(glowBase)?.[0] ?? "none"})`);
+  check(/opacity:\s*0?\.[1-9]/.test(glowBase), `263g · and declares an opacity that draws it (${/opacity:[^;]*/.exec(glowBase)?.[0] ?? "none"})`);
   check(longAnimations.length > 0, `263e · and those inherited ones are still there (${longAnimations.length}, negative control)`);
   check(["all 200ms ease"].filter(t => /\ball\b/.test(t)).length === 1, "263c · the all check can see one (negative control)");
 
@@ -1004,17 +1001,27 @@ export async function pageChecks(check: Check) {
    */
   const toneGood = css.slice(css.indexOf(".ag-tone-good {")).split("}")[0];
   check(!/var\(--color-primary\)/.test(toneGood), "211 · the good tone is not teal, so teal on a row means a person");
-  const humanDot = css.slice(css.indexOf(".ag-actor-human .ag-feed-dot {")).split("}")[0];
-  const agentDot = css.slice(css.indexOf(".ag-actor-agent .ag-feed-dot {")).split("}")[0];
+  /*
+   * Over the marker the page draws, which is the wheel's dot.
+   *
+   * These read the feed's dot, and the feed was the run log inside a disclosure at
+   * the foot of the run dialog. That log is gone, so the rules they measured
+   * described a marker nobody could see while the wheel's own dot, which carries
+   * the same distinction on the surface a person watches, was held by nothing.
+   */
+  const humanDot = css.slice(css.indexOf(".ag-actor-human .ag-roll-dot {")).split("}")[0];
+  const agentDot = css.slice(css.indexOf(".ag-actor-agent .ag-roll-dot {")).split("}")[0];
   check(/var\(--color-primary\)/.test(humanDot) && /var\(--color-xv-agent\)/.test(agentDot),
     "212 · the person's marker is teal and the agent's is the agent hue");
+  check(humanDot.length > 0 && agentDot.length > 0 && humanDot !== agentDot,
+    `212a · read off two rules that exist and differ (negative control for the slices, ${humanDot.length}/${agentDot.length})`);
   check(/--color-xv-agent:\s*#c58a5a/i.test(css) && !/#c58a5a/i.test(css.replace(/--color-xv-agent:\s*#c58a5a/i, "")),
     "212b · the agent hue is declared once as a token and appears nowhere as a literal");
   check(!/var\(--color-xv-gold\)/.test(agentDot),
     "212c · and gold is not the agent hue, so the toolbar button means something else (negative control)");
-  const dotRule = css.slice(css.indexOf(".ag-feed-dot {")).split("}")[0];
-  check(!/box-shadow|border:/.test(dotRule) && /width:\s*0\.375rem/.test(dotRule),
-    "213 · and the marker has no shadow and no border, so a marker cannot read as the button");
+  const dotRule = css.slice(css.indexOf(".ag-roll-dot {")).split("}")[0];
+  check(dotRule.length > 0 && !/box-shadow|border:/.test(dotRule) && /width:\s*0\.625rem/.test(dotRule),
+    `213 · and the marker has no shadow and no border, so a marker cannot read as the button (${/width:[^;]*/.exec(dotRule)?.[0] ?? "none"})`);
 
   /*
    * Every class the interface renders has a rule, and every inline mark has a size.

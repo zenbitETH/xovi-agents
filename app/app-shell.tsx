@@ -435,13 +435,26 @@ export type BoardCellView = {
 /**
  * What can have happened to a cell this wallet's own agent read, in order.
  *
- * **Four events with four sources, and none of them is inferred from the one
- * before it.** The read is the runs table, the proposal is the run's own outcome,
- * the confirmation is Zenbit's public list and the anchor is the anchor store. A
- * clip can be proposed and not confirmed, or confirmed and not yet anchored, so a
- * bar that filled itself forward would draw a chain that has not happened.
+ * **Four events and three sources, none of them inferred from the one before
+ * it.** The runs table, which records the run's own step name beside the cell it
+ * read; Zenbit's public list; and the anchor store, which answers for the
+ * confirmation as well as the anchor, because an attestation is of a person's own
+ * signed decision. A clip can be proposed and not confirmed, or confirmed and not
+ * yet anchored, so a bar that filled itself forward would draw a chain that has
+ * not happened.
  */
 export const LIFECYCLE = ["read", "proposed", "confirmed", "attested"] as const;
+
+/**
+ * Why a stage reads not seen, said once and in one place.
+ *
+ * It stood in a paragraph over the board, read by everybody whether or not any
+ * cell was unseen. It is the not seen stage's own text now: the title a pointer
+ * gets and the words a screen reader gets are this same constant, so the two
+ * cannot drift and the reason is still said once.
+ */
+export const NOT_SEEN_REASON =
+  "Zenbit's public list carries confirmed clips only, and the fifty most recent, so this is not a decision anybody made.";
 
 /**
  * How far a cell got, and what the page may say where it did not get there.
@@ -1320,7 +1333,7 @@ function Home({ newest }: { newest: { day: string; videoId: string } | null }) {
             <span className="ag-process-n" aria-hidden="true">
               {i + 1}
             </span>
-            <h3 className="ag-panel-title">{step.title}</h3>
+            <h3 className="ag-process-title">{step.title}</h3>
             <p className="ag-sub">{step.line}</p>
           </li>
         ))}
@@ -1478,15 +1491,6 @@ function Board({
 
   return (
     <div className="ag-board">
-      {/* The instruction is gone: the grid is a grid of days and species with a
-          control in every cell, and telling a person to choose one is reading the
-          interface out loud. What is left is the claim the grid cannot make and
-          the one thing a mark below may not be read as. */}
-      <p className="xv-desc ag-empty">
-        The agent chooses the window and forms the proposal; no word and no choice of window from here reaches the
-        clip. Not seen means Zenbit&rsquo;s public list does not carry that clip, and the list carries confirmed clips
-        only and the fifty most recent, so it is not a decision anybody made.
-      </p>
       {chosen !== null && (
         <div className="ag-board-run">
           <span className="ag-sub">
@@ -1515,7 +1519,7 @@ function Board({
               // the condition and the text cannot come apart.
               const priceForCell = prices[`${day}|${species}`] ?? null;
               const meta = on && cell !== undefined ? cellMetaLine(cell) : "";
-              // The four events, from four sources, for this cell alone. Built
+              // The four events, from their three sources, for this cell alone. Built
               // here so the bar and the sentence under it cannot disagree: both
               // read the same array rather than each deciding for itself.
               const stages = cell?.read === undefined ? null : lifecycleOf(cell.read, confirmed);
@@ -1559,9 +1563,21 @@ function Board({
                       what separates their activity from the machine's. */}
                   {stages !== null && cell?.read !== undefined && (
                     <>
-                      <span className="ag-life" aria-hidden="true">
+                      <span className="ag-life">
                         {LIFECYCLE.map((stage, i) => (
-                          <span key={stage} className="ag-life-seg" data-state={stages[i]} />
+                          <span
+                            key={stage}
+                            className="ag-life-seg"
+                            data-state={stages[i]}
+                            title={stages[i] === "not seen" ? NOT_SEEN_REASON : undefined}
+                          >
+                            {/* Words rather than an aria-label, because this sits
+                                inside the cell's own button and a button's name is
+                                built from the words its contents carry. */}
+                            <span className="ag-said">
+                              {stages[i] === "not seen" ? `${stage}: ${NOT_SEEN_REASON}` : `${stage}: ${stages[i]}`}
+                            </span>
+                          </span>
                         ))}
                       </span>
                       <span className="ag-board-read">{lifecycleLine(cell.read, stages)}</span>
@@ -2104,9 +2120,10 @@ export function AppShell() {
   const runDialog = useRef<HTMLDialogElement | null>(null);
   const nameDialog = useRef<HTMLDialogElement | null>(null);
   // No scroll to a tail. The run is read on the wheel, which moves itself and
-  // holds one card at a time, and the whole sequence below it is a disclosure a
-  // person opens. The scroll this replaced pointed at a row in the arm above,
-  // so it had been following a node that never mounted.
+  // holds one card at a time, and there is nothing under it to scroll to: the
+  // list that used to repeat the run below it is gone. The scroll this replaced
+  // pointed at a row in an arm nothing reached, so it had been following a node
+  // that never mounted.
   const say = useCallback((line: Line) => setLines(prev => [...prev, line]), []);
 
   /**
@@ -2669,16 +2686,6 @@ export function AppShell() {
               ))}
             </nav>
             )}
-            <p className="ag-key">
-              <span>
-                <i className="ag-key-human" aria-hidden="true" />
-                you
-              </span>
-              <span>
-                <i className="ag-key-agent" aria-hidden="true" />
-                agent
-              </span>
-            </p>
           </div>
 
           <div className="ag-app-body">
@@ -2853,20 +2860,6 @@ export function AppShell() {
             )}
           </div>
 
-          <details className="ag-more ag-run-log">
-            <summary className="ag-more-summary">The whole sequence</summary>
-            <ol className="ag-feed">
-              {lines.map((line, i) => (
-                <li key={i} className={`ag-feed-row ag-tone-${line.tone} ag-actor-${line.actor}`}>
-                  <span className="ag-feed-dot" aria-hidden="true" />
-                  <span>
-                    <span className="ag-feed-text">{line.text}</span>
-                    {line.detail !== undefined && <span className="ag-feed-detail">{line.detail}</span>}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </details>
         </dialog>
       </main>
     </>
