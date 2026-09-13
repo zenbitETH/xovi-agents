@@ -733,7 +733,11 @@ export async function pageChecks(check: Check) {
   check(previous !== undefined && /transition-duration:\s*160ms/.test(previous.body), "281d · with the exit faster than the entrance");
   const faded = (body: string | undefined) => /opacity:\s*0?\.3[0-9]/.test(body ?? "");
   check(faded(previous?.body) && faded(next?.body), "281e · both neighbours are drawn faded rather than hidden");
-  check(away !== undefined && /opacity:\s*0\b/.test(away.body), "281f · while every other state is drawn nowhere (negative control)");
+  // Drawn nowhere is `display: none` now rather than a transparent card: a
+  // neighbour is a title in its own row, and a fourth card in that row would take
+  // the space whether or not anybody could see it.
+  const awayRule = rollRules.find(r => /\.ag-roll-card\[data-position="away"\]/.test(r.selector));
+  check(awayRule !== undefined && /display:\s*none/.test(awayRule.body), "281f · while every other state is drawn nowhere (negative control)");
 
   // The projected box is wider than the card, so the region clips rather than
   // hides: hidden would make it a scroll container.
@@ -755,10 +759,19 @@ export async function pageChecks(check: Check) {
   const rolodexEnd = ui.indexOf("function Onboarding(");
   const rolodexBlock = rolodexStart >= 0 && rolodexEnd > rolodexStart ? ui.slice(rolodexStart, rolodexEnd) : "";
   check(rolodexBlock.length > 0 && rolodexBlock.length < ui.length / 2, `283c · the rolodex block is found and is a block (${rolodexBlock.length})`);
-  check(/lines\.map\(\(line, i\) => \(/.test(rolodexBlock) && /data-position=/.test(rolodexBlock),
-    "283 · every line the log holds is a card");
-  check(!/lines\.slice/.test(rolodexBlock), "283b · and none of them is dropped before the stack is built");
-  check(/onStep\(at - 1\)/.test(ui) && /onStep\(at \+ 1\)/.test(ui), "283a · and every one of them is reachable by stepping");
+  const maps = (rolodexBlock.match(/lines\.map\(\(line, i\) =>/g) ?? []).length;
+  check(maps === 2 && /data-position=/.test(rolodexBlock), `283 · every line the log holds is a card and a node on the rail (${maps} maps over the lines)`);
+  check(!/lines\.slice/.test(rolodexBlock), "283b · and none of them is dropped before either is built");
+  /*
+   * Reachable by the rail rather than by a pager.
+   *
+   * This asserted a Back and a Forward, which said where a person was in a number
+   * and gave them no way to see what the run had done. Each state has its own node
+   * now and the node steps to its own index, which is a stronger claim than two
+   * arrows: a pager reaches every line by walking, a rail reaches each one at once.
+   */
+  check(/onClick=\{\(\) => onStep\(i\)\}/.test(rolodexBlock), "283a · and every one of them is reachable from its own node");
+  check(!/onStep\(at - 1\)|onStep\(at \+ 1\)/.test(ui), "283d · with no pager left to walk them one at a time");
 
   /*
    * The ladder: each rung two present tense sentences, one merged fact and one

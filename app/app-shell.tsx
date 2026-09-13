@@ -1080,57 +1080,72 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
   if (lines.length === 0) return null;
   return (
     <div className="ag-roll">
-      <div className="ag-roll-stage">
+      {/* The line of states. The spine, the node, the label that appears on the one
+          being read and the 300ms transitions are the site's section rail, copied
+          from `components/nav/rail.css`. **The mark is not ported and is new**: that
+          checkout carries no checkmark on any branch, so a state already read is
+          drawn here in two strokes rather than taken from somewhere it does not
+          exist. It replaces a Back, n of N, Forward pager, which said where a person
+          was in a number and gave them no way to see what the run had done. */}
+      <nav className="ag-steps" aria-label="The run's states">
+        <span className="ag-steps-spine" aria-hidden="true" />
         {lines.map((line, i) => (
-          <article
+          <button
             key={i}
-            className={`ag-roll-card ag-tone-${line.tone} ag-actor-${line.actor}`}
-            data-position={rollPosition(i, at)}
-            // The neighbours are scenery: read by nobody's screen reader and
-            // reachable by nobody's keyboard, so a link inside one cannot be
-            // tabbed into behind the card in front of it.
-            aria-hidden={i === at ? undefined : "true"}
-            inert={i !== at}
+            type="button"
+            className="ag-steps-item"
+            data-state={i < at ? "done" : i === at ? "at" : "ahead"}
+            aria-current={i === at ? "step" : undefined}
+            onClick={() => onStep(i)}
           >
-            <header className="ag-roll-head">
-              {/* The dot alone. The tone is a hue and a weight everywhere else on
-                  the page, and the word was one more label on a card that should
-                  be quiet. */}
-              <span className="ag-roll-dot" aria-hidden="true" />
-            </header>
-            <p className="ag-roll-name">{line.text}</p>
-            {line.detail !== undefined && <p className="ag-roll-line">{line.detail}</p>}
-            {line.object !== undefined && <Drawing object={line.object} />}
-          </article>
+            <span className="ag-steps-dot" aria-hidden="true" />
+            <span className="ag-steps-label">{line.text}</span>
+          </button>
         ))}
-      </div>
-      <div className="ag-roll-controls">
-        <button type="button" className="ag-rail-item" onClick={() => onStep(at - 1)} disabled={at === 0}>
-          Back
-        </button>
-        <span className="ag-sub">
-          {at + 1} of {lines.length}
-        </span>
-        <button type="button" className="ag-rail-item" onClick={() => onStep(at + 1)} disabled={at >= lines.length - 1}>
-          Forward
-        </button>
+      </nav>
+
+      <div className="ag-roll-stage">
+        {lines.map((line, i) => {
+          const position = rollPosition(i, at);
+          const current = position === "current";
+          if (position === "away") return null;
+          return (
+            <article
+              key={i}
+              className={`ag-roll-card ag-tone-${line.tone} ag-actor-${line.actor}`}
+              data-position={position}
+              // The neighbours are scenery: read by nobody's screen reader and
+              // reachable by nobody's keyboard, so a link inside one cannot be
+              // tabbed into behind the card in front of it.
+              aria-hidden={current ? undefined : "true"}
+              inert={!current}
+            >
+              {current ? (
+                <>
+                  <header className="ag-roll-head">
+                    {/* The dot alone. The tone is a hue and a weight everywhere
+                        else on the page, and the word was one more label on a card
+                        that should be quiet. */}
+                    <span className="ag-roll-dot" aria-hidden="true" />
+                  </header>
+                  <p className="ag-roll-name">{line.text}</p>
+                  {line.detail !== undefined && <p className="ag-roll-line">{line.detail}</p>}
+                  {line.object !== undefined && <Drawing object={line.object} />}
+                </>
+              ) : (
+                // A neighbour is a title and nothing else. Drawn whole, they
+                // overlapped the state being read and competed with it for the
+                // sentence a person is actually on.
+                <p className="ag-roll-title">{line.text}</p>
+              )}
+            </article>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-/**
- * Settings: what has to be true before a run means anything.
- *
- * The wallet, what AgentBook says about it, and whether a name is issued to it.
- * Each is a card that states its own answer rather than a checklist that grades
- * the person.
- *
- * **The issue action is a rung, not a button.** No issuing path exists, and a
- * control drawn and marked design is a control that lies; two present tense
- * sentences with the negative say the same thing truthfully and go on the sweep
- * with everything else.
- */
 function Onboarding({
   address,
   chain,

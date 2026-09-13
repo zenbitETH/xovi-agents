@@ -464,8 +464,57 @@ export async function boardChecks(check: Check) {
   check(/if \(pinned !== null\) return;/.test(page) && /setCursor\(c => c \+ 1\), ROLL_DWELL_MS\)/.test(page),
     "312g · the wheel turns on that timer and stops while a card is pinned");
   const roll = page.slice(page.indexOf("function Rolodex("), page.indexOf("function Onboarding("));
-  check(roll.length > 0 && /aria-hidden=\{i === at \? undefined : "true"\}/.test(roll) && /inert=\{i !== at\}/.test(roll),
+  check(roll.length > 0 && /aria-hidden=\{current \? undefined : "true"\}/.test(roll) && /inert=\{!current\}/.test(roll),
     "312h · the neighbours are scenery: read by no screen reader and reachable by no keyboard");
+  // And they carry a title and nothing else. Drawn whole they overlapped the state
+  // being read, which is what the three rows and this branch fix together.
+  check(/\{current \? \(/.test(roll) && /<p className="ag-roll-title">\{line\.text\}<\/p>/.test(roll),
+    "312i · a neighbour is the state's title alone, never its content");
+  /*
+   * THE LINE OF STATES, AND WHAT EACH NODE SAYS.
+   *
+   * One node per state, a mark on every state already read, the one being read
+   * marked apart, and the label on it. Ported from the site's own section rail
+   * rather than invented: the same spine, dot, label and 300ms transitions.
+   */
+  const sheetRoll = readFileSync("app/globals.css", "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  check(/\.ag-steps-spine\s*\{[^}]*width:\s*2px/.test(sheetRoll), "324 · the rail carries the site's own spine");
+  // Read as rules rather than as selectors: two selectors naming the pseudo
+  // elements can sit above a block that draws nothing, which is what a first
+  // version of this check could not tell apart.
+  const doneStrokes = [...sheetRoll.matchAll(/\.ag-steps-item\[data-state="done"\] \.ag-steps-dot::(before|after)[^{]*\{([^}]*)\}/g)].map(m => m[2]);
+  // Both halves, because either alone draws nothing: a pseudo element with no
+  // `content` is not rendered at all, and two rendered boxes with no rotation are
+  // a cross rather than a mark.
+  const withContent = doneStrokes.filter(b => /content:\s*""/.test(b)).length;
+  const rotated = doneStrokes.filter(b => /transform:\s*rotate\(/.test(b)).length;
+  check(doneStrokes.length >= 2 && withContent >= 1 && rotated >= 2,
+    `324a · a state already read is drawn as a mark, in two strokes rather than a glyph (${doneStrokes.length} rules, ${withContent} with content, ${rotated} rotated)`);
+  check(/\.ag-steps-item\[data-state="at"\] \.ag-steps-dot\s*\{[^}]*transform:\s*scale\(1\.45\)/.test(sheetRoll),
+    "324b · and the one being read is marked apart by the site's own scale");
+  check(/data-state=\{i < at \? "done" : i === at \? "at" : "ahead"\}/.test(roll),
+    "324c · the three states are the wheel's own arithmetic and not a second count");
+  check(/aria-current=\{i === at \? "step" : undefined\}/.test(roll), "324d · with the one being read named to a screen reader");
+  /*
+   * Three rows, so a neighbour cannot sit on the state being read.
+   *
+   * They shared one cell and the projection put them over it. The rows are the
+   * mechanism rather than the translate distances, which is why this reads the
+   * template and the row each neighbour is placed in.
+   */
+  const stageBody = /\.ag-roll-stage\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  const rows = /grid-template-rows:([^;]*);/.exec(stageBody)?.[1]?.trim() ?? "";
+  check(rows.split(/\s+(?![^(]*\))/).length === 3, `324f · the stage is three rows (${rows || "none read"})`);
+  const rowOf = (name: string) => {
+    const body = new RegExp(`\\.ag-roll-card\\[data-position="${name}"\\]\\s*\\{([^}]*)\\}`).exec(sheetRoll)?.[1] ?? "";
+    return /grid-row:\s*(\d)/.exec(body)?.[1] ?? null;
+  };
+  check(rowOf("previous") === "1" && rowOf("current") === "2" && rowOf("next") === "3",
+    `324g · with the state being read between its two neighbours (${rowOf("previous")}, ${rowOf("current")}, ${rowOf("next")})`);
+  const stepTransitions = [...sheetRoll.matchAll(/\.ag-steps[^{]*\{([^}]*)\}/g)].map(m => m[1]).filter(b => /transition:/.test(b));
+  const badSteps = stepTransitions.filter(b => !/transition:\s*(transform|opacity)/.test(b) || /\ball\b/.test(b));
+  check(stepTransitions.length >= 2 && badSteps.length === 0,
+    `324e · the rail moves on transform and opacity alone (${stepTransitions.length} rules, ${badSteps.length} otherwise)`);
 
   /*
    * One height, whatever state is in the middle. The dialog changed height from
