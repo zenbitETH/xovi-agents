@@ -34,10 +34,30 @@ export class SnapshotUnavailable extends Error {}
  * fallback is `producedAt`'s date, which is right whenever the detector ran on the
  * recording, and is the only thing available for the fixture that predates this.
  */
-export function dayOf(window: CandidateWindow, sidecar: string | null): string {
-  if (sidecar !== null) return sidecar;
-  return String(window.producedAt ?? "").slice(0, 10);
+export function dayOf(sidecar: string): string {
+  return sidecar;
 }
+
+/**
+ * A file read as part of a set must say which day it is.
+ *
+ * The fallback is not merely imprecise, it is wrong in one direction and silent
+ * about it: `producedAt` is when the detector ran, so any footage processed later
+ * than it was recorded is filed too late, plausibly and with nothing in the answer
+ * to show the substitution. It happened: the July fixture sat on the board under
+ * 8 September, seven weeks late, because it had no sidecar and nobody had to say
+ * so.
+ *
+ * So every file says which day it is and there is no fallback to fall back to.
+ * The one exception is invented data, which has no recording day to state: the
+ * synthetic fixture is skipped by a directory read anyway and is named explicitly
+ * only by the checks and the local demonstration.
+ *
+ * A directory read names every file it refused rather than serving the rest as
+ * though the set were complete, which is the same rule the malformed line follows
+ * and for the same reason.
+ */
+export class DayUnknown extends Error {}
 
 /** A window with the two facts the board sorts by, neither of them new: the day
  *  its footage belongs to and the species its station holds. */
@@ -81,12 +101,13 @@ export function isSynthetic(window: CandidateWindow): boolean {
   );
 }
 
-function filesFrom(configured: string): string[] {
+function filesFrom(configured: string): { files: string[]; fromDirectory: boolean } {
   const parts = configured
     .split(",")
     .map(p => p.trim())
     .filter(p => p.length > 0);
   const files: string[] = [];
+  let fromDirectory = false;
   for (const part of parts) {
     const path = isAbsolute(part) ? part : resolve(process.cwd(), part);
     let directory = false;
@@ -99,6 +120,7 @@ function filesFrom(configured: string): string[] {
       files.push(path);
       continue;
     }
+    fromDirectory = true;
     const inside = readdirSync(path)
       .filter(name => name.endsWith(".jsonl"))
       .sort()
@@ -111,7 +133,7 @@ function filesFrom(configured: string): string[] {
     if (inside.length === 0) throw new SnapshotUnavailable(`no .jsonl files in ${part}`);
     files.push(...inside);
   }
-  return files;
+  return { files, fromDirectory };
 }
 
 /** Reads the first line only. A file is synthetic or it is not; the fixture does
@@ -138,7 +160,9 @@ export function loadSnapshot(env: EnvLike = process.env): BoardWindow[] {
 
   const out: BoardWindow[] = [];
   const rejected: string[] = [];
-  for (const file of filesFrom(configured)) {
+  const undated: string[] = [];
+  const { files } = filesFrom(configured);
+  for (const file of files) {
     let raw: string;
     try {
       raw = readFileSync(file, "utf8");
@@ -146,6 +170,14 @@ export function loadSnapshot(env: EnvLike = process.env): BoardWindow[] {
       throw new SnapshotUnavailable(`snapshot not readable at ${file}`);
     }
     const sidecar = readDaySidecar(file);
+    // Invented data has no recording day to state, and it is named explicitly or
+    // not read at all. It is served with no day, so it draws no cell: `boardFrom`
+    // keeps only the days that exist.
+    const synthetic = sidecar === null && fileIsSynthetic(file);
+    if (sidecar === null && !synthetic) {
+      undated.push(file);
+      continue;
+    }
     raw.split("\n").forEach((line, i) => {
       const t = line.trim();
       if (t.length === 0) return;
@@ -160,7 +192,7 @@ export function loadSnapshot(env: EnvLike = process.env): BoardWindow[] {
       if (problems.length > 0) rejected.push(`${file} line ${i + 1}: ${problems.join("; ")}`);
       else {
         const w = parsed as CandidateWindow;
-        out.push({ ...w, day: dayOf(w, sidecar) });
+        out.push({ ...w, day: sidecar === null ? "" : dayOf(sidecar) });
       }
     });
   }
@@ -168,6 +200,13 @@ export function loadSnapshot(env: EnvLike = process.env): BoardWindow[] {
   // A malformed snapshot is a refusal, not a filter. Serving the readable subset
   // would mean a caller pays for a set whose size depends on a parse error
   // nobody was told about, and the missing rows would look like a quiet day.
+  // Named, all of them, rather than one and a count: a set served short is a set
+  // whose missing days nobody was told about.
+  if (undated.length > 0) {
+    throw new DayUnknown(
+      `no .day sidecar for ${undated.join(", ")}. The detector's clock is not the recording's date, so each file says which day its footage belongs to`,
+    );
+  }
   if (rejected.length > 0) throw new SnapshotUnavailable(`snapshot has ${rejected.length} invalid window(s): ${rejected[0]}`);
   return out;
 }

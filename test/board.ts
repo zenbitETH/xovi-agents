@@ -7,7 +7,7 @@ import { GET as registrationGET } from "../app/api/agent/registration/route";
 import { readFileSync } from "node:fs";
 import { setRegistryForTest } from "../lib/human/registry";
 import { onboardingFrom } from "../app/app-shell";
-import { BOARD_SPECIES, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
+import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
 
 type Check = (ok: boolean, label: string) => void;
@@ -42,7 +42,8 @@ export async function boardChecks(check: Check) {
   writeFileSync(join(dir, "windows.bbb.jsonl"), `${JSON.stringify(window("bbb", "dumerilii", "2026-09-04T10:00:00Z", "d1"))}\n`);
   // A README beside them, which a directory read must not try to parse.
   writeFileSync(join(dir, "README.md"), "not a window\n");
-  // A sidecar, because the detector's clock is not the recording's day.
+  // Every file says which day it is; there is no fallback to fall back to.
+  writeFileSync(join(dir, "windows.aaa.jsonl.day"), "2026-09-03\n");
   writeFileSync(join(dir, "windows.bbb.jsonl.day"), "2026-09-05\n");
 
   const before = process.env.WINDOWS_SNAPSHOT;
@@ -55,8 +56,29 @@ export async function boardChecks(check: Check) {
 
   const all = loadSnapshot();
   check(all.length === 3, `269 · a directory loads every file in it (${all.length})`);
-  check(all.filter(w => w.day === "2026-09-03").length === 2, "269a · the day comes from producedAt where nothing else says");
+  check(all.filter(w => w.day === "2026-09-03").length === 2, "269a · every file says which day its footage belongs to");
   check(all.filter(w => w.day === "2026-09-05").length === 1, "269b · and from the sidecar where one does, which the detector's clock is not");
+
+  /*
+   * A file read as part of a set says which day it is, or the set refuses.
+   *
+   * The fallback is wrong in one direction and silent about it: `producedAt` is
+   * when the detector ran, so footage processed later than it was recorded is
+   * filed too late, plausibly. It happened, seven weeks late, and nothing in the
+   * answer showed it. A named file still needs no sidecar, because the checks and
+   * the local demonstration name theirs and the day is not what they are for.
+   */
+  writeFileSync(join(dir, "windows.ccc.jsonl"), `${JSON.stringify(window("ccc", "mexicanum", "2026-09-06T10:00:00Z", "c1"))}\n`);
+  let undatedRefusal: unknown = null;
+  try {
+    loadSnapshot();
+  } catch (err) {
+    undatedRefusal = err;
+  }
+  check(undatedRefusal instanceof DayUnknown, "269c · a file with no sidecar refuses the whole set");
+  check(String((undatedRefusal as Error)?.message ?? "").includes("windows.ccc.jsonl"), "269d · naming the file rather than a count");
+  writeFileSync(join(dir, "windows.ccc.jsonl.day"), "2026-09-06\n");
+  check(loadSnapshot().length === 4, "269e · and is read once it says which day (negative control)");
 
   const board = boardFrom(all);
   check(board.days.join(",") === "2026-09-03,2026-09-05", `270 · the board's days are the days the files carry (${board.days.join(",")})`);

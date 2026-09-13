@@ -114,10 +114,13 @@ async function main() {
   } catch (e) {
     check(e instanceof SnapshotUnavailable, "19 · an unset snapshot path refuses rather than serving an empty list");
   }
+  // Every snapshot file says which day its footage belongs to, so these do too.
   const okFile = join(tmpdir(), `w-ok-${process.pid}.jsonl`);
+  writeFileSync(`${okFile}.day`, "2026-09-07\n");
   writeFileSync(okFile, JSON.stringify(good()) + "\n");
   check(loadSnapshot({ WINDOWS_SNAPSHOT: okFile }).length === 1, "20 · a valid snapshot loads (negative control)");
   const badFile = join(tmpdir(), `w-bad-${process.pid}.jsonl`);
+  writeFileSync(`${badFile}.day`, "2026-09-07\n");
   writeFileSync(badFile, JSON.stringify(good()) + "\n" + JSON.stringify({ ...good(), confidence: 2000 }) + "\n");
   try {
     loadSnapshot({ WINDOWS_SNAPSHOT: badFile });
