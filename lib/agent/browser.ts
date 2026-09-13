@@ -3,6 +3,7 @@ import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { createWalletClient, custom } from "viem";
 import type { EIP1193Provider } from "viem";
 import { baseSepolia } from "viem/chains";
+import { MAX_PER_PAYMENT } from "./spend";
 
 /**
  * Paying from the reader's own wallet, in their browser.
@@ -232,7 +233,7 @@ function readableAmount(amount: string, token: string): string {
 export async function signChallenge(
   windowsUrl: string,
   address: `0x${string}`,
-  maxPerPayment = "$0.05",
+  maxPerPayment = MAX_PER_PAYMENT,
   onChallenge?: (challenge: { description: string; amount: string; asset: string; payTo: string; network: string }) => void,
 ): Promise<SignedPayment> {
   const core = new x402Client();

@@ -13,6 +13,7 @@ import {
   restoreConnection,
   signChallenge,
 } from "~~/lib/agent/browser";
+import { MAX_PER_PAYMENT } from "~~/lib/agent/spend";
 import type { RunStep } from "~~/lib/agent/run";
 import { BOARD_SPECIES } from "~~/lib/windows/types";
 import { recoverConfirmer } from "~~/lib/anchor/confirmation";
@@ -1877,7 +1878,7 @@ export function AppShell() {
       // What is on sale, and the price, are said BEFORE the wallet opens rather than
       // after it closes. Both come from the challenge the server sent: the page is not
       // describing the purchase, the counterparty is.
-      const signed = await signChallenge(windowsUrl, address, undefined, challenge => {
+      const signed = await signChallenge(windowsUrl, address, MAX_PER_PAYMENT, challenge => {
         setChallengeRead(true);
         say({
           // The counterparty's own sentence where it sent one. Where it sent none,

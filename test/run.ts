@@ -26,6 +26,7 @@ import { startFakeFacilitator } from "./facilitator";
 import { startFakeIngest } from "./ingest";
 import { AGENT_ONE, AGENT_OTHER, AGENT_TWO, AGENT_UNREGISTERED, HUMAN_A, fakeRegistry, fakeStore } from "./human";
 import { RETENTION_DAYS, recordSettlement, setCapForTest, takeFreeRead } from "../lib/human/cap";
+import { MAX_PER_PAYMENT } from "../lib/agent/spend";
 import { postgresStore } from "../lib/human/postgres";
 import { NoDerivationKey, deriveIdentifier } from "../lib/human/derive";
 import { anchorChecks } from "./anchor";
@@ -728,6 +729,25 @@ async function main() {
   check(kept.counted === 2, "126 · two days of usage exist (negative control)");
   await kept.forgetOlderThan(RETENTION_DAYS, today);
   check(kept.counted === 1, `127 · and the one past ${RETENTION_DAYS} days is forgotten, without a scheduler`);
+
+  /*
+   * The spend ceiling must not refuse the ruled price.
+   *
+   * It was $0.05 while the ruled price is $0.50, so the payer rejected the
+   * challenge before signing it and a run ended with nothing settled. A ceiling
+   * below the price is a refusal of the product rather than a guard on it, and
+   * the guard is for a price that arrives with a zero too many.
+   */
+  const cents = (money: string) => Math.round(Number(money.replace("$", "")) * 1e6);
+  check(cents(MAX_PER_PAYMENT) >= 500_000, `290 · the ceiling admits the ruled price of 0.50 (${MAX_PER_PAYMENT})`);
+  check(cents("$0.05") < 500_000, "290a · while the ceiling it replaced refused it (negative control)");
+  check(cents(MAX_PER_PAYMENT) < 10_000_000, "290b · and still catches a price with a zero too many");
+  const exampleEnv = readFileSync(join(process.cwd(), ".env.example"), "utf8");
+  // `$0` is expanded by the env loader, so an unescaped example loads as `.50`
+  // and the paid route answers 500 naming a format nobody wrote.
+  const unescaped = [...exampleEnv.matchAll(/^[A-Z0-9_]+=\$\d/gm)].map(m => m[0]);
+  check(unescaped.length === 0, `291 · no example value starts with an unescaped dollar zero (${unescaped.join(", ") || "none"})`);
+  check(/^[A-Z0-9_]+=\$\d/m.test("X402_PRICE=$0.50"), "291a · the escape check can see an unescaped one (negative control)");
 
   await anchorChecks(check);
   await mcpChecks(check);
