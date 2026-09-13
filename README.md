@@ -30,7 +30,7 @@ So the thing worth selling is not the observation. Observations are public: conf
 
 The design is in [`docs/spec/`](./docs/spec/), five documents: the agent layer and its invariants, the candidate window shape and the embargo rule, the proposal mapping, the proof of human allowance, and the anchor and paid query. [`01-agent-layer.md`](./docs/spec/01-agent-layer.md) lists each invariant with its mechanism, what defeats it, and the check that holds it.
 
-Two rails, and they do not overlap. Payments settle on Base Sepolia (`eip155:84532`). Attestations anchor on Ethereum Sepolia (`11155111`). Nothing touches mainnet and nothing handles real funds.
+Two rails, and they do not overlap. Payments settle on Base Sepolia (`eip155:84532`), in USDC, to `0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe`. That address is the recipient of settlements on this rail and is named here as nothing else. The endpoint already returns it in the 402 challenge to any unpaid request, so recording it lets a reader check a settlement against a value the service publishes rather than against one they were handed. Attestations anchor on Ethereum Sepolia (`11155111`). **Nothing here writes to a mainnet and nothing handles real funds.** One read is on one: the paid endpoint reads the World ID registry on World Chain (`480`), which moves nothing and needs no key. `xovi.eth` is also registered on Ethereum mainnet, and this code reads Sepolia only.
 
 ## Running it
 
@@ -54,32 +54,29 @@ This repository was created on 2026-09-06 and is being built across the event wi
 
 | Leg | State |
 |---|---|
-| Agent identity over ENS | built and fail closed: the four resolution branches are proven against an injected resolver, and the real viem lookup has since been observed refusing a registered name that carries no record. No name belonging to Zenbit is registered, so the successful path is unexercised and the agent is given its endpoint directly |
+| Agent identity over ENS | resolving: `xovi.eth` is registered on Ethereum Sepolia and its `x402:windows` record resolves to the windows endpoint, read 2026-09-12 through `resolveWindowsEndpoint` with no injected lookup, which is the function `bin/agent.ts` calls. Checkable in one command, `AGENT_ENS_NAME=xovi.eth npm run ens:verify`. The four refusal branches are proven against an injected resolver, and the protocol guard is proven against the real record: an `http` value stood on it for eighteen blocks on 2026-09-12 and was refused |
 | Paid read over x402 | built, and settled repeatedly on Base Sepolia through the public testnet facilitator, most recently `0x4d609e7b…aa39`. The suite exercises the refusal against a fake; the settlements are real |
 | Agent proposes a clip | built, and exercised twice over: against a fake of the ingest route in the suite, and live against the real route, which is where clip 259 came from |
 | Proof of human, per person caps | built: registry lookup, a keyed digest of the identifier kept for 30 days, and a per person daily allowance |
 | Attestation and onchain anchor | **registered and anchored.** The schema is `0x8d4a9a6e…8c6d` on Ethereum Sepolia, registered in block 11680348; clip 259's confirmation is attested at `0xd86c2902…5538` and its offchain identifier timestamped at `0x236b7c7a…dfb3` |
 | Subgraph and paid query | **indexing the deployed anchor.** The subgraph returns clip 259's observation filtered on the schema identifier as `topic3`, and a paid query over MCP returns it after settling |
+| A person's own surface | built: an onboarding that asks for a wallet on Base Sepolia, what AgentBook says about it and whether a name resolves to it, before anything else is reachable; a board of what is on offer per day and per species; the run drawn one card at a time; and the account's receipts, proposals and names. Every number on it comes from a served field or a merged document |
+| Windows on offer | built from screened recordings of the museum's own livestream, each file carrying the day its footage belongs to. The board says on offer or none per day and per species and never how many, because the files are public and a count is the withheld set by subtraction |
 | Receipts ledger and fee sink | receipts built and written by real settlements, recorded against the payer. **The fee sink is not started** |
 
 ## What the attestation asserts
 
-<!-- SLOT, and this comment is meant to be consumed. When the schema is registered, the legal
-     lead's first sentence goes here, ahead of the paragraph below, and nothing else changes:
-     A schema definition for clip confirmations is registered on a public testnet for interoperability testing, with no production monitoring system deployed against it.
-     It is held out until then because it states a registration as fact.
-     Delete this comment once the sentence is in place. Do NOT delete the one below it. -->
+<!-- SLOT, and this comment is meant to be consumed. When the schema is registered, the legal lead's first sentence goes here, ahead of the paragraph below, and nothing else changes:
 
-<!-- SWEEP RULE, and this comment is permanent. It is separate from the slot above precisely so
-     that consuming the slot does not take it away, which is when it is needed most: at that point
-     the word moves from an invisible comment into visible prose, so a sweep is more likely to fire
-     and whoever runs it has less around it to explain why.
+A schema definition for clip confirmations is registered on a public testnet for interoperability testing, with no production monitoring system deployed against it.
 
-     The word "production" in this file is a NEGATION inside the legal lead's own disclaimer, in
-     the clause saying no production monitoring system is deployed. It is not a claim that anything
-     is in production, it does not breach the rule against that word, and no session amends her
-     text. A mechanical sweep reports it whether it sits in a comment or in prose. It is closed by
-     reading it, not by deleting it. -->
+It is held out until then because it states a registration as fact. Delete this comment once the sentence is in place. Do NOT delete the one below it.
+
+NOTE 2026-09-12: the condition has been met. The schema is registered on Ethereum Sepolia at 0x8d4a9a6e...8c6d and the subgraph indexes an attestation under it. This slot is left unconsumed deliberately rather than by oversight: the sentence is the legal lead's text and it asserts that no production monitoring system is deployed against the schema, which is a claim about the product that nobody here has re-checked since she wrote it. Consuming it is hers or the founder's call and is one edit. -->
+
+<!-- SWEEP RULE, and this comment is permanent. It is separate from the slot above precisely so that consuming the slot does not take it away, which is when it is needed most: at that point the word moves from an invisible comment into visible prose, so a sweep is more likely to fire and whoever runs it has less around it to explain why.
+
+The word "production" in this file is a NEGATION inside the legal lead's own disclaimer, in the clause saying no production monitoring system is deployed. It is not a claim that anything is in production, it does not breach the rule against that word, and no session amends her text. A mechanical sweep reports it whether it sits in a comment or in prose. It is closed by reading it, not by deleting it. -->
 
 The human operator confirms; the confirmation is attested. The attestation asserts who confirmed and when, and makes that verifiable by third parties. It certifies no identity, no reputation, no payment and no biological fact. The agent proposes; no credential of its own can confirm or attest.
 
@@ -93,4 +90,4 @@ MIT. See `LICENSE`. Copyright (c) 2026 ZENBIT S.A.S. de C.V.
 
 No patent rights are granted, expressly or by implication. The components covered by Zenbit's filed patent application are not included in this repository: the computer-vision stack, the water-quality validation logic, the specimen registry and the application database are not here and not in the attestation schema.
 
-External contributions are accepted under the Developer Certificate of Origin 1.1 (see `CONTRIBUTING.md`); sign off each commit with `git commit -s`. Commits from the repository owner's account carry no sign-off.
+External contributions are accepted under the Developer Certificate of Origin 1.1 (see `CONTRIBUTING.md`); sign off each commit with `git commit -s`. Most commits from the repository owner's account carry no sign-off; three from 2026-09-08 do, `ff4ff23`, `87cac0e` and `b446f35`, which is visible in the log rather than asserted here. This sentence said *carry no sign-off* until 2026-09-12, which was true when written and was falsified by the author's own later commits.

@@ -31,12 +31,17 @@ Everything in **this repository**, which was created on 2026-09-06 and had no co
 Each of these is exercised by the checks in this repository. `npm run local` drives the **paid read** and the **delegated run** from a clean checkout, against a fake facilitator and a fake ingest; it does not run the agent client, and it hands the child an empty `DATABASE_URL` so Next's own env loader cannot give it the production one, so it exercises neither ENS resolution nor the caps and has no ledger to write to.
 
 - An **x402-gated read endpoint** serving computer-vision candidate windows, priced per call and settled on Base Sepolia against a facilitator used for development and testnet workflows.
-- An **agent client** that pays for a window and proposes a clip. It resolves an ENS name to a role and a payment endpoint where one is configured, and **no name belonging to Zenbit is registered**, so that path is fail closed and unexercised and the endpoint is supplied directly.
+- An **agent client** that pays for a window and proposes a clip, and takes the endpoint it pays from an ENS record. **`xovi.eth` is registered on Ethereum Sepolia and its `x402:windows` record resolves to `https://xovi-agents.vercel.app/api/agent/windows`**, read 2026-09-12 through `resolveWindowsEndpoint` with no injected lookup, which is the same function `bin/agent.ts` calls. This sentence stops being true if that record is removed or the name lapses, which is a thing the reader can check in one command: `AGENT_ENS_NAME=xovi.eth npm run ens:verify`.
 - **Delegation from a reader's own wallet**: the reader connects a browser wallet, signs one payment, and the agent's run is streamed back step by step as it happens. The reader supplies a signature and nothing else; the proposal is formed on the server from a window the server already holds.
+- **A dashboard over one wallet's own record**: the run drawn as objects rather than sentences, the settlements it made with their explorer links, the confirmation this repository carries with the recovery a stranger can run beside it, the confirmed proposals that wallet submitted, and whether a name resolves to it. Every number on it comes from a served field or a merged document, and the sections that would need a number nobody serves carry a sentence instead.
+- **The free daily allowance on the deployment is two reads a day for a wallet behind which AgentBook holds a registration**, the first free for anyone and the second for the registered person; every read after that settles, and one proposal at most comes of a read. An unregistered wallet settles every read and is stopped at the onboarding before it reaches one. It is a set value rather than an absence: unset, the code serves twenty a day. A reader can falsify this by making three reads with a registered wallet and finding the third one free.
+- **The page loads one thing from a third party.** The livestream is embedded from the host that sets no cookie, chosen over the ordinary one, which sets three on a plain fetch. Nothing else on the page reaches an origin Zenbit does not serve.
+- **A payment above one dollar is refused before it is signed.** The ceiling is one constant read by both payers, above the ruled price and low enough to catch a price with a zero too many; it is a guard against a typo and never a limit on the product.
+- **A run on the deployed page stops before proposing.** It pays, reads, chooses a window and ends at not-submitted, saying that no ingest credential is configured on this deployment, because `XOVI_INGEST_URL` and `XOVI_INGEST_KEY` are not set there. That is the path `test/agent-run.ts` asserts, and a reader can falsify it by running the deployed page and watching where the run ends.
 - **Proof-of-human caps**, so a per-wallet limit is not defeated by generating wallets.
 - An **offchain attestation**: the human operator confirms, and the operator asserts that confirmation in an EAS attestation whose schema identifier, signed object and signer recovery are all exercised.
 - A **subgraph** and an **MCP server** that charges per query.
-- A **receipts ledger**: a settlement is recorded against the payer who made it.
+- A **receipts ledger**: a settlement is recorded against the payer who made it, and read back for that payer alone through `/api/receipts`.
 - The **attestation schema is registered** on Ethereum Sepolia, `0x8d4a9a6e…8c6d`, and one confirmation is anchored: attested at `0xd86c2902…5538` and its offchain identifier timestamped at `0x236b7c7a…dfb3`. The subgraph indexes that anchor and a paid query returns it.
 
 ### Designed and not running
@@ -44,7 +49,6 @@ Each of these is exercised by the checks in this repository. `npm run local` dri
 Named here rather than implied by the list above, because the difference is what a Continuity submission turns on.
 
 - The **fee sink** is not started.
-- **No ENS name belonging to Zenbit is registered**, so the agent is given its endpoint directly. The resolution path is built and fail closed, and has been driven through the real adapter against two registered names that carry no record. What has never run is a **successful** resolution, which needs a record to exist.
 - The **subscription tier** that would lift the per-person cap, **agent rewards** for proposing particular behaviours, and the **reconciliation** between what agents pay for the read and what subscribers pay for the product are designed and are not built.
 
 ### The surface this opens, stated rather than left to be found

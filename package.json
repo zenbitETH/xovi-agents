@@ -22,7 +22,7 @@
     "subgraph:build": "graph build subgraph/subgraph.yaml --output-dir subgraph/build",
     "mcp:probe": "tsx bin/mcp-http-probe.ts",
     "local": "tsx bin/local.ts",
-    "ens:verify": "tsx --env-file=.env.local bin/ens-verify.ts"
+    "ens:verify": "tsx --env-file-if-exists=.env.local bin/ens-verify.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

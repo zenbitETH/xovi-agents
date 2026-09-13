@@ -24,7 +24,7 @@ type Check = (ok: boolean, label: string) => void;
  * Offline. No facilitator is contacted, because nothing pays.
  */
 const ENV = {
-  X402_PAY_TO: "0x2Be7e36bF7B1A99999999999999999999999999b",
+  X402_PAY_TO: "0xDeaDBeef00000000000000000000000000000001",
   X402_NETWORK: "eip155:84532",
   X402_PRICE: "$0.01",
   SUBGRAPH_URL: "http://127.0.0.1:9/none",
