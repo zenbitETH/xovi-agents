@@ -21,7 +21,7 @@ import { BOARD_SPECIES } from "~~/lib/windows/types";
 import { recoverConfirmer } from "~~/lib/anchor/confirmation";
 import { decisionCode } from "~~/lib/anchor/schema";
 import { ANCHOR_259, CONFIRMATION_259 } from "~~/lib/anchor/confirmation-259";
-import { WorldIdCard } from "./world-id-card";
+import { KEEPS_SENTENCE, WorldIdCard } from "./world-id-card";
 import { NameCard } from "./name-card";
 
 const REPO = "https://github.com/zenbitETH/xovi-agents";
@@ -1507,17 +1507,18 @@ function Home({ onConnect, connecting }: { onConnect: () => void; connecting: bo
 /**
  * The one step between a connected wallet and the board.
  *
- * Drawn as the run is drawn: a line of states beside one card, so the two moments
- * a person spends here look like one page rather than two. Three nodes, because a
- * person wants to know where they are and what follows, and only the middle one
- * asks anything of them.
+ * **One step, and it is optional.** A person who declines goes on, pays for every
+ * read, earns no allowance and gets no name, and their run stops before
+ * proposing. That is a worse deal and an honest one, and it is theirs to take,
+ * which is why the decline's own label carries the short form of the cost rather
+ * than leaving it to prose beside the button.
  *
- * **The card offers and does not require.** A person who declines goes on, pays for
- * every read, earns no allowance and gets no name, and their run stops before
- * proposing. The wallet card is gone: the header's chip already draws the address,
- * the chain and the switch, and a card restating it was a step that completed
- * itself. The name card is gone from here too: issuing is Zenbit's own work and
- * holding somebody at it was the founder's finding.
+ * Not a card. It was one roll card in a stage sized for the run's wheel, which
+ * put a step that asks one question inside a frame built to hold a moving one.
+ * The step is the space: a title, the two ways out of it, and two quiet controls
+ * in the corners. Every explanatory sentence, the keeps sentence among them, is
+ * behind See details, so what a person reads first is the question and the
+ * choice.
  */
 function Enrol({
   address,
@@ -1534,52 +1535,65 @@ function Enrol({
   onRetry: () => void;
   onSkip: () => void;
 }) {
-  const nodes = [
-    { label: "A wallet", state: "done" as const },
-    { label: "A person behind it", state: "at" as const },
-    { label: "The board", state: "ahead" as const },
-  ];
+  const details = useRef<HTMLDialogElement | null>(null);
+  const undecided = registration === "not-registered" || registration === "unread";
   return (
-    <div className="ag-roll ag-enrol">
-      <nav className="ag-steps" aria-label="Before the board">
-        <span className="ag-steps-spine" aria-hidden="true" />
-        {nodes.map(node => (
-          <span key={node.label} className="ag-steps-item" data-state={node.state} aria-current={node.state === "at" ? "step" : undefined}>
-            <span className="ag-steps-dot" aria-hidden="true" />
-            <span className="ag-steps-label">{node.label}</span>
-          </span>
-        ))}
-      </nav>
+    <div className="ag-step">
+      <h2 className="ag-step-title">Verify a person is behind the agent</h2>
+      <span className={registration === "registered" ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>
+        {registrationPill(registration === "registered" ? "done" : "todo", source)}
+      </span>
 
-      <div className="ag-roll-stage ag-enrol-stage">
-        <article className="ag-roll-card ag-actor-human">
-          <h3 className="ag-panel-title">A person behind the agent</h3>
-          <span className={registration === "registered" ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>
-            {registrationPill(registration === "registered" ? "done" : "todo", source)}
-          </span>
+      <div className="ag-step-do-row">
+        {/* A step already done draws no control for doing it: a registered wallet
+            is told its state and asked for nothing. */}
+        {registration !== "registered" && <WorldIdCard payer={address} onRegistered={onRetry} />}
+        {undecided && (
+          <button type="button" className="btn xv-action-outline ag-step-do" onClick={onSkip}>
+            Skip World ID, pay every read
+          </button>
+        )}
+      </div>
+
+      <div className="ag-step-corners">
+        {/* Bottom left, and a text control rather than a button: it opens a
+            reading, it does not take the step anywhere. */}
+        <button type="button" className="ag-step-details" onClick={() => details.current?.showModal()}>
+          See details
+        </button>
+        {/* Bottom right, and small: re-reading is a thing a person does when an
+            answer did not arrive, not one of the two choices. */}
+        {undecided && (
+          <button type="button" className="ag-chip ag-chip-idle ag-chip-do ag-step-again" onClick={onRetry}>
+            {registration === "unread" ? "Read it again" : "Check again"}
+          </button>
+        )}
+      </div>
+
+      <dialog ref={details} className="ag-run-dialog ag-step-modal" tabIndex={-1} aria-labelledby="step-details-head">
+        <div className="ag-run-dialog-head">
+          <h2 id="step-details-head" className="ag-run-thesis">
+            What this step is, and what it costs to skip it
+          </h2>
+        </div>
+        <div className="ag-run-dialog-body">
+          <p className="ag-sub">World ID asserts that one person stands behind this wallet.</p>
+          <p className="ag-sub">{KEEPS_SENTENCE}</p>
           <p className="ag-sub">{registrationLine(registration, source)}</p>
           {credential !== null && <p className="ag-account-address">World ID credential: {credential}</p>}
-          <p className="ag-sub">World ID asserts that one person stands behind this wallet.</p>
-          {/* A step already done draws no control for doing it: a registered wallet
-              is told its state and asked for nothing. */}
-          {registration !== "registered" && <WorldIdCard payer={address} onRegistered={onRetry} />}
-          {(registration === "not-registered" || registration === "unread") && (
-            <>
-              <button type="button" className="btn xv-action-outline ag-setup-do" onClick={onRetry}>
-                {registration === "unread" ? "Read it again" : "Check again"}
-              </button>
-              {/* The worse deal, stated rather than hidden behind a smaller word. */}
-              <button type="button" className="btn xv-action-outline ag-setup-do" onClick={onSkip}>
-                Go on without World ID
-              </button>
-              <p className="ag-sub">
-                Without it every read settles, there is no free allowance, no name is issued, and a run stops before
-                proposing, because a credential is minted for a wallet somebody stands behind.
-              </p>
-            </>
-          )}
-        </article>
-      </div>
+          <p className="ag-sub">
+            Skipping is allowed and costs this: every read settles, there is no free allowance, no name is issued, and a
+            run stops before proposing, because a credential is minted for a wallet somebody stands behind.
+          </p>
+        </div>
+        <div className="ag-run-dialog-foot">
+          <form method="dialog">
+            <button type="submit" className="btn xv-action ag-run-close ag-run-close-ready">
+              Close
+            </button>
+          </form>
+        </div>
+      </dialog>
     </div>
   );
 }

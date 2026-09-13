@@ -692,6 +692,91 @@ body::after {
 }
 
 /* ---------------------------------------------------------------------------
+   The one step between a connected wallet and the board.
+
+   Not a card. It was a roll card inside a stage sized for the run's wheel, which
+   put a step that asks one question into a frame built to hold a moving one. The
+   step takes the space it is given: a title, the two ways out, and two quiet
+   controls in the corners.
+--------------------------------------------------------------------------- */
+.ag-step {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1.5rem 1.25rem 3.5rem;
+}
+
+.ag-step-title {
+  max-width: 22ch;
+  margin: 0;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 2.125rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+/* The two ways out, side by side, wrapping before they shrink. */
+.ag-step-do-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ag-step-do {
+  min-width: 12rem;
+}
+
+/* The corners: the reading on the left, the re-read on the right, both quiet
+   because neither is one of the two choices. */
+.ag-step-corners {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  left: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* A text control. It opens a reading and takes the step nowhere, so it carries
+   none of the button shape the two choices carry. */
+.ag-step-details {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.875rem;
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+  opacity: 0.75;
+  cursor: pointer;
+  transition: opacity 160ms var(--xv-ease-out);
+}
+
+.ag-step-details:hover,
+.ag-step-details:focus-visible {
+  opacity: 1;
+}
+
+.ag-step-again {
+  margin-left: auto;
+}
+
+/* The reading itself, in the run dialog's frame: one dialog shape on this page,
+   not two. */
+.ag-step-modal {
+  min-height: min(24rem, calc(100dvh - 4rem));
+}
+
+/* ---------------------------------------------------------------------------
    The account, in the header.
 
    Identity, chain and the way out, in the place every wallet interface puts them.

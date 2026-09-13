@@ -450,7 +450,13 @@ export async function boardChecks(check: Check) {
     `296a · and says what is kept, for how long, what for, and what is never kept (${kept || "nothing read"})`);
   // Drawn from the constant rather than retyped beside it, so the copy on the screen
   // and the sentence a document quotes cannot drift into disagreeing.
-  check(/\$\{KEEPS_SENTENCE\}/.test(worldCard), "296c · and the card draws that constant rather than a second copy of it");
+  // Drawn from the constant rather than retyped beside it, and drawn in the step's
+  // details modal rather than in the step: the explanation moved, the one source
+  // did not. The step itself must carry none of it.
+  const enrolSource = page.slice(page.indexOf("function Enrol({"), page.indexOf("function WayBack("));
+  check(/\{KEEPS_SENTENCE\}/.test(enrolSource), "296c · the step's details draw that constant rather than a second copy of it");
+  const keptCopies = (page.match(/keyed digest of your World ID identifier/g) ?? []).length;
+  check(keptCopies === 0, `296c2 · which is written once, in the module that exports it (${keptCopies} copies in the shell)`);
   const uiRendered = ui.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   check(!/\bnullifier\b/i.test(uiRendered), "296b · with the value itself named nowhere the interface renders");
   check(/\bnullifier\b/i.test("the nullifier"), "296d · the value check can see the word (negative control)");
@@ -505,9 +511,9 @@ export async function boardChecks(check: Check) {
   check(enrolBlock.length > 0, "297d · the enrolment card is found (negative control for the slice)");
   check(/\{registration !== "registered" && <WorldIdCard/.test(enrolBlock),
     "297e · the verification is offered only to a wallet that has not made one");
-  const enrolControls = [...enrolBlock.matchAll(/<button[\s\S]{0,200}?onClick=\{([^}]*)\}/g)].map(m => m[1]);
-  check(enrolControls.length >= 2 && enrolControls.every(c => /onRetry|onSkip/.test(c)),
-    `297f · and the card's own controls are the read again and the refusal (${enrolControls.join(" | ") || "none"})`);
+  const enrolControls = [...enrolBlock.matchAll(/<button[\s\S]{0,240}?onClick=\{([^}]*)\}/g)].map(m => m[1]);
+  check(enrolControls.length >= 3 && enrolControls.every(c => /onRetry|onSkip|details\.current\?\.showModal/.test(c)),
+    `297f · and the step's own controls are the refusal, the re-read and the reading (${enrolControls.join(" | ") || "none"})`);
 
   /*
    * EVERY CONTROL ON THE THREE CARDS LOOKS LIKE ONE.
@@ -529,8 +535,19 @@ export async function boardChecks(check: Check) {
   const controls = cardSources.reduce((total, src) => total + (src.match(/<button\b/g) ?? []).length, 0);
   const classes = cardSources.flatMap(src => [...src.matchAll(/<button\b[\s\S]{0,400}?className="([^"]*)"/g)].map(m => m[1]));
   check(controls >= 3 && classes.length === controls, `309a · every control on the cards was read with its classes (${classes.length} of ${controls})`);
-  const notButtons = classes.filter(c => !/\bbtn\b/.test(c) || !/\bxv-action(-outline)?\b/.test(c));
+  /*
+   * The choices carry the page's button, filled or outlined. The two controls in
+   * the step's corners deliberately do not: See details opens a reading and Check
+   * again re-reads, and neither is one of the two ways out, so dressing them as
+   * the choices would be the page saying they are.
+   */
+  const quiet = ["ag-step-details", "ag-step-again"];
+  const choices = classes.filter(c => !quiet.some(q => c.includes(q)));
+  const notButtons = choices.filter(c => !/\bbtn\b/.test(c) || !/\bxv-action(-outline)?\b/.test(c));
+  check(choices.length >= 3, `309b0 · the choices were read apart from the quiet controls (${choices.length} of ${classes.length})`);
   check(notButtons.length === 0, `309b · and each carries the page's own button, filled or outlined (${notButtons.join(" | ") || "all do"})`);
+  const dressed = classes.filter(c => quiet.some(q => c.includes(q)) && /\bbtn\b/.test(c));
+  check(dressed.length === 0, `309b2 · while the quiet ones carry none of it (${dressed.join(" | ") || "none"})`);
   const linkish = classes.filter(c => /\bag-link\b|\bag-rail-item\b|\bag-tab\b/.test(c));
   check(linkish.length === 0, `309c · and none of them is styled as a link or a strip item (${linkish.join(" | ") || "none"})`);
   check(/\bag-rail-item\b/.test('className="ag-rail-item ag-setup-do"'), "309d · the strip class this refuses is one it can see (negative control)");
@@ -1958,7 +1975,11 @@ export async function boardChecks(check: Check) {
    * event is prevented for exactly the window the button is disabled for, and both
    * read the same value, so the two cannot disagree.
    */
-  const footAt = page.indexOf('<div className="ag-run-dialog-foot">');
+  // The run dialog's own foot. The step's details modal reuses the dialog shape and
+  // is written earlier in the file, so an unanchored search found its foot, which
+  // has no run to be in progress and no reason to say when it will be available.
+  const runDialogAt = page.indexOf("<dialog ref={runDialog}");
+  const footAt = page.indexOf('<div className="ag-run-dialog-foot">', runDialogAt);
   const foot = footAt === -1 ? "" : page.slice(footAt, page.indexOf("</div>", footAt) + 6);
   check(foot.length > 0, `414 · the dialog's foot is found (negative control for the read, ${foot.length})`);
   check(/disabled=\{runInProgress\}/.test(foot), "414a · the way out is inactive while the run is");
@@ -2405,6 +2426,58 @@ export async function boardChecks(check: Check) {
   const nodeMoves = [...new Set(nodeFrames.match(/^\s*([a-z-]+):/gm)?.map(x => x.trim().replace(":", "")) ?? [])];
   check(nodeMoves.length > 0 && nodeMoves.every(prop => prop === "opacity" || prop === "transform"),
     `419l · moving opacity and nothing that paints (${nodeMoves.join(", ") || "none"})`);
+
+  /*
+   * THE STEP IS THE SPACE, NOT A CARD IN IT.
+   *
+   * It was a roll card inside the stage sized for the run's wheel, which put a
+   * step that asks one question into a frame built to hold a moving one. What a
+   * person reads first is the question and the two ways out of it; everything that
+   * explains is behind See details.
+   */
+  const stepSource = page.slice(page.indexOf("function Enrol({"), page.indexOf("function WayBack("));
+  check(stepSource.length > 0 && stepSource.length < page.length / 6, `421 · the step is found and is a block (negative control, ${stepSource.length})`);
+  check(!/ag-roll-card|ag-roll-stage|ag-enrol-stage/.test(stepSource), "421a · and is not clamped in the wheel's card or its stage");
+  check(/<h2 className="ag-step-title">Verify a person is behind the agent<\/h2>/.test(stepSource),
+    "421b · it opens with the question, as a heading");
+  const titleRuleNow = /\n\.ag-step-title\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/font-family:\s*var\(--font-display\)/.test(titleRuleNow) && /font-size:\s*2(\.\d+)?rem/.test(titleRuleNow),
+    `421c · in the display face and at a size the rest of the page does not use (${/font-size:[^;]*/.exec(titleRuleNow)?.[0] ?? "none"})`);
+
+  /*
+   * THE WORSE DEAL IS ON THE BUTTON THAT TAKES IT.
+   *
+   * With every explanatory sentence behind a modal, the cost of declining would
+   * have sat one press away from the control that accepts it. The short form is
+   * the label; the full cost is in the reading.
+   */
+  check(/>\s*Skip World ID, pay every read\s*</.test(stepSource), "421d · the decline says what it costs on its own label");
+  check(/className="btn xv-action-outline ag-step-do"/.test(stepSource), "421e · as the outlined second, not the primary");
+  check(/className="btn xv-action ag-primary ag-step-do"/.test(readFileSync("app/world-id-card.tsx", "utf8")),
+    "421f · while verifying is the filled primary");
+
+  /*
+   * THE READING, AND WHAT THE STEP ITSELF MAY NOT CARRY.
+   */
+  const modalAt = stepSource.indexOf("<dialog ref={details}");
+  const stepBody = modalAt === -1 ? stepSource : stepSource.slice(0, modalAt);
+  const stepModal = modalAt === -1 ? "" : stepSource.slice(modalAt);
+  check(stepModal.length > 0 && stepBody.length > 0, `421g · the step and its reading are found apart (negative control, ${stepBody.length}/${stepModal.length})`);
+  check(/\{KEEPS_SENTENCE\}/.test(stepModal) && !/KEEPS_SENTENCE/.test(stepBody),
+    "421h · what Zenbit keeps is in the reading and nowhere in the step");
+  check(/no free allowance, no name is issued, and a\s*\n?\s*run stops before proposing/.test(stepModal.replace(/\s+/g, " ").replace(/no free allowance, no name is issued, and a run stops before proposing/, "no free allowance, no name is issued, and a run stops before proposing")) || /no free allowance, no name is issued, and a run stops before proposing/.test(stepModal.replace(/\s+/g, " ")),
+    "421i · and the full cost of skipping is there too");
+  check(!/free allowance/.test(stepBody), "421j · with none of that cost loose in the step");
+  check(/onClick=\{\(\) => details\.current\?\.showModal\(\)\}/.test(stepBody),
+    "421k · the reading opens as a modal rather than as a panel that pushes the step down");
+  check(/>\s*See details\s*</.test(stepBody), "421l · from a text control that says so");
+  const cornerRule = /\n\.ag-step-corners\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/position:\s*absolute/.test(cornerRule) && /bottom:/.test(cornerRule) && /justify-content:\s*space-between/.test(cornerRule),
+    `421m · the two quiet controls sit in the step's bottom corners (${cornerRule.replace(/\s+/g, " ").trim().slice(0, 70)})`);
+  const detailsOrder = stepBody.indexOf("See details") < stepBody.indexOf("Check again");
+  check(detailsOrder, "421n · the reading on the left and the re-read on the right");
+  check(/className="ag-chip ag-chip-idle ag-chip-do ag-step-again"/.test(stepBody),
+    "421o · and the re-read is a pill rather than one of the two choices");
 
   check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
   check(/const enrolment = enrolmentState\(\{ address, registration, skipped \}\);/.test(page) &&
