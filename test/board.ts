@@ -15,6 +15,7 @@ import { fakeStore, fakeVerifications } from "./human";
 import { CREDENTIAL_REFUSED, NO_CREDENTIAL, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, onboardingFrom, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellRecording, cellState, loadSnapshot, servedCell } from "../lib/windows/snapshot";
 import { NOT_SUBMITTED_SENTENCE, environmentCredentialCovers } from "../lib/agent/run";
+import { type BoardCellView, cellMetaLine, readableLength, windowsUrlFor } from "../app/app-shell";
 import { resetServerForTest } from "../lib/x402";
 
 type Check = (ok: boolean, label: string) => void;
@@ -708,8 +709,59 @@ export async function boardChecks(check: Check) {
   // The board never says how many, and the chosen cell travels as day and species.
   const boardBlock = page.slice(page.indexOf("function Board("), page.indexOf("function Records("));
   check(/on offer/.test(boardBlock) && !/\{cell\?\.count|length\}/.test(boardBlock), "280 · a cell says on offer or none and never how many");
-  check(/searchParams\.set\("day", chosen\.day\)/.test(page) && /searchParams\.set\("species", chosen\.species\)/.test(page),
-    "280a · and the chosen cell is what the run reads");
+  // Driven rather than read: one builder makes the url the price is read from and
+  // the url the run pays for, so a cell cannot be priced from one request and read
+  // from another.
+  const cellUrl = windowsUrlFor("https://example.test", { day: "2026-09-04", species: "mexicanum" });
+  check(cellUrl === "https://example.test/api/agent/windows?day=2026-09-04&species=mexicanum",
+    `280a · the chosen cell is what the run reads (${cellUrl})`);
+  check(windowsUrlFor("https://example.test", null) === "https://example.test/api/agent/windows",
+    "280a2 · and no cell asks for the whole snapshot (negative control)");
+  const builders = (page.match(/new URL\("\/api\/agent\/windows"/g) ?? []).length;
+  check(builders === 1, `280a3 · with one place building that url (${builders})`);
+
+  /*
+   * THE CELL'S ONE LINE, AND THE NUMBER IT NEVER CARRIES.
+   *
+   * Three facts: how long the recording runs, the span its windows cover, and what
+   * a read costs. Each is left out where it is not known rather than guessed, so a
+   * cell with no meta beside its file says less and nothing false, and nowhere in
+   * it is a count of windows.
+   */
+  const full: BoardCellView = { day: "2026-09-04", species: "mexicanum", onOffer: true, videoId: "vidA", thumbnail: "https://i.ytimg.com/vi/vidA/mqdefault.jpg", recordingSeconds: 10013, windowSeconds: { min: 12, max: 36 } };
+  const line = cellMetaLine(full, "0.50 USDC");
+  check(line === "recording 2 h 47 min · windows 12 to 36 s · 0.50 USDC a read", `318 · a cell says its length, its span and its price (${line})`);
+  check(!/\b5\b/.test(line), `318a · and never how many windows it holds (${line})`);
+  const bare = cellMetaLine({ day: "2026-09-04", species: "mexicanum", onOffer: true }, null);
+  check(bare === "", `318b · a cell with nothing known says nothing rather than guessing (${bare || "empty"})`);
+  const noPrice = cellMetaLine(full, null);
+  check(!/USDC|read/.test(noPrice) && /recording/.test(noPrice), `318c · and a price that could not be read is left out alone (${noPrice})`);
+  const single = cellMetaLine({ ...full, windowSeconds: { min: 94, max: 94 } }, null);
+  check(/windows 94 s/.test(single) && !/94 to 94/.test(single), `318d · one span is said once rather than as a range of itself (${single})`);
+  check(readableLength(10013) === "2 h 47 min" && readableLength(600) === "10 min", `318e · a recording's length reads as hours and minutes (${readableLength(10013)})`);
+
+  /*
+   * The thumbnail is the recording's own, and its alt text names the day and the
+   * species and nothing else: a station or an alias there would put on a public
+   * surface exactly what the gate keeps off the wire.
+   */
+  const boardJsx = page.slice(page.indexOf("function Board("), page.indexOf("function Records("));
+  // The alt text itself, extracted and read, rather than the line it sits on: a
+  // field name in it is one way to leak a station and a literal is another, and a
+  // check that only refuses the field names would never see the literal.
+  const alts = [...boardJsx.matchAll(/alt=\{`([^`]*)`\}|alt="([^"]*)"/g)].map(m => m[1] ?? m[2]);
+  check(alts.length === 1 && alts[0] === "The recording for ${day}, ${species}",
+    `319 · the thumbnail names the day and the species in its alt text (${alts.join(" | ") || "none found"})`);
+  const leaky = alts.filter(a => /stationId|specimenAlias|candidates|detector|\bAM ?[0-9]|\bAD\b/i.test(a));
+  check(leaky.length === 0, `319a · and nothing the gate keeps off the wire (${leaky.join(" | ") || "none"})`);
+  check(/\bAM ?[0-9]/i.test("The recording for AM 1"), "319a2 · the station check can see one (negative control)");
+  // Anchored on the condition itself. Reading the block for `on &&` matched the
+  // meta line's own guard, so dropping it from the thumbnail left the check green.
+  check(/\{on && cell\?\.thumbnail !== undefined && \(/.test(boardJsx),
+    "319b · drawn only for a cell on offer that has one");
+  const lookups = [...boardJsx.matchAll(/prices\[([^\]]*)\]/g)].map(m => m[1]);
+  check(lookups.length === 1 && lookups[0] === "`${day}|${species}`",
+    `319c · with one lookup, so each card shows the price its own cell was quoted (${lookups.join(" | ") || "none"})`);
 
   /*
    * A run lands the viewer on the screen the run is on.

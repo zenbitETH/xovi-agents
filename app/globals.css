@@ -1445,6 +1445,29 @@ body:has(.ag-run-dialog[open]) .ag-surface {
 
 /* The species in the display face, so a tile reads as the thing it names before
    its state is read. */
+/* The recording a cell is cut from, as its own public thumbnail. It sets the
+   card's width rather than following it, so a slow image does not reflow the grid
+   under somebody choosing, and it never grows past the cell it sits in. */
+.ag-board-thumb {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  margin-bottom: 0.5rem;
+  border-radius: 0.5rem;
+  object-fit: cover;
+  background-color: color-mix(in srgb, var(--color-base-content) 8%, transparent);
+}
+
+/* The one line a cell says about itself: how long the recording runs, the span its
+   windows cover, and what a read costs. Never how many windows there are. */
+.ag-board-meta {
+  margin-top: 0.375rem;
+  font-size: 0.6875rem;
+  line-height: 1.35;
+  opacity: 0.75;
+}
+
 .ag-board-name {
   font-family: var(--font-display), system-ui, sans-serif;
   font-size: 0.9375rem;

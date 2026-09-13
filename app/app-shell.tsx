@@ -10,6 +10,7 @@ import {
   disconnect,
   ensureBaseSepolia,
   onWalletChange,
+  readChallenge,
   restoreConnection,
   signChallenge,
 } from "~~/lib/agent/browser";
@@ -443,6 +444,56 @@ export function screensFor(runInProgress: boolean): { id: Screen; label: string 
 
 /** A cell of the board, as the page holds it once a person picks one. */
 export type Chosen = { day: string; species: string };
+
+/** A cell as the board route serves it. The recording's facts ride only on a cell
+ *  that is on offer, and a file with no meta beside it carries fewer of them. */
+export type BoardCellView = {
+  day: string;
+  species: string;
+  onOffer: boolean;
+  videoId?: string;
+  thumbnail?: string;
+  recordingSeconds?: number;
+  windowSeconds?: { min: number; max: number };
+};
+
+/** The url of one cell's windows. One builder, so the price a person is shown and
+ *  the read they pay for are the same request. */
+export function windowsUrlFor(origin: string, cell: Chosen | null): string {
+  const endpoint = new URL("/api/agent/windows", origin);
+  if (cell !== null) {
+    endpoint.searchParams.set("day", cell.day);
+    endpoint.searchParams.set("species", cell.species);
+  }
+  return endpoint.toString();
+}
+
+/** Hours and minutes, for a recording that runs most of a day. */
+export function readableLength(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds % 3600) / 60);
+  return hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
+}
+
+/**
+ * The one line a cell says about itself.
+ *
+ * Three facts and never a fourth: how long the recording runs, the span its
+ * windows cover, and what one read costs. **Not how many windows there are**, which
+ * is the number the gate exists to keep, and the range is two numbers already in a
+ * public file. Each part is left out where it is not known rather than guessed, so
+ * a cell with no meta beside its file says less and nothing false.
+ */
+export function cellMetaLine(cell: BoardCellView, price: string | null): string {
+  const parts: string[] = [];
+  if (cell.recordingSeconds !== undefined) parts.push(`recording ${readableLength(cell.recordingSeconds)}`);
+  if (cell.windowSeconds !== undefined) {
+    const { min, max } = cell.windowSeconds;
+    parts.push(min === max ? `windows ${Math.round(min)} s` : `windows ${Math.round(min)} to ${Math.round(max)} s`);
+  }
+  if (price !== null) parts.push(`${price} a read`);
+  return parts.join(" · ");
+}
 
 /**
  * Whether a person stands behind this agent, in three states.
@@ -1278,6 +1329,7 @@ function Board({
   state,
   days,
   cells,
+  prices,
   chosen,
   onChoose,
   onRun,
@@ -1286,7 +1338,8 @@ function Board({
 }: {
   state: "loading" | "ready" | "unconfigured" | "failed";
   days: string[];
-  cells: { day: string; species: string; onOffer: boolean }[];
+  cells: BoardCellView[];
+  prices: Record<string, string>;
   chosen: Chosen | null;
   onChoose: (cell: Chosen) => void;
   onRun: () => void;
@@ -1328,6 +1381,10 @@ function Board({
               const cell = cells.find(c => c.day === day && c.species === species);
               const on = cell?.onOffer === true;
               const picked = chosen?.day === day && chosen.species === species;
+              // One lookup and one line, so the price drawn is this cell's own and
+              // the condition and the text cannot come apart.
+              const priceForCell = prices[`${day}|${species}`] ?? null;
+              const meta = on && cell !== undefined ? cellMetaLine(cell, priceForCell) : "";
               return (
                 <button
                   key={`${day}-${species}`}
@@ -1337,8 +1394,17 @@ function Board({
                   disabled={!on}
                   onClick={() => onChoose({ day, species })}
                 >
+                  {/* The recording this cell is cut from, as its own public
+                      thumbnail. The alt text names the day and the species and
+                      nothing else: a station or an alias in it would put on a
+                      public surface exactly what the gate keeps off the wire. */}
+                  {on && cell?.thumbnail !== undefined && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img className="ag-board-thumb" src={cell.thumbnail} alt={`The recording for ${day}, ${species}`} loading="lazy" />
+                  )}
                   <span className="ag-board-name">{species}</span>
                   <span className={on ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>{on ? "on offer" : "none"}</span>
+                  {meta !== "" && <span className="ag-board-meta">{meta}</span>}
                 </button>
               );
             })}
@@ -1785,7 +1851,10 @@ export function AppShell() {
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>("board");
   const [chosen, setChosen] = useState<Chosen | null>(null);
-  const [board, setBoard] = useState<{ days: string[]; cells: { day: string; species: string; onOffer: boolean }[] }>({ days: [], cells: [] });
+  const [board, setBoard] = useState<{ days: string[]; cells: BoardCellView[] }>({ days: [], cells: [] });
+  /** What each on offer cell costs, read from that cell's own challenge. A cell
+   *  missing from here shows no price rather than another cell's. */
+  const [prices, setPrices] = useState<Record<string, string>>({});
   const [boardState, setBoardState] = useState<"loading" | "ready" | "unconfigured" | "failed">("loading");
   const [registration, setRegistration] = useState<Registration>("reading");
   /** Which source answered, and what it carried. Null until an answer names one. */
@@ -1955,6 +2024,34 @@ export function AppShell() {
     // let a row draw a state the chain does not hold.
   }, [address, nameAgain]);
 
+  /*
+   * What each cell costs, from the cell's own 402.
+   *
+   * One unpaid request per cell on offer, which is what a 402 is for, and each
+   * card shows the price its own challenge named rather than one cell's price
+   * shown beside another's. A cell whose challenge cannot be read shows no price,
+   * because the alternative is a number this page made up.
+   */
+  useEffect(() => {
+    const offered = board.cells.filter(c => c.onOffer);
+    if (offered.length === 0) return;
+    let live = true;
+    void Promise.all(
+      offered.map(async cell => {
+        const read = await readChallenge(windowsUrlFor(window.location.origin, { day: cell.day, species: cell.species }));
+        return read === null ? null : ([`${cell.day}|${cell.species}`, read.amount] as const);
+      }),
+    ).then(found => {
+      if (!live) return;
+      const next: Record<string, string> = {};
+      for (const entry of found) if (entry !== null) next[entry[0]] = entry[1];
+      setPrices(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [board]);
+
   // The board is what is for sale and needs no wallet to look at.
   useEffect(() => {
     let live = true;
@@ -1962,7 +2059,7 @@ export function AppShell() {
       .then(async r => {
         if (r.status === 503) return "unconfigured" as const;
         if (!r.ok) throw new Error(String(r.status));
-        return (await r.json()) as { days: string[]; cells: { day: string; species: string; onOffer: boolean }[] };
+        return (await r.json()) as { days: string[]; cells: BoardCellView[] };
       })
       .then(answer => {
         if (!live) return;
@@ -2151,12 +2248,7 @@ export function AppShell() {
     try {
       // The cell a person chose on the board. A choice of what to read, and the
       // agent still chooses the window and forms the proposal.
-      const windowsEndpoint = new URL("/api/agent/windows", window.location.origin);
-      if (chosen !== null) {
-        windowsEndpoint.searchParams.set("day", chosen.day);
-        windowsEndpoint.searchParams.set("species", chosen.species);
-      }
-      const windowsUrl = windowsEndpoint.toString();
+      const windowsUrl = windowsUrlFor(window.location.origin, chosen);
       say({ text: "Reading the live payment challenge", tone: "working", actor: "agent" });
       // What is on sale, and the price, are said BEFORE the wallet opens rather than
       // after it closes. Both come from the challenge the server sent: the page is not
@@ -2337,6 +2429,7 @@ export function AppShell() {
               ) : screen === "board" ? (
                 <Board
                   state={boardState}
+                  prices={prices}
                   days={board.days}
                   cells={board.cells}
                   chosen={chosen}
