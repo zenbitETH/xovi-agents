@@ -73,6 +73,11 @@
   /* Xovi keeps this in three places that must be edited together. Here it is
      declared once and the header reads it, so there is nothing to desync. */
   --xv-header-h: 4rem;
+  /* How many items a strip holds. Set on the element from the array that renders
+     them, so a fifth destination moves the indicator with it. */
+  --xv-strip-n: 4;
+  /* How many days the board draws. Set on the grid from the days the files carry. */
+  --xv-board-n: 1;
 
   --xv-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
@@ -559,9 +564,11 @@ body::after {
   opacity: 0.7;
 }
 
+/* One step down the page's own scale, which steps by 0.0625rem: every card and
+   section description is 0.75rem and the headings above them do not move. */
 .ag-sub {
   font-family: var(--font-sans), system-ui, sans-serif;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   opacity: 0.7;
   margin: 0;
 }
@@ -668,6 +675,1323 @@ body::after {
   overflow-wrap: anywhere;
 }
 
+/* The record: four objects, one tab each, drawn with the account's own tab bar.
+   A list rather than a graphic, because a chain whose links are sentences
+   survives a narrow screen and a graphic does not. */
+.ag-records {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0.25rem;
+}
+
+/* Receipts, grouped by the month a settlement belongs to. The ticket shape is
+   the one the run feed uses, laid out as a row here because there are many. */
+.ag-receipts {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0.25rem;
+}
+
+.ag-month {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.ag-ticket-row {
+  margin-top: 0;
+  justify-content: space-between;
+}
+
+/* ---------------------------------------------------------------------------
+   The account, in the header.
+
+   Identity, chain and the way out, in the place every wallet interface puts them.
+   The chip is the page's answer to a question the old surface left to a phrase
+   under the title: which wallet is this, on which chain, and how do I leave.
+
+   Motion here is press feedback and nothing else. Only `transform` and `opacity`
+   move, every transition names its properties, and nothing exceeds 300ms.
+--------------------------------------------------------------------------- */
+.ag-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* One primary action at a time, so Connect wallet and Pay and run are never both
+   the loudest thing on the screen. */
+.ag-primary {
+  font-weight: 600;
+}
+
+.ag-account {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.ag-identicon {
+  display: block;
+  border-radius: 0.25rem;
+  flex-shrink: 0;
+}
+
+.ag-account-face {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
+  list-style: none;
+  transition: transform 120ms var(--xv-ease-out), border-color 150ms var(--xv-ease-out);
+}
+
+.ag-account-face::-webkit-details-marker {
+  display: none;
+}
+
+.ag-account-face:active {
+  transform: scale(0.97);
+}
+
+.ag-account-address {
+  font-family: var(--xv-mono);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Chips: a state as an object, not a phrase.
+
+   The tones are the feed's, so a stopped run reads the same in the header as it
+   does in the log. Hue changes transition, movement does not: a chip that
+   slid on every phase would be motion reporting nothing.
+--------------------------------------------------------------------------- */
+.ag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1875rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  border-radius: 999px;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  white-space: nowrap;
+  transition: background-color 160ms var(--xv-ease-out), border-color 160ms var(--xv-ease-out);
+}
+
+.ag-chip-idle {
+  opacity: 0.7;
+}
+
+.ag-chip-working {
+  border-color: color-mix(in srgb, var(--color-xv-agent) 55%, transparent);
+}
+
+.ag-chip-good {
+  border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+}
+
+.ag-chip-stopped {
+  border-color: color-mix(in srgb, var(--color-error) 55%, transparent);
+  color: var(--color-error);
+}
+
+/* The issued name, which is only ever shown on an equality with this payer. */
+.ag-chip-name {
+  font-family: var(--xv-mono);
+  border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+}
+
+.ag-chip-action {
+  cursor: pointer;
+  background-color: transparent;
+  transition: transform 120ms var(--xv-ease-out), border-color 160ms var(--xv-ease-out);
+}
+
+.ag-chip-action:active {
+  transform: scale(0.97);
+}
+
+/* ---------------------------------------------------------------------------
+   The account menu, as a native disclosure.
+
+   No outside click handling, no focus trap and no portal, because the element
+   already does all three. It opens downward from its right edge, which is where
+   it sits, so the panel grows from the control rather than appearing beside it.
+--------------------------------------------------------------------------- */
+.ag-menu {
+  position: relative;
+}
+
+.ag-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.375rem);
+  z-index: 40;
+  display: flex;
+  min-width: 12rem;
+  flex-direction: column;
+  padding: 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent);
+  border-radius: 0.625rem;
+  background-color: var(--color-base-100);
+  transform-origin: top right;
+  animation: xvMenuIn 160ms var(--xv-ease-out) both;
+}
+
+@keyframes xvMenuIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+}
+
+.ag-menu-item {
+  padding: 0.4375rem 0.5rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background-color: transparent;
+  color: inherit;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.8125rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 150ms var(--xv-ease-out);
+}
+
+/* Gated, so a touch device does not keep a hover after the finger leaves. */
+@media (hover: hover) and (pointer: fine) {
+  .ag-menu-item:hover {
+    background-color: color-mix(in srgb, var(--color-base-content) 8%, transparent);
+  }
+}
+
+.ag-menu-note {
+  margin: 0.375rem 0.5rem 0.25rem;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  opacity: 0.7;
+}
+
+/* Reduced motion keeps the fade and the hue and drops what moves. Gentler rather
+   than none, which is what the setting asks for.
+
+   The weight is not decoration. Xovi's inherited clamp sets `animation-duration:
+   0.01ms !important` on `*`, and an important declaration beats a class however
+   the cascade is ordered, so the first version of this rule lost silently and the
+   menu snapped while the comment claimed a fade. A class beats the universal
+   selector once both are important, so the rule below is the one that applies.
+   The clamp stays, because it is Xovi's and it is what stops the aurora and the
+   rays freezing mid drift. */
+@keyframes xvMenuInReduced {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ag-menu-panel {
+    animation: xvMenuInReduced 120ms var(--xv-ease-out) both !important;
+  }
+
+  .ag-account-face:active,
+  .ag-chip-action:active {
+    transform: none;
+  }
+}
+
+/* Supply, which is neither working, good nor stopped.
+
+   A snapshot with nothing new in it is the ingest holding a clip it already has,
+   which is the rule working. Drawn in the stopped hue it read as the agent
+   failing, and against a two window snapshot every run after the second read that
+   way. Neutral, and no error hue. */
+.ag-tone-supply .ag-feed-text {
+  opacity: 0.85;
+}
+
+.ag-tone-supply .ag-feed-dot {
+  opacity: 0.5;
+}
+
+.ag-supply {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 0.875rem 1rem;
+  border: 1px dashed color-mix(in srgb, var(--color-base-content) 20%, transparent);
+  border-radius: 0.75rem;
+  list-style: none;
+}
+
+.ag-supply-line {
+  margin: 0;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+/* ---------------------------------------------------------------------------
+   The run, as a modal over the page.
+
+   A native `dialog` opened with `showModal`, so focus is trapped, Escape closes
+   it and the page behind is inert, none of which is worth rebuilding by hand.
+   Closing it never stops the run: the stream is the page's, not the dialog's.
+
+   **The blur is on the page, not on the backdrop.** The stylesheet's rule is that
+   `backdrop-filter` is not used here, and check 175 holds it; blurring the
+   surface behind gets the same picture with `filter`, which has none of that
+   history and needs no prefix pair read back out of the built CSS. The backdrop
+   is a flat translucent scrim.
+--------------------------------------------------------------------------- */
+.ag-run-dialog {
+  width: min(40rem, calc(100vw - 2rem));
+  /* One height for every state. The min and the max are both clamped to the
+     viewport and the min is the smaller, so a short screen narrows the frame
+     rather than leaving a min taller than its own max. */
+  min-height: min(34rem, calc(100dvh - 4rem));
+  max-height: min(38rem, calc(100dvh - 4rem));
+  padding: 1rem 1.125rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent);
+  border-radius: 1rem;
+  background-color: var(--color-base-100);
+  color: inherit;
+  /* The one region that scrolls while it is open. */
+  overflow-y: auto;
+  overflow-x: clip;
+}
+
+.ag-run-dialog::backdrop {
+  background-color: color-mix(in srgb, var(--color-base-200) 72%, transparent);
+}
+
+/* The page behind. `filter` and not `backdrop-filter`, for the reason above. */
+body:has(.ag-run-dialog[open]) .ag-surface {
+  filter: blur(3px);
+}
+
+.ag-run-dialog[open] {
+  animation: xvDialogIn 200ms var(--xv-ease-out) both;
+}
+
+/* The thesis, at the head of the run it is about. */
+.ag-run-thesis {
+  margin: 0.125rem 0 0.625rem;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 1.0625rem;
+  line-height: 1.25;
+}
+
+.ag-run-dialog:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-base-content) 45%, transparent);
+  outline-offset: 2px;
+}
+
+/* A modal is anchored to nothing, so it grows from its own centre rather than
+   from the control that opened it. Never from scale 0: a thing that appears from
+   nothing reads as a glitch. */
+/* Never from scale 0, and never from nothing: 0.96 is a shape a reader can see
+   before it settles. The floor is as much the rule as the ceiling. */
+@keyframes xvDialogIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.ag-run-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.ag-run-dialog-head .ag-plan {
+  margin-bottom: 0.5rem;
+  padding-top: 0;
+}
+
+.ag-run-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ag-run-log {
+  margin-top: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The scale goes and the fade stays, and the blur is applied without a
+     transition rather than animated on. */
+  .ag-run-dialog[open] {
+    animation: xvDialogInReduced 160ms var(--xv-ease-out) both !important;
+  }
+}
+
+/* The scale goes entirely under reduced motion; only the fade is left. */
+@keyframes xvDialogInReduced {
+  from {
+    opacity: 0;
+    transform: none;
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The rolodex, ported from the Zenbit site's stack, stack.css:447-471.
+
+   The site runs those keyframes off a view timeline as a reader scrolls. Here
+   the run is the timeline: the three frames become three positions set as steps
+   arrive, and the change between them is a transition rather than a ramp. The
+   angles, the translate and the scale are the site's, unchanged.
+
+   `overflow-x: clip` on the stage, and not `hidden`, is the site's containment
+   note at stack.css:66-78: `perspective() rotateX()` puts a card's near edge
+   closer to the viewer and therefore wider, so the projected box is wider than
+   the card and would scroll the page sideways; `hidden` would make this a scroll
+   container instead.
+--------------------------------------------------------------------------- */
+/* The rail beside the states rather than a pager beneath them. */
+.ag-roll {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.25rem;
+  align-items: start;
+}
+
+/* The line of states, ported from the site's section rail: the same spine, the
+   same dot, the same label that appears on the one being read, and the same
+   0.3s transitions on transform and opacity. What is added here is the state a
+   run has and a section does not: a state already read is a mark rather than a
+   dot. */
+.ag-steps {
+  --ag-steps-dot: 0.5625rem;
+  --ag-steps-slot: 1.5rem;
+  position: relative;
+  display: grid;
+  gap: calc(var(--ag-steps-slot) - var(--ag-steps-dot));
+  padding: 0.5rem 0;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.ag-steps-spine {
+  position: absolute;
+  left: calc(0.28125rem - 1px);
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-base-content) 22%, transparent);
+}
+
+.ag-steps-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--ag-steps-dot);
+  gap: 0.625rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 999px;
+}
+
+.ag-steps-item:focus-visible {
+  outline: 2px solid var(--color-xv-gold);
+  outline-offset: 3px;
+}
+
+.ag-steps-dot {
+  position: relative;
+  width: var(--ag-steps-dot);
+  height: var(--ag-steps-dot);
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.4;
+  transition:
+    transform 300ms var(--xv-ease-out),
+    opacity 300ms var(--xv-ease-out);
+}
+
+/* A state already read is a mark. The tick is drawn rather than lettered, two
+   strokes rotated into a check, so it carries no glyph and no font. */
+.ag-steps-item[data-state="done"] .ag-steps-dot {
+  opacity: 0.85;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ag-steps-item[data-state="done"] .ag-steps-dot::before,
+.ag-steps-item[data-state="done"] .ag-steps-dot::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  background: var(--color-primary);
+  transform-origin: bottom left;
+}
+
+.ag-steps-item[data-state="done"] .ag-steps-dot::before {
+  left: 8%;
+  bottom: 30%;
+  width: 2px;
+  height: 38%;
+  transform: rotate(-45deg);
+}
+
+.ag-steps-item[data-state="done"] .ag-steps-dot::after {
+  left: 22%;
+  bottom: 12%;
+  width: 2px;
+  height: 78%;
+  transform: rotate(40deg);
+}
+
+.ag-steps-item[data-state="at"] .ag-steps-dot {
+  opacity: 1;
+  transform: scale(1.45);
+}
+
+.ag-steps-label {
+  position: absolute;
+  left: calc(var(--ag-steps-dot) + 0.625rem);
+  top: 50%;
+  max-width: 11rem;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  text-align: left;
+  opacity: 0;
+  transform: translateY(-50%) translateX(-4px);
+  transition:
+    opacity 300ms var(--xv-ease-out),
+    transform 300ms var(--xv-ease-out);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ag-steps-item:hover .ag-steps-label,
+.ag-steps-item:focus-visible .ag-steps-label,
+.ag-steps-item[data-state="at"] .ag-steps-label {
+  opacity: 0.9;
+  transform: translateY(-50%) translateX(0);
+}
+
+/* The mark arrives rather than appearing: the same ambient breath the feed's dot
+   uses, one pass rather than a loop. */
+@media (prefers-reduced-motion: no-preference) {
+  .ag-steps-item[data-state="done"] .ag-steps-dot {
+    animation: xvPulse 300ms var(--xv-ease-out) 1;
+  }
+}
+
+/* One height, whatever card is in the middle.
+   The dialog changed height from state to state and the frame jumped under a
+   person reading it. The stage is fixed and tall enough for the card being read
+   with a neighbour tipped away above and below it, so nothing outside moves as
+   the wheel turns; a card longer than the stage scrolls inside the dialog, which
+   is the one region that scrolls. */
+/* Three rows and one card in each, so a neighbour cannot sit on top of the state
+   being read: they shared one cell and the projection put them over it. */
+.ag-roll-stage {
+  position: relative;
+  display: grid;
+  grid-template-rows: 2rem minmax(0, 1fr) 2rem;
+  height: 17rem;
+  align-items: center;
+  justify-items: center;
+  overflow-x: clip;
+  overflow-y: clip;
+}
+
+/* Each card has its own row now, and the one being read has the height. */
+.ag-roll-card {
+  grid-row: 2;
+  width: 100%;
+  max-width: 26rem;
+  padding: 1.125rem 1.25rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  border-radius: 0.875rem;
+  background-color: color-mix(in srgb, var(--color-base-content) 5%, transparent);
+  transform-origin: center center;
+  transition: transform 220ms var(--xv-ease-out), opacity 220ms var(--xv-ease-out);
+}
+
+/* The leaf being read: level, full opacity, always. */
+.ag-roll-card[data-position="current"] {
+  grid-row: 2;
+  opacity: 1;
+  transform: perspective(60rem) rotateX(0deg) translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* The state just read, tipped away above and still visible. A wheel shows its
+   neighbours; a swap shows one thing replacing another, and the founder asked for
+   the wheel. Exits are faster than entrances. */
+.ag-roll-card[data-position="previous"] {
+  grid-row: 1;
+  opacity: 0.33;
+  transform: perspective(60rem) rotateX(-42deg) scale(0.92);
+  pointer-events: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transition-duration: 160ms;
+}
+
+/* The state about to arrive, below, its near edge toward the viewer. */
+.ag-roll-card[data-position="next"] {
+  grid-row: 3;
+  opacity: 0.33;
+  transform: perspective(60rem) rotateX(42deg) scale(0.92);
+  pointer-events: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+/* A neighbour is a title, breathing, so a person sees the sequence without being
+   asked to read two states at once. */
+.ag-roll-title {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ag-roll-card[data-position="previous"] .ag-roll-title,
+  .ag-roll-card[data-position="next"] .ag-roll-title {
+    animation: xvPulse 1.1s ease-in-out infinite;
+  }
+}
+
+/* Everything further out is not drawn at all, so the stage holds three cards and
+   not a pile of ghosts behind the sentence somebody is reading. */
+.ag-roll-card[data-position="away"] {
+  display: none;
+}
+
+/* Gentler, not none: the neighbours still show where the sequence is, and nothing
+   rolls between them. The dwell is unaffected, since it is a timer and not motion. */
+@media (prefers-reduced-motion: reduce) {
+  .ag-roll-card {
+    transition: none;
+  }
+}
+
+.ag-roll-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Fixed size, so the head does not resize between cards. */
+.ag-roll-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--color-base-content) 30%, transparent);
+}
+
+.ag-actor-human .ag-roll-dot {
+  background-color: var(--color-primary);
+}
+
+.ag-actor-agent .ag-roll-dot {
+  background-color: var(--color-xv-agent);
+}
+
+/* A filled pill that reads as a label rather than as part of the sentence. */
+.ag-roll-pill {
+  background-color: color-mix(in srgb, var(--color-base-content) 8%, transparent);
+}
+
+.ag-roll-name {
+  margin: 0;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 1.0625rem;
+  line-height: 1.25;
+}
+
+.ag-roll-line {
+  margin: 0.375rem 0 0;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  opacity: 0.75;
+}
+
+.ag-roll-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+/* The site's own rule at its narrow breakpoint, stack.css:517-530, and the
+   reviewer's: the tip goes entirely, rather than being shortened. A card being
+   read must not be mid-ramp. */
+@media (prefers-reduced-motion: reduce), (max-width: 30rem) {
+  .ag-roll-card {
+    transition: opacity 160ms var(--xv-ease-out);
+    transform: none;
+  }
+
+  .ag-roll-card[data-position="current"],
+  .ag-roll-card[data-position="behind"],
+  .ag-roll-card[data-position="next"] {
+    transform: none;
+  }
+}
+
+/* A screen's own head. One line of title and one of sub, the mockup's `shead`.
+   Smaller than the run's title block, because the run's is the page's argument
+   and these are labels on a place. */
+.ag-shead-title {
+  margin: 0;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 1.375rem;
+  line-height: 1.15;
+}
+
+/* ---------------------------------------------------------------------------
+   Settings as a checklist: one state per card, in order.
+
+   Three cards in a row where there is room and stacked where there is not. Each
+   says its own state as a mark and carries the way to meet it, rather than being
+   a label over a sentence.
+--------------------------------------------------------------------------- */
+/* The stream, above the steps. 16 by 9 and never taller than a third of the
+   region, so the steps are on screen with it. */
+.ag-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.ag-stream-frame {
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  /* Both, so the box shrinks rather than letterboxing: with only a max height the
+     width stayed full and the player padded itself with black. */
+  max-height: 32vh;
+  max-width: calc(32vh * 16 / 9);
+  align-self: flex-start;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  border-radius: 0.75rem;
+}
+
+.ag-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 0.25rem;
+}
+
+.ag-setup-cards {
+  width: 100%;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+
+/* One step lit at a time. The others are dim rather than absent, so a person can
+   see what is still ahead of them and what is behind. */
+.ag-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+  /* 0.72 rather than 0.55: measured, the dimmed text sat at 2.66:1 and 3.87:1,
+     under the 4.5:1 a card a person is meant to read needs. It is 3.50 and 5.48
+     at this value, and a step that is not the current one is still legible. */
+  opacity: 0.72;
+  transition: opacity 160ms var(--xv-ease-out);
+}
+
+.ag-step-at {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--color-base-content) 34%, transparent);
+}
+
+.ag-step-done {
+  opacity: 0.9;
+}
+
+.ag-setup-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+/* The header chip's own face, reused, so the wallet reads as one object in both
+   places rather than as an address in prose here and a chip up there. */
+.ag-setup-face {
+  cursor: default;
+}
+
+/* The controls on the three onboarding cards.
+   They were strip items: transparent, borderless, 0.75rem and at 0.65 opacity, so
+   they rendered as text and a person looking at the card saw nothing to press. They
+   take the page's own button now, the filled form for the action that completes a
+   card and the outlined form for the one that only reads again, which is the same
+   pair the header and the run already use. The press feedback lives here rather
+   than on `.btn`, so the merged controls elsewhere are not restyled by this. */
+/* The two identity facts where the account body begins, the same pair the header
+   carries, so a person reading the account meets them without looking up. */
+.ag-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-bottom: 0.75rem;
+}
+
+/* The default home: a recording that plays and the five cards saying what this is. */
+.ag-home {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* One kind of card, filling the width, stacking on a phone. The order is the
+   point, so the cards are numbered and the number is drawn quietly. */
+.ag-process {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ag-process-card {
+  position: relative;
+  padding: 0.875rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  border-radius: 0.75rem;
+  background-color: color-mix(in srgb, var(--color-base-content) 4%, transparent);
+}
+
+.ag-process-n {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--color-xv-gold);
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+/* The one step before the board, drawn as the run is drawn. */
+.ag-enrol {
+  padding-top: 1rem;
+}
+
+/* Taller than the run's stage, because this card carries a widget and a refusal
+   rather than one sentence, and shorter than the viewport so nothing is cut. */
+.ag-enrol-stage {
+  grid-template-rows: minmax(0, 1fr);
+  height: auto;
+  min-height: 18rem;
+}
+
+/* A chip that acts. It keeps the chip's shape because it sits in a row of them,
+   and takes the press every other control on this page has. */
+.ag-chip-do {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  transition: transform 120ms var(--xv-ease-out), opacity 150ms var(--xv-ease-out);
+}
+
+.ag-chip-do:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ag-chip-do:active {
+    transform: none;
+  }
+}
+
+.ag-chip-do:focus-visible {
+  outline: 2px solid var(--color-xv-gold);
+  outline-offset: 2px;
+}
+
+/* The name, asked for from the header rather than required before the board. */
+.ag-name-dialog {
+  min-height: min(24rem, calc(100dvh - 4rem));
+}
+
+.ag-setup-do {
+  align-self: flex-start;
+  transition:
+    transform 120ms var(--xv-ease-out),
+    background-color 150ms var(--xv-ease-out),
+    border-color 150ms var(--xv-ease-out);
+}
+
+.ag-setup-do:active {
+  transform: scale(0.97);
+}
+
+/* Gentler, not none: the hue transition stays and the movement goes. */
+@media (prefers-reduced-motion: reduce) {
+  .ag-setup-do:active {
+    transform: none;
+  }
+}
+
+.ag-setup-name {
+  margin: 0;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 1.25rem;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------------------
+   The board: days across, the three species down.
+
+   A grid rather than a list, because what a person is choosing is one of a set of
+   pairs and a list would make them build the pair in their head. Andersoni has a
+   row wherever a day exists, since its absence is a fact worth drawing.
+--------------------------------------------------------------------------- */
+.ag-board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.25rem;
+}
+
+/* The run's action, beside the cell it will read and nowhere else. */
+.ag-board-run {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ag-board-grid {
+  display: grid;
+  grid-template-columns: auto repeat(var(--xv-board-n, 1), minmax(4.5rem, 1fr));
+  gap: 0.375rem;
+  align-items: stretch;
+  overflow-x: auto;
+}
+
+/* The empty square where the two axes meet. It has a rule so that it is a
+   deliberate blank rather than a class nobody styled. */
+.ag-board-corner {
+  display: block;
+}
+
+.ag-board-day,
+.ag-board-species {
+  display: flex;
+  align-items: center;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.ag-board-species {
+  padding-right: 0.5rem;
+}
+
+.ag-board-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.375rem;
+  padding: 0.625rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  border-radius: 0.5rem;
+  background-color: color-mix(in srgb, var(--color-base-content) 4%, transparent);
+  color: inherit;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  cursor: pointer;
+  transition: transform 120ms var(--xv-ease-out), border-color 160ms var(--xv-ease-out);
+}
+
+.ag-board-cell:active {
+  transform: scale(0.97);
+}
+
+/* A cell with nothing in it is not a control. Dimmed and inert rather than
+   removed, so the shape of the week stays readable. */
+.ag-board-cell:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* The species in the display face, so a tile reads as the thing it names before
+   its state is read. */
+.ag-board-name {
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.1;
+}
+
+/* The chosen cell is outlined in the agent hue, which is what will read it. */
+.ag-board-picked {
+  border-color: var(--color-xv-agent);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ag-board-cell:active {
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The plan, before anything moves.
+
+   Five nodes in the hue of whoever acts, idle at rest and lit as the run reports.
+   A node's fill is a state change and transitions its hue; nothing here travels,
+   because a stepper that slid would be motion reporting an event that already
+   happened.
+--------------------------------------------------------------------------- */
+.ag-plan {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 0.875rem;
+  padding: 0.75rem 0.25rem 0;
+  list-style: none;
+}
+
+.ag-plan-node {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.ag-plan-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--color-base-content) 22%, transparent);
+  transition: background-color 160ms var(--xv-ease-out);
+}
+
+.ag-plan-lit.ag-actor-human .ag-plan-dot {
+  background-color: var(--color-primary);
+}
+
+.ag-plan-lit.ag-actor-agent .ag-plan-dot {
+  background-color: var(--color-xv-agent);
+}
+
+.ag-plan-lit.ag-actor-system .ag-plan-dot {
+  background-color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
+}
+
+.ag-plan-label {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  opacity: 0.55;
+  transition: opacity 160ms var(--xv-ease-out);
+}
+
+.ag-plan-lit .ag-plan-label {
+  opacity: 1;
+}
+
+/* The five definitions, kept and folded away. They are merged text and a reader
+   may want them; they are not what the page opens with. */
+.ag-more {
+  margin: 0.75rem 0.25rem 0;
+}
+
+/* Sentence case, unlike the caption labels beside the values in the cards. Those
+   follow `.ag-eyebrow`, which is merged and tracked heavier than any of them; this
+   is a control a reader clicks, and a control that shouts reads as a banner rather
+   than as something to press. */
+.ag-more-summary {
+  cursor: pointer;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.8125rem;
+  opacity: 0.7;
+}
+
+/* ---------------------------------------------------------------------------
+   Sections, as a strip rather than a left rail.
+
+   The design draws a vertical rail. Here it is horizontal and lives in the top
+   region, which is `flex-shrink: 0`, so the one scrolling region and the chain of
+   `min-height: 0` above it are untouched. A vertical rail would have split that
+   chain in two and the checks that hold the app to one viewport read it.
+
+   An item is a control that changes what is shown and never a decision about a
+   clip. There is no confirm on this page and no screen that could carry one.
+--------------------------------------------------------------------------- */
+/* Equal columns, because that is what lets the indicator move by a percentage
+   rather than by a measurement taken after layout. Four destinations, and the
+   account's own four live inside one of them. */
+.ag-rail,
+.ag-tabs {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding: 0.1875rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  border-radius: 999px;
+}
+
+.ag-rail {
+  margin: 0.5rem 0 0.25rem;
+}
+
+.ag-tabs {
+  margin: 0 0.25rem 0.75rem;
+}
+
+/* One element that travels. The state moves between items instead of switching
+   off one and on to another, which is the difference between a rail that reads as
+   a place and a rail that reads as a set of toggles. */
+.ag-rail-indicator,
+.ag-tabs-indicator {
+  position: absolute;
+  z-index: 0;
+  top: 0.1875rem;
+  bottom: 0.1875rem;
+  left: 0.1875rem;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--color-base-content) 9%, transparent);
+  transition: transform 200ms var(--xv-ease-out);
+}
+
+/* The count comes from the array that renders the items, so a fifth destination
+   moves the indicator's arithmetic with it instead of leaving a four column
+   assumption behind in a stylesheet nobody edits at the same time. */
+.ag-rail-indicator,
+.ag-tabs-indicator {
+  width: calc((100% - 0.375rem) / var(--xv-strip-n, 4));
+}
+
+.ag-rail-item,
+.ag-tab {
+  position: relative;
+  z-index: 1;
+  padding: 0.3125rem 0.5rem;
+  border: 0;
+  border-radius: 999px;
+  background-color: transparent;
+  color: inherit;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 120ms var(--xv-ease-out), opacity 150ms var(--xv-ease-out);
+  opacity: 0.65;
+}
+
+.ag-rail-item:active,
+.ag-tab:active {
+  transform: scale(0.97);
+}
+
+/* The current destination is weight and the travelling ground, never an actor
+   hue: teal means a person and the clay hue means the machine, and a section is
+   neither. */
+.ag-rail-on,
+.ag-tab-on {
+  font-weight: 600;
+  opacity: 1;
+}
+
+.ag-account-body {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ag-rail-indicator,
+  .ag-tabs-indicator {
+    transition: none;
+  }
+
+  .ag-rail-item:active,
+  .ag-tab:active {
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Cards over what the ledger served.
+
+   A card with no number is a card, not a gap: the free read card carries the
+   allowance sentence and no count, because the route serves none.
+--------------------------------------------------------------------------- */
+.ag-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem;
+  padding: 0.25rem;
+}
+
+.ag-panel {
+  padding: 0.875rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  border-radius: 0.75rem;
+  background-color: color-mix(in srgb, var(--color-base-content) 4%, transparent);
+}
+
+.ag-panel-title {
+  margin: 0;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.ag-panel-big {
+  margin: 0.25rem 0 0.125rem;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 1.75rem;
+  line-height: 1.1;
+}
+
+.ag-panel-note {
+  margin-top: 0.375rem;
+}
+
+/* ---------------------------------------------------------------------------
+   Drawn states, under the line that reports them.
+
+   A card, a ticket and a row of tiles, so what the run bought and what it paid
+   are objects a reader recognises before reading a word. Every value in them
+   came off the step, so none of these rules may supply a value of its own:
+   nothing here uses `content` to write text.
+
+   No backdrop-filter. Nothing floats over anything, so there is no pane to blur,
+   and the rule stays absent rather than declared and unused: with a prefixer in
+   the pipeline a hand written pair collapses to whichever came last.
+--------------------------------------------------------------------------- */
+.ag-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin-top: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  border-radius: 0.625rem;
+  background-color: color-mix(in srgb, var(--color-base-content) 4%, transparent);
+}
+
+.ag-card-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.ag-card-value {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.875rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ag-card-key {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+/* A settlement, drawn as the stub it is. The free read takes the same shape with
+   nothing written on it, because a read that moved no money is a real outcome and
+   an invented hash beside it would be a fabricated settlement. */
+.ag-ticket {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed color-mix(in srgb, var(--color-base-content) 22%, transparent);
+  border-radius: 0.5rem;
+}
+
+.ag-ticket-hash {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.ag-ticket-free .ag-ticket-hash {
+  opacity: 0.55;
+}
+
+.ag-ticket-link {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+/* What the read bought. One tile per window, each carrying an opaque identifier
+   and nothing else: the tank, the species and the alias are in the window the
+   server sent and reach no browser. */
+.ag-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+.ag-tile {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  border-radius: 0.375rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6875rem;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+}
+
+/* The one the agent took. Marked with the agent's own hue, on the border rather
+   than on the letters, which keeps the hue a mark and never type. */
+.ag-tile-chosen {
+  border-color: var(--color-xv-agent);
+  opacity: 1;
+}
+
 /* ---------------------------------------------------------------------------
    Two axes on one row, and they must not be read as one.
 
@@ -710,22 +2034,6 @@ body::after {
   color: var(--color-warning);
 }
 
-.ag-feed-pulse {
-  animation: xvPulse 1.1s var(--xv-ease-in-out) infinite;
-}
-.ag-feed-waiting {
-  opacity: 0.6;
-  font-style: italic;
-}
-/* The trailing row stays mounted as the scroll anchor even when the run is over,
-   so following the feed does not depend on a node that disappears. */
-.ag-feed-hidden {
-  visibility: hidden;
-  border-top: 0;
-  padding-block: 0;
-  height: 0;
-}
-
 .ag-app-title {
   margin: 0 0 0.25rem;
   font-size: 1.125rem;
@@ -757,4 +2065,36 @@ body::after {
     opacity: 1;
     transform: scale(1.15);
   }
+}
+
+/* The definition lists. A term and the sentence that defines it, on the record
+   and wherever else a surface has to name what a word means. */
+.ag-facts {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0 0.25rem 1.25rem;
+}
+
+.ag-facts > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+/* The label differs from its sentence by size and weight rather than by opacity, so
+   the dimmest text on this block stays at the 0.7 the rest of the page already uses
+   instead of introducing a fainter step nobody measured. */
+.ag-facts dt {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  opacity: 0.7;
+}
+
+.ag-facts dd {
+  margin: 0;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  opacity: 0.85;
 }

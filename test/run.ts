@@ -26,18 +26,44 @@ import { startFakeFacilitator } from "./facilitator";
 import { startFakeIngest } from "./ingest";
 import { AGENT_ONE, AGENT_OTHER, AGENT_TWO, AGENT_UNREGISTERED, HUMAN_A, fakeRegistry, fakeStore } from "./human";
 import { RETENTION_DAYS, recordSettlement, setCapForTest, takeFreeRead } from "../lib/human/cap";
+import { MAX_PER_PAYMENT } from "../lib/agent/spend";
 import { postgresStore } from "../lib/human/postgres";
 import { NoDerivationKey, deriveIdentifier } from "../lib/human/derive";
 import { anchorChecks } from "./anchor";
 import { mcpChecks } from "./mcp";
 import { pageChecks } from "./page";
 import { agentRunChecks } from "./agent-run";
+import { boardChecks } from "./board";
+import { credentialChecks } from "./credential";
+import { enrolChecks } from "./enrol";
+import { ensChecks } from "./ens";
+import { verificationChecks } from "./verifications";
+import { nameChecks } from "./name";
+import { namesChecks } from "./names";
+import { proposalsChecks } from "./proposals";
+import { receiptsChecks } from "./receipts";
 
 let n = 0;
 let bad = 0;
+/**
+ * Every id this run printed, so two checks cannot quietly share one.
+ *
+ * Two branches merged holding the same free range and the suite stayed green:
+ * twenty seven ids were printed twice, every one of them passing, and a finding
+ * cited by number pointed at two different properties. Counted at runtime rather
+ * than read from the files, because the ids that collide are the ones that run,
+ * and two arms of one try and its catch may share a number since only one of them
+ * ever prints.
+ */
+/** Named apart from the two locals inside `main` that are also called `seen`: the
+ *  first version was shadowed by one of them and counted responses, which the type
+ *  checker caught and a reading of the file would not have. */
+const idsSeen = new Map<string, number>();
 const check = (ok: boolean, label: string) => {
   n++;
   if (!ok) bad++;
+  const id = /^([0-9]+[a-z0-9]*)\s·/.exec(label)?.[1];
+  if (id) idsSeen.set(id, (idsSeen.get(id) ?? 0) + 1);
   console.log(`    ${ok ? "ok  " : "FAIL"} ${label}`);
 };
 
@@ -110,10 +136,13 @@ async function main() {
   } catch (e) {
     check(e instanceof SnapshotUnavailable, "19 · an unset snapshot path refuses rather than serving an empty list");
   }
+  // Every snapshot file says which day its footage belongs to, so these do too.
   const okFile = join(tmpdir(), `w-ok-${process.pid}.jsonl`);
+  writeFileSync(`${okFile}.day`, "2026-09-07\n");
   writeFileSync(okFile, JSON.stringify(good()) + "\n");
   check(loadSnapshot({ WINDOWS_SNAPSHOT: okFile }).length === 1, "20 · a valid snapshot loads (negative control)");
   const badFile = join(tmpdir(), `w-bad-${process.pid}.jsonl`);
+  writeFileSync(`${badFile}.day`, "2026-09-07\n");
   writeFileSync(badFile, JSON.stringify(good()) + "\n" + JSON.stringify({ ...good(), confidence: 2000 }) + "\n");
   try {
     loadSnapshot({ WINDOWS_SNAPSHOT: badFile });
@@ -121,7 +150,16 @@ async function main() {
   } catch (e) {
     check(e instanceof SnapshotUnavailable, "21 · one bad row refuses the WHOLE snapshot, rather than serving the readable subset");
   }
-  check(loadSnapshot({ WINDOWS_SNAPSHOT: "fixtures/windows.synthetic.jsonl" }).length === 3, "22 · the shipped synthetic fixture is itself valid");
+  // Wrapped: a fixture that stops loading would abort the harness here and skip
+  // every check after it, which is a crash hiding the suite rather than one red line.
+  const shipped = (() => {
+    try {
+      return loadSnapshot({ WINDOWS_SNAPSHOT: "fixtures/windows.synthetic.jsonl" }).length;
+    } catch {
+      return -1;
+    }
+  })();
+  check(shipped === 3, `22 · the shipped synthetic fixture is itself valid (${shipped})`);
 
   console.log("\n  payment\n");
   resetServerForTest();
@@ -573,7 +611,7 @@ async function main() {
   // calls, and only a counter can hold it.
   let asked = 0;
   const counting = { ...store, recordReceipt: async () => { asked++; return true; } };
-  setCapForTest({ registry: null as never, store: counting as never, freePerDay: 0 });
+  setCapForTest({ registry: null as never, store: counting as never, verifications: null, freePerDay: 0 });
   const refusal = await capturingWarn(() => recordSettlement(fabricated));
   check(asked === 0, "100c · and recordSettlement never reaches the store with it");
   check(refusal.warned.length === 1 && /ledger guard/.test(refusal.warned[0]) && refusal.warned[0].includes(FABRICATED_TX),
@@ -631,6 +669,7 @@ async function main() {
   setCapForTest({
     registry: fakeRegistry({ [payerA.address]: HUMAN_A, [payerB.address]: HUMAN_A }).read,
     store: capStore,
+    verifications: null,
     freePerDay: 2,
   });
 
@@ -713,11 +752,56 @@ async function main() {
   await kept.forgetOlderThan(RETENTION_DAYS, today);
   check(kept.counted === 1, `127 · and the one past ${RETENTION_DAYS} days is forgotten, without a scheduler`);
 
+  /*
+   * The spend ceiling must not refuse the ruled price.
+   *
+   * It was $0.05 while the ruled price is $0.50, so the payer rejected the
+   * challenge before signing it and a run ended with nothing settled. A ceiling
+   * below the price is a refusal of the product rather than a guard on it, and
+   * the guard is for a price that arrives with a zero too many.
+   */
+  const cents = (money: string) => Math.round(Number(money.replace("$", "")) * 1e6);
+  check(cents(MAX_PER_PAYMENT) >= 500_000, `290 · the ceiling admits the ruled price of 0.50 (${MAX_PER_PAYMENT})`);
+  check(cents("$0.05") < 500_000, "290a · while the ceiling it replaced refused it (negative control)");
+  check(cents(MAX_PER_PAYMENT) < 10_000_000, "290b · and still catches a price with a zero too many");
+  const exampleEnv = readFileSync(join(process.cwd(), ".env.example"), "utf8");
+  // `$0` is expanded by the env loader, so an unescaped example loads as `.50`
+  // and the paid route answers 500 naming a format nobody wrote.
+  const unescaped = [...exampleEnv.matchAll(/^[A-Z0-9_]+=\$\d/gm)].map(m => m[0]);
+  check(unescaped.length === 0, `291 · no example value starts with an unescaped dollar zero (${unescaped.join(", ") || "none"})`);
+  check(/^[A-Z0-9_]+=\$\d/m.test("X402_PRICE=$0.50"), "291a · the escape check can see an unescaped one (negative control)");
+
   await anchorChecks(check);
   await mcpChecks(check);
   await agentRunChecks(check);
+  await receiptsChecks(check);
+  await proposalsChecks(check);
+  await nameChecks(check);
+  await namesChecks(check);
+  await boardChecks(check);
+  await verificationChecks(check);
+  await enrolChecks(check);
+  await credentialChecks(check);
+  await ensChecks(check);
 
-  pageChecks(check);
+  await pageChecks(check);
+
+  const shared = [...idsSeen.entries()].filter(([, times]) => times > 1).map(([id, times]) => `${id} ${times} times`);
+  check(shared.length === 0, `354 · no two checks in this run share an id (${shared.join(", ") || "none shared"})`);
+  /*
+   * And every check carried one, which is the half 354 cannot see.
+   *
+   * 354 reads the ids it could parse, so a label with no id at its front escapes
+   * the count and the comparison both, and the run would look clean because the
+   * thing that could collide was never counted. Reconciling the total against the
+   * number of checks closes that, and it is reported as a sum rather than as a
+   * bare count of distinct ids: the first version printed `740 distinct` beside
+   * 741 checks, which is the map read one check before its own id lands in it,
+   * and a number nobody can reconcile invites the reading that two ids repeat
+   * when none does.
+   */
+  const counted = [...idsSeen.values()].reduce((total, times) => total + times, 0);
+  check(counted === n, `354a · and every check carried one (${counted} ids over ${n} checks)`);
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;

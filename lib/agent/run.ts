@@ -24,7 +24,16 @@ export type RunStep =
   | { step: "unavailable"; status: number; detail: string }
   /** Settled on chain, or served under the free daily allowance. */
   | { step: "paid"; free: boolean; transaction?: string; network?: string }
-  | { step: "read"; served: number }
+  /**
+   * What the paid read returned, as a count and as opaque identifiers.
+   *
+   * The ids and nothing beside them. A window id is a truncated hash of the
+   * channel, the video, the two endpoints and the station, so on its own it names
+   * nothing a reader can resolve; the tank, the species and the alias are in the
+   * window the server sent and reach no browser. The ids travel so the page can
+   * draw what was bought as objects rather than as a number.
+   */
+  | { step: "read"; served: number; ids: string[] }
   /**
    * The window the agent chose, named before it acts on it.
    *
@@ -40,7 +49,7 @@ export type RunStep =
    * handful of stations is a handful of hash trials, and the id stops being
    * opaque. With the duration alone the two endpoints are not recoverable.
    */
-  | { step: "selected"; windowId: string; durationSeconds: number; confidence: number }
+  | { step: "selected"; windowId: string; durationSeconds: number }
   /**
    * Every window served was unusable, reported as a count.
    *
@@ -49,6 +58,15 @@ export type RunStep =
    * carries nothing. The reasons are logged server side for whoever is debugging.
    */
   | { step: "nothing-proposable"; considered: number }
+  /**
+   * Every window in the cell was already a clip.
+   *
+   * Distinct from `nothing-proposable`, which means none of them passed
+   * validation, and reachable only by walking them all: a run that stops at its
+   * first duplicate learns nothing about the rest, so the sentence "already
+   * proposed" belongs to this step and to no other.
+   */
+  | { step: "cell-spent"; considered: number }
   | { step: "proposing"; windowId: string }
   | { step: "proposed"; id: number; clipHash: string; status: string }
   /**
@@ -62,11 +80,21 @@ export type RunStep =
    * so it stayed green. Numbers are safe to carry and are carried.
    */
   | { step: "declined"; kind: DeclineKind; detail: string; status?: number; retryAfterSeconds?: number }
-  /** No ingest credential configured, so the run stops one step short on purpose. */
-  | { step: "not-submitted"; detail: string }
+  /**
+   * The run stops one step short on purpose: no ingest url is configured, or
+   * this wallet holds no credential. `reason` says which, so a page can draw a
+   * deployment that cannot submit apart from a wallet that has not enrolled.
+   */
+  | { step: "not-submitted"; detail: string; reason?: NotSubmitted }
   | { step: "done" };
 
 export type DeclineKind = "duplicate" | "rejected" | "throttled" | "refused" | "error";
+export type NotSubmitted = "unconfigured" | "no-credential";
+
+export const NOT_SUBMITTED_SENTENCE: Record<NotSubmitted, string> = {
+  unconfigured: "no ingest route is configured on this deployment",
+  "no-credential": "this wallet holds no credential, so nothing is proposed",
+};
 
 /** One sentence per kind, written here rather than forwarded from the route. */
 export const DECLINE_SENTENCE: Record<DeclineKind, string> = {
@@ -84,7 +112,17 @@ export type RunConfig = {
   /** The PAYMENT-SIGNATURE header the browser produced. */
   paymentHeader?: string;
   ingestUrl?: string;
+  /**
+   * The credential kept in the environment, and the one wallet it belongs to.
+   * Every other wallet proposes with its own credential from `credentialFor` or
+   * not at all: a shared key would make every clip the same submitter's, which
+   * is the thing the enrolment exists to end. Both unset, the environment holds
+   * no credential for anyone.
+   */
   ingestKey?: string;
+  ingestKeyPayer?: string;
+  /** This wallet's own credential, from the store, or null. */
+  credentialFor?: (payer: string) => Promise<string | null>;
   /** The paid route's own handler, injected so the checks drive the real one. */
   windowsFetch: typeof fetch;
   ingestFetch?: typeof fetch;
@@ -116,6 +154,41 @@ function detailOf(body: unknown, fallback: string): string {
  */
 export function windowsUrlFor(requestUrl: string): string {
   return new URL("/api/agent/windows", requestUrl).toString();
+}
+
+/**
+ * The wallet that signed the payment, read off the header the browser sent.
+ *
+ * Client supplied bytes, and trustworthy only after the paid route has served:
+ * the facilitator recovers the EIP-3009 signature against this same address, so
+ * a header naming somebody else's wallet never gets past the read. The run reads
+ * it AFTER the paid step for that reason, and uses it for one thing, which
+ * credential to propose with.
+ *
+ * Base64 of JSON with the authorization under `payload`, measured against the
+ * running route rather than read from the protocol documentation, and decoded
+ * with atob so this module carries no Node only API.
+ */
+export function payerFromHeader(header: string | undefined): string | null {
+  if (!header) return null;
+  try {
+    const decoded = JSON.parse(atob(header)) as { payload?: { authorization?: { from?: unknown } } };
+    const from = decoded.payload?.authorization?.from;
+    return typeof from === "string" && /^0x[0-9a-fA-F]{40}$/.test(from) ? from.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Which credential this run proposes with, or null for none. The wallet's own
+ *  first; the environment's only for the wallet it was minted for. */
+async function credentialToUse(cfg: RunConfig, payer: string | null): Promise<string | null> {
+  if (payer && cfg.credentialFor) {
+    const own = await cfg.credentialFor(payer);
+    if (own) return own;
+  }
+  if (cfg.ingestKey && cfg.ingestKeyPayer && payer && payer === cfg.ingestKeyPayer.toLowerCase()) return cfg.ingestKey;
+  return null;
 }
 
 export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
@@ -166,12 +239,21 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
   yield { step: "paid", free: !receipt, transaction, network };
 
   const raw = (body as { windows?: unknown[] }).windows ?? [];
-  yield { step: "read", served: raw.length };
+  yield {
+    step: "read",
+    served: raw.length,
+    // Read off the served windows rather than off the validated ones, because this
+    // reports what was bought and the validation has not run yet.
+    ids: raw.map(w => String((w as { windowId?: unknown }).windowId ?? "")).filter(id => id !== ""),
+  };
 
   const ledger = memoryLedger();
   // Kept out of the stream and logged, because each one names a value.
   const reasons: string[] = [];
-  let chosen: CandidateWindow | null = null;
+  // Every proposable window, not the first. The run walks them, because a cell is
+  // spent only when each one has been offered and refused, and a run that stopped
+  // at the first duplicate could never say so.
+  const proposable: CandidateWindow[] = [];
   for (const candidate of raw) {
     const problems = windowProblems(candidate);
     if (problems.length > 0) {
@@ -184,16 +266,16 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
       continue;
     }
     try {
-      // Evaluated before it is chosen, not after. A window that cannot become a
-      // proposal is not a candidate, and selecting it only to fail would show the
+      // Evaluated before it is offered, not after. A window that cannot become a
+      // proposal is not a candidate, and offering it only to fail would show the
       // agent picking something it cannot use.
       toProposal(w);
-      chosen = w;
-      break;
+      proposable.push(w);
     } catch (err) {
       reasons.push(err instanceof UnproposableWindow ? `${w.windowId}: ${err.message}` : String(err));
     }
   }
+  const chosen = proposable[0] ?? null;
 
   if (!chosen) {
     if (reasons.length > 0) console.warn("[run] nothing proposable:", reasons.join(" | "));
@@ -202,35 +284,74 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
     return;
   }
 
-  yield {
-    step: "selected",
-    windowId: chosen.windowId,
-    durationSeconds: Math.round(chosen.endTime - chosen.startTime),
-    confidence: chosen.confidence,
-  };
-
-  if (!cfg.ingestUrl || !cfg.ingestKey) {
+  // Read after the paid step, which is what makes it the verified payer: see
+  // payerFromHeader. Decrypted here and held for the ingest header only.
+  const key = cfg.ingestUrl ? await credentialToUse(cfg, payerFromHeader(cfg.paymentHeader)) : null;
+  if (!cfg.ingestUrl || !key) {
+    yield {
+      step: "selected",
+      windowId: chosen.windowId,
+      durationSeconds: Math.round(chosen.endTime - chosen.startTime),
+    };
     // Stops one step short rather than inventing a success. The run is still worth
     // watching to here, and saying so is better than a green "proposed" that never
     // reached anything.
-    yield { step: "not-submitted", detail: "no ingest credential is configured on this deployment" };
+    const reason: NotSubmitted = cfg.ingestUrl ? "no-credential" : "unconfigured";
+    yield { step: "not-submitted", detail: NOT_SUBMITTED_SENTENCE[reason], reason };
     yield { step: "done" };
     return;
   }
 
-  yield { step: "proposing", windowId: chosen.windowId };
-  const result = await propose(chosen, {
-    url: cfg.ingestUrl,
-    key: cfg.ingestKey,
-    ledger,
-    fetchImpl: cfg.ingestFetch,
-  });
+  let duplicates = 0;
+  // One proposal at most. A duplicate is the only answer that continues the walk,
+  // because it is the only one that says this window is spoken for while leaving
+  // the next one an open question.
+  for (const window of proposable) {
+    yield {
+      step: "selected",
+      windowId: window.windowId,
+      durationSeconds: Math.round(window.endTime - window.startTime),
+    };
+    yield { step: "proposing", windowId: window.windowId };
+    const result = await propose(window, {
+      url: cfg.ingestUrl,
+      key,
+      ledger,
+      fetchImpl: cfg.ingestFetch,
+    });
 
-  if (result.kind === "proposed") {
-    yield { step: "proposed", id: result.id, clipHash: result.clipHash, status: result.status };
-  } else if (result.kind === "duplicate") {
-    yield { step: "declined", kind: "duplicate", detail: DECLINE_SENTENCE.duplicate };
-  } else if (result.kind === "rejected") {
+    if (result.kind === "proposed") {
+      yield { step: "proposed", id: result.id, clipHash: result.clipHash, status: result.status };
+      yield { step: "done" };
+      return;
+    }
+    if (result.kind === "duplicate") {
+      duplicates += 1;
+      // Recorded per window. Which runner remembers depends on the ledger it was
+      // given: `bin/agent.ts` keeps a file, so its next run starts where this one
+      // left off, while the run route builds a memory ledger per invocation, so a
+      // browser run walks from the first window every time and pays one ingest
+      // request per window already proposed. The refusal is still worth recording
+      // here, because it is what makes this run's own walk terminate.
+      ledger.remember(window.windowId, "the ingest already holds this clip");
+      yield { step: "declined", kind: "duplicate", detail: DECLINE_SENTENCE.duplicate };
+      continue;
+    }
+    yield* refusal(result);
+    yield { step: "done" };
+    return;
+  }
+
+  if (duplicates === proposable.length) yield { step: "cell-spent", considered: duplicates };
+  yield { step: "done" };
+}
+
+/** The three refusals that stop a walk, kept out of the loop so the loop reads as
+ *  the walk rather than as a switch. */
+type Refusal = Exclude<Awaited<ReturnType<typeof propose>>, { kind: "proposed" } | { kind: "duplicate" }>;
+
+async function* refusal(result: Refusal): AsyncGenerator<RunStep> {
+  if (result.kind === "rejected") {
     yield { step: "declined", kind: "rejected", detail: DECLINE_SENTENCE.rejected };
   } else if (result.kind === "throttled") {
     yield {
@@ -245,5 +366,4 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
     console.warn(`[run] ingest refused ${result.status}:`, result.hint ? `${result.error} (${result.hint})` : result.error);
     yield { step: "declined", kind: "refused", detail: DECLINE_SENTENCE.refused, status: result.status };
   }
-  yield { step: "done" };
 }

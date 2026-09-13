@@ -14,10 +14,19 @@ import type { CandidateWindow } from "../lib/windows/types";
  * it with any credential that exists. That is inherited from the ingest design
  * rather than asserted here, which is a stronger thing to be able to say.
  *
- *   WINDOWS_URL=... AGENT_PRIVATE_KEY=0x... XOVI_INGEST_URL=... XOVI_INGEST_KEY=xvi_... npm run agent
- *   AGENT_IDENTITY_NAME=agent1.xovi.eth ...  and it runs under the name Zenbit issued
+ *   AGENT_ENS_NAME=xovi.eth AGENT_PRIVATE_KEY=0x... XOVI_INGEST_URL=... XOVI_INGEST_KEY=xvi_... npm run agent
+ *   WINDOWS_URL=...          AGENT_PRIVATE_KEY=0x... XOVI_INGEST_URL=... XOVI_INGEST_KEY=xvi_... npm run agent
+ *   AGENT_IDENTITY_NAME=agent1.xovi.eth ...          and it runs under the name Zenbit issued
  *   npm run agent -- --dry-run       print what would be sent, send nothing
  *   npm run agent -- --limit 1       propose at most one window
+ *
+ * The first reads the endpoint from the name's `x402:windows` record and is what the
+ * runbook's step 7 uses; the second supplies it directly. Setting the name makes the
+ * url unused rather than a fallback. Neither is read by anything deployed.
+ *
+ * The third asks a different question from either. It names the identity the agent
+ * claims rather than where it reads, and the run refuses to start unless that name's
+ * address record is the key that pays.
  */
 async function main() {
   const dryRun = process.argv.includes("--dry-run");

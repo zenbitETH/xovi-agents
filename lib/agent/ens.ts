@@ -17,9 +17,15 @@ import type { EnvLike } from "./pay";
  * because the failure that matters is a typo in the name resolving to nothing
  * while the agent carries on reading from somewhere else entirely.
  *
- * Nothing is registered yet. The name that was assumed available turned out not
- * to be, so this path is unexercised: with AGENT_ENS_NAME unset the seam returns
- * the configured url and the resolution branch is never entered.
+ * As of 2026-09-12 this path runs: `xovi.eth` is registered on Sepolia and its
+ * `x402:windows` record resolves to the windows endpoint. With AGENT_ENS_NAME unset
+ * the seam still returns the configured url and the branch is not entered, so which
+ * of the two happens is a property of the environment rather than of this file.
+ *
+ * This paragraph is dated because it asserts the state of something outside the
+ * repository, which changes without anything here changing. It said `Nothing is
+ * registered yet` until the name was registered, and nothing in a build would have
+ * caught that.
  */
 export const WINDOWS_RECORD_KEY = "x402:windows";
 
@@ -30,6 +36,12 @@ export class EndpointUnresolvable extends Error {}
  *  not having the path. */
 export type TextResolver = (name: string, key: string, env: EnvLike) => Promise<string | null>;
 
+/** CCIP Read is on by default in the installed viem, 2.56.3: `call` follows an
+ *  `OffchainLookup` revert unless the client is created with `ccipRead: false`, and
+ *  `getEnsText` reads through the universal resolver's `resolveWithGateways`, which
+ *  hands each inner lookup to viem's own fetch. So once the parent's resolver is the
+ *  offchain one under `contracts/`, this same client reads the record from the
+ *  gateway and verifies its signature on chain, with nothing set here. */
 const viemResolver: TextResolver = (name, key, env) =>
   createPublicClient({ chain: sepolia, transport: http(env.AGENT_ENS_RPC_URL || undefined) }).getEnsText({
     name,
@@ -128,6 +140,9 @@ export type AddressResolver = (name: string, env: EnvLike) => Promise<string | n
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
+/** The same client as the text lookup, and the same note: CCIP Read is on unless
+ *  switched off, so the address of an issued label comes from the gateway once the
+ *  resolver is switched, verified on chain before it is returned here. */
 const viemAddressResolver: AddressResolver = (name, env) =>
   createPublicClient({ chain: sepolia, transport: http(env.AGENT_ENS_RPC_URL || undefined) }).getEnsAddress({ name });
 

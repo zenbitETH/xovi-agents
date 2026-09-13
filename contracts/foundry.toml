@@ -1,0 +1,44 @@
+# Foundry project for the offchain resolver of `xovi.eth`. Standalone: nothing in
+# the Next.js app imports from here, and nothing here reads the app.
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+
+# Pinned rather than floated. Every solc release between these and the one after
+# it has to be chosen by a person, because a compiler moving under a deployed
+# contract is how a verified source stops matching its bytecode.
+solc_version = "0.8.28"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+
+# The three dependencies are git submodules pinned by commit in `foundry.lock`:
+# forge-std v1.16.2, OpenZeppelin Contracts v5.7.0 and ens-contracts v1.7.0. The
+# remappings keep the reference's import paths byte for byte, so a reader who
+# knows `ensdomains/offchain-resolver` recognises the imports.
+remappings = [
+  "forge-std/=lib/forge-std/src/",
+  "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+  "@ensdomains/ens-contracts/=lib/ens-contracts/",
+]
+
+# The deploy script reads the deployer key from the ONE file the variable
+# ENS_RESOLVER_DEPLOYER_KEY_FILE names, an absolute path on the founder's machine,
+# so reads are allowed from the root. The tests write a scratch key under
+# test/tmp, which is gitignored, and read the fixture the gateway signed.
+fs_permissions = [
+  { access = "read", path = "/" },
+  { access = "read-write", path = "./test/tmp" },
+]
+
+[fmt]
+line_length = 120
+
+# The three notes the linter raises are the reference's own style, kept so the
+# contract reads as the reference: plain imports, the keccak in Solidity rather than
+# assembly, and `interfaceID` as ENS spells it.
+[lint]
+exclude_lints = ["unaliased-plain-import", "asm-keccak256", "mixed-case-variable"]
