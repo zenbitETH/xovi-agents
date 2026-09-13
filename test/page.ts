@@ -1,6 +1,24 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { lineFor } from "../app/app-shell";
+import {
+  ACCOUNT_TABS,
+  PLAN,
+  planFrom,
+  screensFor,
+  RECORD,
+  RUNGS,
+  SCREENS,
+  fabricated,
+  lineFor,
+  settled,
+  supplyFrom,
+  supplySentence,
+  totalOnBaseSepolia,
+} from "../app/app-shell";
+import { signedBy } from "../lib/anchor/confirmation";
+import { BASE_SEPOLIA_HEX, disconnect, restoreConnection } from "../lib/agent/browser";
+import { ANCHOR_259, CONFIRMATION_259 } from "../lib/anchor/confirmation-259";
+import { FABRICATED_TX } from "../lib/human/store";
 import type { RunStep } from "../lib/agent/run";
 
 type Check = (ok: boolean, label: string) => void;
@@ -19,7 +37,7 @@ type Check = (ok: boolean, label: string) => void;
  *
  * The numbers of the survivors are unchanged, so the gaps are deliberate.
  */
-export function pageChecks(check: Check) {
+export async function pageChecks(check: Check) {
   const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
   const ui = readFileSync(join(process.cwd(), "app/app-shell.tsx"), "utf8");
 
@@ -70,8 +88,8 @@ export function pageChecks(check: Check) {
     { step: "unavailable", status: 503, detail: "x" },
     { step: "paid", free: false, transaction: "0x1", network: "eip155:84532" },
     { step: "paid", free: true },
-    { step: "read", served: 3 },
-    { step: "selected", windowId: "w", durationSeconds: 100, confidence: 500 },
+    { step: "read", served: 3, ids: ["a1", "b2", "c3"] },
+    { step: "selected", windowId: "w", durationSeconds: 100 },
     { step: "nothing-proposable", considered: 3 },
     { step: "proposing", windowId: "w" },
     { step: "proposed", id: 1, clipHash: "0x", status: "pending" },
@@ -90,6 +108,722 @@ export function pageChecks(check: Check) {
     "209 · while a route refusing the credential is the agent's (negative control for 208)");
   check(lineFor({ step: "proposed", id: 1, clipHash: "0x", status: "p" }).actor === "agent",
     "210 · and the work the agent did is the agent's");
+
+  /*
+   * No score on any surface.
+   *
+   * The model's number is carried in the record and rendered nowhere. Spec 05
+   * fixes no derivation for it, publishes no cutoff and no banding, and a bare
+   * integer beside a chosen window is read as a quality whatever the caption
+   * says. It reached the page as "confidence 500" and reached every browser
+   * inside the run stream, which is a public route.
+   *
+   * Read off the mapping rather than off the file, so a value that arrives under
+   * another name is still caught by the shape of what a line may carry.
+   */
+  const drawnLines = everyStep.map(lineFor);
+  check(!/confidence/i.test(JSON.stringify(drawnLines)), "224 · no line carries a score");
+  check(!/confidence/i.test(ui), "224a · and the word is absent from the interface");
+  check(/confidence/i.test(JSON.stringify([{ detail: "confidence 500" }])), "224b · the score check can see one (negative control)");
+
+  /*
+   * Every number on the page came off the wire.
+   *
+   * A price written into the interface survives a change on the server and goes
+   * on saying the old one. The card's three values are read from the challenge
+   * the counterparty sent, and the check is that no literal shaped like money
+   * exists in the file at all.
+   */
+  // A number next to a currency, not the currency alone. The Overview names USDC
+  // as the unit of a total it computed from served rows, which is a label on a
+  // measured number; "0.01 USDC" written into the file is the thing to catch.
+  const money = /\$\s?\d|\b\d+\.\d+\s*(usdc|usd|eth)\b/i;
+  check(!money.test(ui), "225 · no price is written into the interface");
+  check(money.test("the server asks $0.01"), "225a · the price check can see a planted one (negative control)");
+  check(money.test("it costs 0.01 USDC"), "225b · and one written without a currency sign");
+
+  const card = ui.slice(ui.indexOf('object: { kind: "challenge"'));
+  const cardLiteral = card.slice(0, card.indexOf("}"));
+  check(
+    /amount: challenge\.amount/.test(cardLiteral) &&
+      /asset: challenge\.asset/.test(cardLiteral) &&
+      /network: challenge\.network/.test(cardLiteral),
+    "225c · and the card's three values are read off the served challenge",
+  );
+
+  /*
+   * What the read bought, drawn as tiles carrying identifiers and nothing else.
+   *
+   * A window id is a truncated hash of the channel, the video, the two endpoints
+   * and the station, so on its own it resolves to nothing. The tank, the species
+   * and the alias are in the window the server sent and in the proposal the agent
+   * forms, and neither reaches a browser. The object is asserted by its key set,
+   * so a field added to it later fails here rather than shipping.
+   */
+  const readLine = lineFor({ step: "read", served: 2, ids: ["6fe45c795eb3049c", "74ad9a172b8e01aa"] });
+  const tiles = readLine.object;
+  check(tiles?.kind === "windows" && tiles.ids.length === 2, "226 · the read draws one tile per window");
+  check(
+    tiles !== undefined && Object.keys(tiles).sort().join(",") === "ids,kind",
+    "226a · and the tiles carry the identifiers and nothing else",
+  );
+  const chosenLine = lineFor({ step: "selected", windowId: "6fe45c795eb3049c", durationSeconds: 16 });
+  check(
+    chosenLine.object?.kind === "windows" && chosenLine.object.chosen === "6fe45c795eb3049c",
+    "226b · and the one the agent took is marked as taken",
+  );
+
+  /*
+   * The record shows what a stranger can check, and names the rest as assertion.
+   *
+   * Spec 05 draws the trust boundary and the page has to draw the same one. The
+   * seven are the material needed to rebuild the signed message and recover the
+   * signer; `verifiedAt` and `submitter` are the operator's word; the model's
+   * number is opaque and belongs to neither list and to no surface.
+   */
+  const SEVEN = ["clipId", "clipHash", "decision", "verifier", "verifierSignature", "verifierNonce", "verifierChainId"];
+  const recordBlock = ui.slice(ui.indexOf("const RECORD = {"), ui.indexOf("const ASSERTED = {"));
+  const shown = [...recordBlock.matchAll(/^\s{2}(\w+):/gm)].map(m => m[1]);
+  check(shown.sort().join(",") === [...SEVEN].sort().join(","), `231 · the record shows spec 05's seven checkable fields and no others (${shown.length})`);
+
+  const assertedBlock = ui.slice(ui.indexOf("const ASSERTED = {"), ui.indexOf("/** The four links"));
+  const asserted = [...assertedBlock.matchAll(/^\s{2}(\w+):/gm)].map(m => m[1]);
+  check(asserted.sort().join(",") === "submitter,verifiedAt", `231a · and names the two the operator asserts (${asserted.join(",")})`);
+  check(!recordBlock.includes("confidence") && !assertedBlock.includes("confidence"), "231b · the model's number is on neither list");
+
+  /*
+   * The recovery is compared, not caught.
+   *
+   * Recovering over the wrong message does not raise. It answers with a different,
+   * perfectly well formed address, so a caller reading the absence of an exception
+   * as success accepts a message with one space missing. The page compares.
+   */
+  check(/recovered\.toLowerCase\(\) === RECORD\.verifier\.toLowerCase\(\)/.test(ui),
+    "232 · the recovered address is compared with the verifier for equality");
+
+  // Driven, not read. The record the page builds, through its own `decisionCode`
+  // call, recovers to the verifier it names, so the button answers equal on the
+  // screen somebody records rather than only in a file that describes it.
+  check(await signedBy(RECORD, RECORD.verifierSignature, RECORD.verifier),
+    "232c · and the record the page builds does recover to the verifier it names");
+  check(!(await signedBy({ ...RECORD, clipId: RECORD.clipId + 1 }, RECORD.verifierSignature, RECORD.verifier)),
+    "232d · while one field changed recovers somebody else, without raising (negative control)");
+
+  // The call beside an identifier is the call for that identifier. getAttestation
+  // asked for an offchain one answers with an empty struct, which is a badge with
+  // nothing behind it, so the page names it only for the onchain identifier.
+  // Each call bound to the identifier it answers for, in whichever order the copy
+  // names them, since the page now leads with the onchain one it can show.
+  const flatRecord = ui.replace(/\s+/g, " ");
+  check(/onchain one, which a query returns and which getAttestation answers/.test(flatRecord), "232a · getAttestation is bound to the onchain identifier");
+  check(/offchain[^.]*getTimestamp/.test(flatRecord), "232b · and getTimestamp to the offchain one");
+  check(/getAttestation asked for an offchain identifier returns an empty struct/.test(flatRecord),
+    "232e · with the wrong call beside the wrong identifier named as the badge it would be");
+
+  /*
+   * The check runs with the operator's site down.
+   *
+   * That is the whole reason it is a check rather than a request for reassurance,
+   * so the component that runs it may not reach the network at all.
+   */
+  const records = ui.slice(ui.indexOf("function Records()"), ui.indexOf("/**\n * A drawn state"));
+  check(records.length > 0 && !records.includes("fetch("), "233 · the record check fetches nothing, so it answers with the operator gone");
+  check(ui.includes("fetch("), "233a · while the page does fetch elsewhere (negative control)");
+
+  /*
+   * The total is over one chain, and a row from anywhere else is counted and not
+   * added.
+   *
+   * The ledger records a network and an atomic amount and no asset, so the unit
+   * comes from a merged document, the README and the live challenge, which name
+   * USDC on Base Sepolia. That makes the network filter load bearing: without it
+   * the page would add quantities of unrelated tokens into one number. Driven on
+   * a mixed fixture, because dropping the filter left the suite green while
+   * nothing exercised the function.
+   */
+  const mixed = [
+    { source: "route", payer: "0xp", payTo: "0xr", amount: "10000", network: "eip155:84532", nonce: "n1", txHash: "0xa", settledAt: "2026-09-11T05:00:00.000Z" },
+    { source: "route", payer: "0xp", payTo: "0xr", amount: "10000", network: "eip155:84532", nonce: "n2", txHash: "0xb", settledAt: "2026-09-11T06:00:00.000Z" },
+    { source: "route", payer: "0xp", payTo: "0xr", amount: "99999999", network: "eip155:11155111", nonce: "n3", txHash: "0xc", settledAt: "2026-09-11T07:00:00.000Z" },
+    { source: "route", payer: "0xp", payTo: "0xr", amount: "10000", network: "eip155:84532", nonce: "n4", txHash: FABRICATED_TX, settledAt: "2026-09-11T08:00:00.000Z" },
+  ];
+  const totals = totalOnBaseSepolia(mixed);
+  check(totals.total === "0.02", `234 · the total is over Base Sepolia rows alone (${totals.total})`);
+  check(totals.counted === 2, `234a · counting two of them (${totals.counted})`);
+  check(totals.elsewhere === 1, `234b · and the row on another chain is counted and not added (${totals.elsewhere})`);
+
+  /*
+   * The allowance card states the allowance and no count.
+   *
+   * The route serves no remaining count, so a number there would be one the page
+   * made up. 225 catches shapes that look like money and would not catch a bare
+   * integer, so the card is read directly: the panel that carries the allowance
+   * sentence must carry no big number and no digit.
+   */
+  const freeCard = ui.slice(ui.indexOf("<h3 className=\"ag-panel-title\">Free reads</h3>"));
+  const freeCardEnd = freeCard.indexOf("</div>");
+  const freeCardText = freeCard.slice(0, freeCardEnd);
+  check(freeCardText.length > 0, "235 · the free reads card is on the page");
+  check(!freeCardText.includes("ag-panel-big"), "235a · and renders no figure where the other cards render one");
+  // Over the text nodes, not the markup: `<h3>` is a digit and is not a count.
+  const freeCardWords = freeCardText.replace(/<[^>]*>/g, " ");
+  check(!/\d/.test(freeCardWords), `235b · nor any digit in its words (${freeCardWords.trim().slice(0, 40)})`);
+  check(/\d/.test("Served under the free daily allowance, 3 left".replace(/<[^>]*>/g, " ")), "235c · the digit check reads the words (negative control)");
+
+  /*
+   * The opaque field does not reach the browser, and the property is structural.
+   *
+   * A JSON import arrives whole, so importing the fixture put the model's number
+   * into the page's chunk even though nothing rendered it. 224a reads this file's
+   * source and would never have seen it. The fix is that the page imports a module
+   * of the nine values it shows, so there is no tenth to leak, and these checks
+   * hold that shape without needing a build: CI runs types and checks and never
+   * builds, so a grep over `.next` would be green because the directory is absent.
+   */
+  const fixture = JSON.parse(readFileSync(join(process.cwd(), "fixtures/confirmation.259.json"), "utf8"));
+  const trimmed = readFileSync(join(process.cwd(), "lib/anchor/confirmation-259.ts"), "utf8");
+  check(!/from "[^"]*fixtures\//.test(ui), "237 · the page imports nothing from the fixtures directory");
+  // The module may name the fixture in prose, and does, because that is where its
+  // values came from. What it may not do is import it or carry the opaque field.
+  check(!/from "[^"]*fixtures\//.test(trimmed), "237a · nor does the module it imports instead");
+  check(!trimmed.includes("confidence"), "237a2 · which carries no opaque field of its own");
+  const nine = Object.keys(CONFIRMATION_259).sort();
+  check(nine.length === 9, `237b · which carries nine values (${nine.length})`);
+  check(!nine.includes("confidence"), "237c · and no tenth");
+  check("confidence" in fixture, "237d · while the fixture does carry it (negative control)");
+
+  // The drift guard. A trimmed copy is a copy, and the fixture is the original.
+  const drifted = [
+    CONFIRMATION_259.clipId !== fixture.id,
+    CONFIRMATION_259.clipHash !== fixture.clipHash,
+    CONFIRMATION_259.status !== fixture.status,
+    CONFIRMATION_259.verifier !== fixture.verifiedBy,
+    CONFIRMATION_259.verifierSignature !== fixture.verifierSignature,
+    CONFIRMATION_259.verifierNonce !== fixture.verifierNonce,
+    CONFIRMATION_259.verifierChainId !== fixture.verifierChainId,
+    CONFIRMATION_259.verifiedAt !== fixture.verifiedAt,
+    CONFIRMATION_259.submitter !== fixture.submitterAddress,
+  ].filter(Boolean);
+  check(drifted.length === 0, `237e · every one of the nine equals the fixture it was trimmed from (${drifted.length} did not)`);
+
+  /*
+   * The record says what it is, in the present tense, and the absence is a
+   * negative rather than a condition.
+   */
+  /*
+   * Inverted, because the page said the opposite of the chain: it claimed this
+   * confirmation was not anchored, which was true of the fixture and false of
+   * Ethereum Sepolia, where it has been anchored since 2026-09-11. An absence
+   * asserted from a file's silence is not an absence measured.
+   */
+  check(/anchored on Ethereum Sepolia/.test(flatRecord), "238 · the page states that this confirmation is anchored");
+  check(!/not anchored/i.test(ui), "238a · and never the opposite, which is the copy this replaced");
+  check(/\{ANCHOR_259\.onchainUid\}/.test(ui), "238b · rendering the onchain identifier from the constant");
+  /*
+   * Pinned literally, all of them. A check that pins the time alone lets an
+   * identifier, an attester or a transaction hash drift by a digit and stay
+   * green, which the reviewer measured on 2026-09-12. These values were read
+   * from EAS 0xC2679fBD3ee79CBE1Ed3a5ED5E5C0a5e4E7D5E815e on chain 11155111
+   * with getAttestation, getTimestamp and the two receipts on 2026-09-12.
+   */
+  const CHAIN_READ_2026_09_12 = {
+    chainId: 11155111,
+    onchainUid: "0xf3e3edf3c8bf0051bc2d70848592846b0604f89bd0b9439c4ba06bccf0232044",
+    attester: "0x51F1D0074793E7Fa336f538299ad7D3e439e2b09",
+    attestedAt: 1789110516,
+    attestTx: "0xd86c2902aaf8cb0cebf529e4171f64bdd1b4235aa6f5e2eb419c1e044fca5538",
+    offchainUid: "0x3252123f3ac9e0521296847836c61f757c939e54b8892743fdf2f9f068b7a775",
+    timestampedAt: 1789110504,
+    timestampTx: "0x236b7c7a944d7e2354da9e9f80a2cfa97c8e7ea70ef1d65cceed3f7502fadfb3",
+  } as const;
+  check(
+    ANCHOR_259.chainId === CHAIN_READ_2026_09_12.chainId &&
+      ANCHOR_259.onchainUid === CHAIN_READ_2026_09_12.onchainUid &&
+      ANCHOR_259.attester === CHAIN_READ_2026_09_12.attester &&
+      ANCHOR_259.attestedAt === CHAIN_READ_2026_09_12.attestedAt &&
+      ANCHOR_259.attestTx === CHAIN_READ_2026_09_12.attestTx,
+    "238e · the onchain identifier, attester, time and transaction equal what getAttestation and the receipt returned from EAS on 11155111 on 2026-09-12",
+  );
+  check(
+    ANCHOR_259.offchainUid === CHAIN_READ_2026_09_12.offchainUid &&
+      ANCHOR_259.timestampedAt === CHAIN_READ_2026_09_12.timestampedAt &&
+      ANCHOR_259.timestampTx === CHAIN_READ_2026_09_12.timestampTx,
+    "238d · and the offchain identifier, its getTimestamp time and its transaction likewise",
+  );
+  check(/\{ANCHOR_259\.offchainUid\}/.test(ui) && /\{ANCHOR_259\.timestampedAt\}/.test(ui),
+    "238f · and the offchain identifier with the time getTimestamp returns");
+  check(String(ANCHOR_259.offchainUid) !== String(ANCHOR_259.onchainUid) && ANCHOR_259.timestampedAt === 1789110504,
+    "238g · the two identifiers share nothing, which is why each has its own call");
+  check(/sepolia\.etherscan\.io\/tx\/\$\{ANCHOR_259\.attestTx\}/.test(ui), "238c · and linking the transaction that carries it");
+  check(/sepolia\.etherscan\.io\/tx\/\$\{ANCHOR_259\.timestampTx\}/.test(ui), "238h · and the timestamp's own transaction beside the offchain identifier, never the attestation's");
+
+  /*
+   * An empty proposals section must not read as "you proposed nothing".
+   *
+   * The list this page reads serves confirmed rows only, so absence there is
+   * absence of a confirmation and not absence of a proposal. The sentence is the
+   * whole guard, and it is checked because it is the difference between a true
+   * empty state and the page lying by omission.
+   */
+  const flatUi = ui.replace(/\s+/g, " ");
+  check(flatUi.includes("Only confirmed proposals appear here. A proposal no person has confirmed is not public."),
+    "245 · the proposals section says which proposals it can show");
+  check(flatUi.includes("This deployment reads no public list"), "245a · and says so when it reads no list at all");
+
+  /*
+   * The name is claimed only on equality, and a name is issued rather than owned.
+   */
+  check(flatUi.includes("No name is issued for this payer."), "250 · the page carries the negative for an unissued name");
+  check(flatUi.includes("resolves to this payer"), "250a · and the positive only as an equality with the payer");
+  check(/answer !== null && answer\.matches \?/.test(ui), "250b · which is drawn on the match and not on the answer existing");
+  check(flatUi.includes("A name is issued and is not owned"), "250c · and the section says a name is issued rather than owned");
+
+  /*
+   * The footer and the mainnet rung say the same thing.
+   *
+   * They did not. The footer read "Nothing touches mainnet" while the rung two
+   * sections below it read "Nothing here writes to a mainnet; one read is on one",
+   * so one page made a categorical claim and then contradicted it. The identity is
+   * asserted rather than each sentence separately, because two copies of a claim
+   * drift and the interesting failure is that they disagree.
+   */
+  const mainnetRung = RUNGS.find(r => r.rung === "a mainnet");
+  const rungNegative = (mainnetRung?.sentences ?? "").split(/(?<=\.)\s+/)[1] ?? "";
+  // Read over the footer alone. The first version tested the whole file, which the
+  // rung's own copy of the sentence satisfies, so it stayed green with the footer
+  // reverted: it could not tell the two places apart, which is the one thing it
+  // exists to do.
+  const footerAt = flatUi.indexOf("Payments settle on Base Sepolia");
+  const footer = footerAt === -1 ? "" : flatUi.slice(footerAt, footerAt + 200);
+  check(rungNegative.length > 0 && footer.includes(rungNegative), `253 · the footer states the mainnet claim the rung states (${rungNegative})`);
+  check(!/Nothing touches mainnet/.test(ui), "253a · and not the categorical one it contradicted");
+
+  /*
+   * The fold is three verbs and one sentence each.
+   *
+   * At rest the page used to open with a paragraph and five definitions, which is
+   * an explanation of the product before a reader has seen what it does. The tiles
+   * are what a person can do here; the definitions are kept, because they are
+   * merged text a judge may want, and folded away.
+   */
+  // Over a whitespace collapsed copy, because the heading now holds a mark above
+  // the word and JSX puts the two on separate lines.
+  const verbs = [...ui.replace(/\s+/g, " ").matchAll(/<h2 className="ag-verb-name"> <Mark\w+ \/> (\w+) <\/h2>/g)].map(m => m[1]);
+  check(verbs.join(",") === "Own,Manage,Check", `254 · the fold carries three verbs (${verbs.join(",") || "none"})`);
+  const verbLines = [...ui.matchAll(/className="ag-verb-line">\s*([^<]+?)\s*<\/p>/g)].map(m => m[1].replace(/\s+/g, " "));
+  check(verbLines.length === 3, `254a · one line under each (${verbLines.length})`);
+  const twoSentences = verbLines.filter(l => l.split(/(?<=\.)\s+/).filter(x => x.length > 0).length === 2);
+  check(twoSentences.length === 3, `254b · each of them two sentences, as the rungs are (${twoSentences.length})`);
+  const withFigure = verbLines.filter(l => /\b\d+\b/.test(l));
+  check(withFigure.length === 0, `254c · and none carries a figure (${withFigure.length})`);
+
+  /*
+   * The command line says nothing a tile already said.
+   *
+   * It read "One signature. The agent reads what it paid for, proposes once, and
+   * stops", which is the Manage tile's second sentence verbatim, about forty words
+   * below it, in the rest state that had just been cut for being text heavy.
+   */
+  const commandLine = (ui.match(/className="ag-command">\s*([^<]+?)\s*<\/p>/) ?? [])[1] ?? "";
+  check(commandLine.length > 0, `256 · the fold carries a command line (${commandLine})`);
+  const echoes = (lines: string[], command: string) =>
+    lines.filter(l => l.split(/(?<=\.)\s+/).some(sentence => sentence.length > 12 && command.includes(sentence)));
+  check(echoes(verbLines, commandLine).length === 0, `256a · and it repeats no sentence a tile already carries (${echoes(verbLines, commandLine).length})`);
+  // Self contained, over a synthetic pair. The first version compared against the
+  // live tiles, so it went red the day the tile it named was reworded: a control
+  // that depends on the copy it is controlling for stops being a control.
+  check(
+    echoes(["A tile sentence long enough to count. And a second."], "Before it. A tile sentence long enough to count.").length === 1,
+    "256b · the echo check can see a repeated sentence (negative control)",
+  );
+
+  /*
+   * A tile that says the agent proposes says under what condition.
+   *
+   * On the deployment the two ingest variables are not set, so a run there ends at
+   * not-submitted, which is the path `test/agent-run.ts` asserts and which
+   * `DISCLOSURE.md` states as a negative. An unconditional "proposes once" on the
+   * judged page would be the exact claim the sweep carries as false, and no check
+   * saw it because the sentence is true wherever a credential exists.
+   */
+  const proposing = verbLines.filter(l => /\bproposes\b/.test(l));
+  const unconditional = proposing.filter(l => !/credential is configured/.test(l));
+  check(proposing.length > 0, `257 · a tile says the agent proposes (${proposing.length})`);
+  check(unconditional.length === 0, `257a · and none says it without the condition (${unconditional.length})`);
+  check(
+    ["The agent reads what it paid for, proposes once, and stops."].filter(l => !/credential is configured/.test(l)).length === 1,
+    "257b · the condition check can see a sentence without it (negative control)",
+  );
+
+  // The definitions are kept and folded, not deleted.  // The definitions are kept and folded, not deleted. A native disclosure, so they
+  // open with no script and are in the document for anything that reads it.
+  check(/<details className="ag-more">/.test(ui), "255 · the five facts sit behind a disclosure");
+  check(/<summary className="ag-more-summary">The facts<\/summary>/.test(ui), "255a · labelled for what it holds");
+  check(/<dl className="ag-facts">/.test(ui), "255b · and the definitions are still on the page");
+  check(!/You pay for one read from your own wallet and the agent does the rest/.test(ui),
+    "255c · while the paragraph that explained the page before showing it is gone");
+
+  /*
+   * Disconnect says which of two things it did.
+   *
+   * There is no disconnect in EIP-1193. A page can forget the account, and the
+   * wallet goes on considering the site connected, which is why the control on
+   * most dapps is a lie the size of a button. `wallet_revokePermissions` withdraws
+   * the grant where a wallet implements it. Driven against both kinds of wallet,
+   * because the failure to catch is the page claiming the stronger one.
+   */
+  /*
+   * A reload is not a first visit.
+   *
+   * `eth_accounts` reads a grant that exists; `eth_requestAccounts` asks for one
+   * and opens the wallet. A page that only knows the second re-prompts on every
+   * reload, which teaches a person the button does nothing they can rely on.
+   * Driven against a provider that records what it was asked.
+   */
+  const savedProvider = (globalThis as { ethereum?: unknown }).ethereum;
+  const asked: string[] = [];
+  (globalThis as { ethereum?: unknown }).ethereum = {
+    request: async ({ method }: { method: string }) => {
+      asked.push(method);
+      return method === "eth_accounts" ? ["0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe"] : [];
+    },
+  };
+  const restored = await restoreConnection();
+  check(restored === "0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe", `277 · a wallet that already grants an account is restored (${restored})`);
+  check(asked.includes("eth_accounts"), "277a · by reading the grant");
+  check(!asked.includes("eth_requestAccounts"), `277b · and never by asking for one, which is what opens the wallet (${asked.join(", ")})`);
+  check(/restoreConnection\(\)/.test(ui), "277c · and the page does that read on load");
+
+  (globalThis as { ethereum?: unknown }).ethereum = { request: async () => [] };
+  check((await restoreConnection()) === null, "277d · a wallet that grants nothing restores nothing (negative control)");
+
+
+  (globalThis as { ethereum?: unknown }).ethereum = {
+    request: async ({ method }: { method: string }) => {
+      if (method === "wallet_revokePermissions") throw new Error("this wallet does not implement it");
+      return [];
+    },
+  };
+  check((await disconnect()) === "forgotten", "258 · a wallet without revoke is reported as forgotten, not revoked");
+
+  (globalThis as { ethereum?: unknown }).ethereum = { request: async () => null };
+  check((await disconnect()) === "revoked", "258a · and a wallet that revokes is reported as revoked (negative control)");
+
+  delete (globalThis as { ethereum?: unknown }).ethereum;
+  check((await disconnect()) === "forgotten", "258b · with no wallet at all, nothing is claimed");
+  (globalThis as { ethereum?: unknown }).ethereum = savedProvider;
+
+  // The two sentences the page shows for those two outcomes are different, and
+  // only one of them says the wallet did anything.
+  check(/this page forgot the account; the wallet still considers the site connected/.test(ui),
+    "258c · the page says so when only it forgot");
+  check(/the wallet withdrew this site's permission/.test(ui), "258d · and says so when the wallet withdrew");
+
+  /*
+   * The chain badge is a comparison, and the name is an equality.
+   *
+   * The badge reads the wallet's own chainId rather than the client's
+   * configuration, which is the mistake #38 was written about, and the chip shows
+   * a name only where the name route reported a match, because under a wildcard
+   * parent every subname resolves for every wallet.
+   */
+  check(new RegExp(`chain === ${"BASE_SEPOLIA_HEX"}`).test(ui), "259 · the badge compares the wallet's chain against Base Sepolia");
+  check(/Wrong chain, switch/.test(ui), "259a · and offers the switch on any other chain");
+  check(/answer !== null && answer\.matches \? answer\.name : null/.test(ui),
+    "259b · the chip takes a name only on the name route's match");
+  check(BASE_SEPOLIA_HEX === "0x14a34", `259c · and Base Sepolia is the chain it compares against (${BASE_SEPOLIA_HEX})`);
+
+  /*
+   * Four destinations, and the chain badge's three states.
+   *
+   * Seven flat items were the account's four views sitting beside the product, a
+   * record and a ladder as though the six were the same kind of thing. Grouping
+   * them is the finding; the checks hold the grouping and hold every item to
+   * opening on something.
+   */
+  // 260 enumerated four ids by name and asserted four, which stayed green after
+  // the flow made six; it is folded into 266, which reads the array itself.
+  check(/translateX\(\$\{Math\.max\(0, screensFor/.test(ui), "261 · the rail indicator is moved with transform");
+  check(/translateX\(\$\{ACCOUNT_TABS\.findIndex/.test(ui), "261a · and so is the account's");
+
+  // Finding 15. `currentChain` answers null when the provider throws or is not
+  // there, and reading that as Base Sepolia draws the reassuring badge exactly
+  // where the page knows least.
+  check(/chain === null \?/.test(ui), "262 · a chain that did not answer is its own state");
+  check(/No chain answered, switch/.test(ui), "262a · and says so rather than claiming a chain");
+  check(!/chain === null \|\| chain === BASE_SEPOLIA_HEX/.test(ui), "262b · and is not folded into the Base Sepolia badge");
+
+  /*
+   * The motion rule, over the stylesheet rather than over a description of it.
+   *
+   * Only `transform` and `opacity` move; a state fill may transition a hue; every
+   * transition names its properties, none of them is `all`, and nothing runs
+   * longer than 300ms. Read off the declarations, so a rule added later is held to
+   * it without anybody remembering.
+   */
+  // Comments stripped first, for the reason the rule parser strips them: a rule
+  // described in prose is not a rule, and a prose example of a bad one is not a bug.
+  const cssLive = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const MOVABLE = new Set(["transform", "opacity", "background-color", "border-color", "color"]);
+  const transitions = [...cssLive.matchAll(/transition:\s*([^;}]+)[;}]/g)].map(m => m[1].replace(/\s+/g, " ").trim());
+  const usesAll = transitions.filter(t => /\ball\b/.test(t));
+  check(usesAll.length === 0, `263 · no transition animates everything (${usesAll.length})`);
+  const animated = transitions
+    .flatMap(t => t.split(",").map(part => part.trim().split(" ")[0]))
+    // `none` switches a transition off, which is what reduced motion does with the
+    // indicator, and switching one off is not animating a property.
+    .filter(prop => prop !== "none");
+  const unmovable = [...new Set(animated)].filter(prop => !MOVABLE.has(prop));
+  check(unmovable.length === 0, `263a · and only transform, opacity and a hue are animated (${unmovable.join(", ") || "none"})`);
+
+  const transitionMs = transitions.flatMap(t => [...t.matchAll(/(\d+)ms/g)].map(m => Number(m[1])));
+  const slow = transitionMs.filter(d => d > 300);
+  check(transitionMs.length > 0 && slow.length === 0, `263b · and no transition runs past 300ms (${slow.join(", ") || "none"} of ${transitionMs.length})`);
+
+  /*
+   * Animations are held by name rather than by duration.
+   *
+   * Two run long and both are inherited: the app card's 320ms entrance and the
+   * ambient layers Xovi drifts behind everything. Naming them keeps the bound
+   * live, because a new animation past 300ms carries a new name and fails.
+   */
+  const INHERITED_LONG = ["xvFadeUp", "xvAurora", "xvRays", "xvPulse"];
+  const longAnimations = [...cssLive.matchAll(/animation:\s*([a-zA-Z][\w-]*)\s+([\d.]+)(m?s)/g)]
+    .map(m => ({ name: m[1], ms: m[3] === "s" ? Number(m[2]) * 1000 : Number(m[2]) }))
+    .filter(a => a.ms > 300);
+  const unnamed = longAnimations.filter(a => !INHERITED_LONG.includes(a.name));
+  check(unnamed.length === 0, `263d · every animation past 300ms is one of the inherited ones (${unnamed.map(a => a.name).join(", ") || "none"})`);
+  check(longAnimations.length > 0, `263e · and those inherited ones are still there (${longAnimations.length}, negative control)`);
+  check(["all 200ms ease"].filter(t => /\ball\b/.test(t)).length === 1, "263c · the all check can see one (negative control)");
+
+  /*
+   * A snapshot with nothing new in it is supply, not a failure of the run.
+   *
+   * The ingest refusing a clip it already holds is the rule working. Drawn in the
+   * stopped hue it read as the agent failing, and against a two window snapshot
+   * every run after the second read that way, which is what a person watching
+   * concluded. Driven off the steps rather than off the sentences.
+   */
+  check(lineFor({ step: "declined", kind: "duplicate", detail: "x" }).tone === "supply",
+    "264 · a duplicate is drawn as supply");
+  check(lineFor({ step: "nothing-proposable", considered: 2 }).tone === "supply",
+    "264a · and so is a snapshot with nothing proposable in it");
+  check(lineFor({ step: "declined", kind: "refused", detail: "x", status: 403 }).tone === "stopped",
+    "264b · while a route refusing the credential keeps the stopped tone (negative control)");
+  check(lineFor({ step: "declined", kind: "rejected", detail: "x" }).tone === "stopped",
+    "264c · as does a person's rejection");
+
+  const duplicateRun: RunStep[] = [
+    { step: "paid", free: false, transaction: "0x1", network: "eip155:84532" },
+    { step: "read", served: 2, ids: ["a1", "b2"] },
+    { step: "selected", windowId: "a1", durationSeconds: 16 },
+    { step: "declined", kind: "duplicate", detail: "x" },
+    { step: "done" },
+  ];
+  const drawnSupply = supplyFrom(duplicateRun);
+  check(drawnSupply?.kind === "duplicate" && drawnSupply.ids.length === 2, "265 · the supply state carries the windows the run considered");
+  check(supplyFrom([{ step: "read", served: 2, ids: ["a1"] }, { step: "proposed", id: 1, clipHash: "0x", status: "pending" }]) === null,
+    "265a · a run that proposed draws no supply state (negative control)");
+  const sentence = drawnSupply === null ? "" : supplySentence(drawnSupply);
+  check(/already a clip/.test(sentence) && !/Every window/.test(sentence),
+    `265b · and its sentence claims only the window the run chose (${sentence.slice(0, 48)})`);
+  /*
+   * "Already proposed" is earned by the walk and by nothing else.
+   *
+   * `nothing-proposable` is a validation outcome: the run reaches it before
+   * offering anything, so it knows nothing about what the ingest holds, and it
+   * drew the stronger sentence with the wrong meaning. `cell-spent` is reachable
+   * only by offering every window and being refused each time.
+   */
+  const unusable = supplyFrom([{ step: "read", served: 2, ids: ["a1", "b2"] }, { step: "nothing-proposable", considered: 2 }]);
+  check(unusable?.kind === "unusable", `265c · a run that could validate none of them says so (${unusable?.kind})`);
+  check(unusable !== null && /could become a proposal/.test(supplySentence(unusable)) && !/already been proposed/.test(supplySentence(unusable)),
+    "265d · and never claims they were already proposed");
+  const spent = supplyFrom([{ step: "read", served: 2, ids: ["a1", "b2"] }, { step: "cell-spent", considered: 2 }]);
+  check(spent?.kind === "exhausted" && /already been proposed/.test(supplySentence(spent)),
+    "265e · while the walk that offered every one of them does claim it");
+
+  /*
+   * The strips are driven by their arrays, in both directions.
+   *
+   * Matching the four ids by name passed a fifth destination with no screen, and
+   * the indicator's column count was written into the stylesheet where nobody
+   * edits it at the same time as the array.
+   */
+  /*
+   * Six destinations, and Run is not one of them until a cell is chosen.
+   *
+   * A person arrives at Settings, chooses a cell on the Board, and only then has
+   * a Run to look at. Run present and inert would be a control that does nothing,
+   * which is the rule that keeps a drawn but unbuilt action off this page.
+   */
+  check(SCREENS.length === 5, `266 · five destinations in the array (${SCREENS.length})`);
+  check(SCREENS[0].id === "board", `266f · beginning with the board, since the onboarding is the way in and not a destination (${SCREENS[0].id})`);
+  check(!screensFor(false).some(d => d.id === "run"), "266g · and Run is absent until a cell is chosen");
+  check(screensFor(true).some(d => d.id === "run"), "266h · and present once one is (negative control)");
+  check(ACCOUNT_TABS.length === 4, `266a · and four account tabs (${ACCOUNT_TABS.length})`);
+  const withoutBranch = SCREENS.filter(d => d.id !== "run" && !new RegExp(`screen === "${d.id}"`).test(ui));
+  check(withoutBranch.length === 0, `266b · every destination but the default has a branch (${withoutBranch.map(d => d.id).join(", ") || "none"})`);
+  const withoutTab = ACCOUNT_TABS.filter(t => t.id !== "names" && !new RegExp(`accountTab === "${t.id}"`).test(ui));
+  check(withoutTab.length === 0, `266c · and every tab but the default has one (${withoutTab.map(t => t.id).join(", ") || "none"})`);
+  check(/var\(--xv-strip-n, 4\)/.test(css) && /"--xv-strip-n": screensFor\(/.test(ui),
+    "266d · the indicator's columns come from the array rather than from a constant in the stylesheet");
+  check(!/\/ 4\)/.test(css), "266e · and no strip arithmetic hard-codes four");
+
+  /*
+   * The plan is five nodes, and a node lights from its own event.
+   *
+   * The propose node is the reason the rule is written that way. A run on a
+   * deployment with no ingest credential ends at not-submitted, and a stepper
+   * that lit propose because pay and read had happened would draw a proposal that
+   * never left the machine, on the deployment where that is exactly what happens.
+   */
+  check(PLAN.length === 5, `267 · the plan is five nodes (${PLAN.length})`);
+  const atRest = planFrom(false, false, []);
+  check(atRest.every(x => !x), "267a · and none of them is lit at rest");
+
+  const notSubmitted: RunStep[] = [
+    { step: "presenting" },
+    { step: "paid", free: false, transaction: "0x1", network: "eip155:84532" },
+    { step: "read", served: 2, ids: ["a1", "b2"] },
+    { step: "selected", windowId: "a1", durationSeconds: 16 },
+    { step: "not-submitted", detail: "no ingest credential is configured on this deployment" },
+    { step: "done" },
+  ];
+  const litOnDeployment = planFrom(true, true, notSubmitted);
+  check(litOnDeployment[2], "267b · a run that paid and read lights that node");
+  check(!litOnDeployment[3], "267c · and a run that stopped before submitting never lights propose");
+  const proposed: RunStep[] = [...notSubmitted.slice(0, 4), { step: "proposing", windowId: "a1" }, { step: "done" }];
+  check(planFrom(true, true, proposed)[3], "267d · while a run that did submit lights it (negative control)");
+
+  // The marks carry no word. A mark that spells its meaning is a label, and the
+  // tile already has one.
+  const markBodies = [...ui.matchAll(/function Mark(\w+)\(\) \{([\s\S]*?)\n\}/g)].map(m => ({ name: m[1], body: m[2] }));
+  check(markBodies.length === 3, `268 · three marks (${markBodies.map(m => m.name).join(", ")})`);
+  const withText = markBodies.filter(m => /<text|<tspan/.test(m.body));
+  check(withText.length === 0, `268a · and none of them spells a word (${withText.length})`);
+  const unsizedMarks = markBodies.filter(m => !/width="\d+"/.test(m.body) || !/height="\d+"/.test(m.body));
+  check(unsizedMarks.length === 0, `268b · each carries width and height (${unsizedMarks.length})`);
+  const literalHue = markBodies.filter(m => /#[0-9a-f]{3,6}/i.test(m.body));
+  check(literalHue.length === 0, `268c · and none writes a hue as a literal (${literalHue.length})`);
+
+  /*
+   * The rolodex: the leaf being read is level and at full opacity, always.
+   *
+   * The site's own rule at its narrow breakpoint and the reviewer's: partial
+   * opacity on text being read is a contrast loss, not a flourish. Read off the
+   * rules rather than the markup, because the three positions are what carry it.
+   */
+  // Its own parse, because the shared one is declared further down this file.
+  const rollLive = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const rollRules = [...rollLive.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(m => ({ selector: m[1], body: m[2] }));
+  const positionRule = (name: string) =>
+    rollRules.find(r => new RegExp(`\\.ag-roll-card\\[data-position="${name}"\\]`).test(r.selector) && /transform:/.test(r.body));
+  const current = positionRule("current");
+  check(current !== undefined && /opacity:\s*1/.test(current.body), "281 · the card being read is at full opacity");
+  check(current !== undefined && /rotateX\(0deg\)/.test(current.body), "281a · and level");
+  const behind = positionRule("behind");
+  const next = positionRule("next");
+  check(behind !== undefined && /rotateX\(-42deg\)/.test(behind.body), "281b · the leaf that tipped away carries the site's own angle");
+  check(next !== undefined && /rotateX\(42deg\)/.test(next.body), "281c · and the one waiting carries its opposite");
+  check(behind !== undefined && /transition-duration:\s*160ms/.test(behind.body), "281d · with the exit faster than the entrance");
+
+  // The projected box is wider than the card, so the region clips rather than
+  // hides: hidden would make it a scroll container.
+  const stage = rollRules.find(r => /\.ag-roll-stage/.test(r.selector));
+  check(stage !== undefined && /overflow-x:\s*clip/.test(stage.body), "282 · the stage clips the projection");
+  check(stage !== undefined && !/overflow-x:\s*hidden/.test(stage.body), "282a · and never hides it");
+
+  // Reduced motion drops the tip entirely rather than shortening it.
+  const reduced = rollLive.slice(rollLive.indexOf("@media (prefers-reduced-motion: reduce), (max-width: 30rem)"));
+  check(/transform:\s*none/.test(reduced.slice(0, 600)), "282b · reduced motion and a narrow screen drop the tip");
+
+  // Every line is a card, so the log and the stack cannot disagree.
+  // Read the Rolodex block, as 279c reads the Settings one. Off the whole file
+  // the feed's own map satisfied it, so cards built from a slice stayed green.
+  // Anchored on the next declaration by name, and asserted non empty, because the
+  // last anchor was a function that got renamed and the slice silently became the
+  // rest of the file.
+  const rolodexStart = ui.indexOf("function Rolodex(");
+  const rolodexEnd = ui.indexOf("function Onboarding(");
+  const rolodexBlock = rolodexStart >= 0 && rolodexEnd > rolodexStart ? ui.slice(rolodexStart, rolodexEnd) : "";
+  check(rolodexBlock.length > 0 && rolodexBlock.length < ui.length / 2, `283c · the rolodex block is found and is a block (${rolodexBlock.length})`);
+  check(/lines\.map\(\(line, i\) => \(/.test(rolodexBlock) && /data-position=/.test(rolodexBlock),
+    "283 · every line the log holds is a card");
+  check(!/lines\.slice/.test(rolodexBlock), "283b · and none of them is dropped before the stack is built");
+  check(/onStep\(at - 1\)/.test(ui) && /onStep\(at \+ 1\)/.test(ui), "283a · and every one of them is reachable by stepping");
+
+  /*
+   * The ladder: each rung two present tense sentences, one merged fact and one
+   * negative, and the unlock written as the negative rather than a condition.
+   */
+  check(RUNGS.length === 6, `236 · six rungs (${RUNGS.length})`);
+  const sentencesOf = (t: string) => t.split(/(?<=\.)\s+/).filter(x => x.length > 0);
+  const wrongCount = RUNGS.filter(r => sentencesOf(r.sentences).length !== 2);
+  check(wrongCount.length === 0, `236a · each is exactly two sentences (${wrongCount.length} were not)`);
+  const notNegative = RUNGS.filter(r => !/^(No|Nothing)\b/.test(sentencesOf(r.sentences)[1] ?? ""));
+  check(notNegative.length === 0, `236b · and the second of each is a negative (${notNegative.length} were not)`);
+  const figured = RUNGS.filter(r => /\b\d+\b/.test(r.sentences));
+  check(figured.length === 0, `236c · no rung carries a figure (${figured.length} did)`);
+  const promised = RUNGS.filter(r => /\b(will|soon|coming|unlocks?|when)\b/i.test(r.sentences));
+  check(promised.length === 0, `236d · and none states a conditional future (${promised.length} did)`);
+  check(/\b\d+\b/.test("a look costs 3"), "236e · the figure check can see one (negative control)");
+  check(/\b(will|soon|coming|unlocks?|when)\b/i.test("Unlocks when the founder accepts"), "236f · and the promise check can see one (negative control)");
+  // A digit inside a name is not a figure, which is why the test is on a word
+  // boundary: the first rung names `agent1.xovi.eth` and must pass.
+  check(!/\b\d+\b/.test("`agent1.xovi.eth` resolves to the agent's payer."), "236g · while a digit inside a name is not a figure (negative control)");
+
+  /*
+   * The fabricated settlement, which is in the production ledger and will be
+   * served to this page.
+   *
+   * The page carries its own copy of the hash because importing the store into a
+   * browser bundle would drag the database driver with it. A copy is a thing that
+   * drifts, so the two are compared here: this is the check that makes the
+   * duplication safe rather than a comment asking somebody to be careful.
+   */
+  const pageCopy = ui.match(/const FABRICATED_TX = `0x\$\{"(\d+)"\.repeat\((\d+)\)\}`/);
+  check(pageCopy !== null, "230 · the page names the fake facilitator's hash");
+  check(
+    pageCopy !== null && `0x${pageCopy[1].repeat(Number(pageCopy[2]))}` === FABRICATED_TX,
+    "230a · and it is the same hash the write path refuses, so the copy cannot drift",
+  );
+
+  const rows = [
+    { source: "route", payer: "0xp", payTo: "0xr", amount: "10000", network: "eip155:84532", nonce: "n1", txHash: "0xreal1", settledAt: "2026-09-11T05:00:00.000Z" },
+    { source: "route", payer: "0xp", payTo: "0xr", amount: "10000", network: "eip155:84532", nonce: "n2", txHash: FABRICATED_TX, settledAt: "2026-09-11T06:00:00.000Z" },
+  ];
+  check(settled(rows).length === 1 && fabricated(rows).length === 1, "230b · a row carrying it is separated from the settlements");
+  check(settled(rows).every(r => r.txHash !== FABRICATED_TX), "230c · and no total is formed over it");
+
+  /*
+   * An agent surface carries no decision.
+   *
+   * Counting controls was the first version and it was wrong: it went red the day
+   * a section rail arrived, which is navigation and not a decision, and it would
+   * have stayed green on a third button labelled Confirm. So the assertion is over
+   * what a control says rather than how many there are.
+   *
+   * Read over the button elements alone rather than the file, because confirm and
+   * reject appear in the page's own copy as negatives, in the sentence saying no
+   * credential of the agent's can confirm or attest.
+   */
+  const decision = /\b(confirm|approve|reject|accept|decide|attest)\w*\b/i;
+  const controls = ui.split("<button").slice(1).map(chunk => chunk.slice(0, chunk.indexOf("</button>")));
+  const deciding = controls.filter(c => decision.test(c));
+  check(controls.length > 0, `227 · the interface has controls to read (${controls.length})`);
+  check(deciding.length === 0, `227a · and not one of them is a decision about a clip (${deciding.length})`);
+  check(decision.test("<button>Confirm this clip</button>"), "227b · the decision check can see one (negative control)");
+
+  // A settlement is linked by the chain the receipt names rather than by a chain
+  // the page assumes, so a receipt from anywhere else is drawn without a link
+  // instead of with a confident wrong one.
+  check(/explorerOrigin\(object\.network\)/.test(ui), "228 · the explorer is chosen by the chain the receipt names");
+  check(/"0x14a34": "https:\/\/sepolia\.basescan\.org"/.test(ui), "228a · and Base Sepolia is the one that settles here");
+  // One table for one chain. Two of them, keyed by hex and by CAIP-2, was two
+  // places for an origin to be right in and one for it to be wrong.
+  const origins = [...ui.matchAll(/https:\/\/[a-z.]*basescan\.org/g)].map(m => m[0]);
+  check(new Set(origins).size === 1 && origins.length === 1, `228b · named once and in one table (${origins.length})`);
 
   /*
    * Teal means a person, in this feed and nowhere else in it.
@@ -149,7 +883,13 @@ export function pageChecks(check: Check) {
   const tokens = ui.match(/\bag-[a-z0-9-]+/g) ?? [];
   // A trailing hyphen is the left half of `ag-tone-${...}`. Each such family has
   // to be expanded by hand below, so an unknown one is unasserted, not absent.
-  const FAMILIES: Record<string, string[]> = { "ag-tone-": ["good", "working", "stopped"], "ag-actor-": ["human", "agent", "system"] };
+  const FAMILIES: Record<string, string[]> = {
+    "ag-tone-": ["good", "working", "stopped", "supply"],
+    "ag-actor-": ["human", "agent", "system"],
+    // The status chip's four, from `StatusChip`. `ag-chip-name` and
+    // `ag-chip-action` are written whole where they are used and arrive as tokens.
+    "ag-chip-": ["idle", "working", "good", "stopped"],
+  };
   const renderedClasses = new Set(tokens.filter(t => !t.endsWith("-")));
   for (const [prefix, values] of Object.entries(FAMILIES)) for (const v of values) renderedClasses.add(`${prefix}${v}`);
   const unstyled = [...renderedClasses].filter(c => !styled(c));

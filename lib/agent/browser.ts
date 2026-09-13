@@ -3,6 +3,7 @@ import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { createWalletClient, custom } from "viem";
 import type { EIP1193Provider } from "viem";
 import { baseSepolia } from "viem/chains";
+import { MAX_PER_PAYMENT } from "./spend";
 
 /**
  * Paying from the reader's own wallet, in their browser.
@@ -26,6 +27,101 @@ function injected(): EIP1193Provider {
   const p = (globalThis as { ethereum?: EIP1193Provider }).ethereum;
   if (!p) throw new NoWallet("no injected wallet was found in this browser");
   return p;
+}
+
+/** Base Sepolia's identifier as the wallet reports it, for a caller that wants to
+ *  compare rather than switch. */
+export const BASE_SEPOLIA_HEX = CHAIN_HEX;
+
+/** The chain the wallet is on, or null when there is no wallet to ask. */
+export async function currentChain(): Promise<string | null> {
+  try {
+    const current = (await injected().request({ method: "eth_chainId" })) as string;
+    return current?.toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What a wallet does when it changes underneath the page.
+ *
+ * A page that reads the account once and never listens shows the previous account
+ * after the person switches, which on a surface about paying from your own wallet
+ * is the worst thing it could be wrong about. Both events are standard EIP-1193
+ * and both are ignored by most pages.
+ *
+ * Returns its own unsubscribe, so a component can listen for as long as it exists
+ * and no longer.
+ */
+export function onWalletChange(handlers: {
+  accounts?: (accounts: string[]) => void;
+  chain?: (chainId: string) => void;
+}): () => void {
+  let provider: EIP1193Provider;
+  try {
+    provider = injected();
+  } catch {
+    return () => undefined;
+  }
+  const listenable = provider as unknown as {
+    on?: (event: string, cb: (...args: never[]) => void) => void;
+    removeListener?: (event: string, cb: (...args: never[]) => void) => void;
+  };
+  if (typeof listenable.on !== "function") return () => undefined;
+
+  const onAccounts = (...args: never[]) => handlers.accounts?.((args[0] as unknown as string[]) ?? []);
+  const onChain = (...args: never[]) => handlers.chain?.(String(args[0] ?? ""));
+  listenable.on("accountsChanged", onAccounts);
+  listenable.on("chainChanged", onChain);
+  return () => {
+    listenable.removeListener?.("accountsChanged", onAccounts);
+    listenable.removeListener?.("chainChanged", onChain);
+  };
+}
+
+/**
+ * Let go of the wallet, and say which of the two things happened.
+ *
+ * There is no disconnect in EIP-1193. A page can forget the account, and the
+ * wallet goes on considering the site connected, which is why "Disconnect" on most
+ * dapps is a lie the size of a button: the next visit reconnects with no prompt.
+ * `wallet_revokePermissions` actually withdraws the grant and some wallets
+ * implement it. Both outcomes are real and they are different, so the caller is
+ * told which one it got rather than being left to assume the stronger one.
+ */
+export async function disconnect(): Promise<"revoked" | "forgotten"> {
+  try {
+    await injected().request({
+      method: "wallet_revokePermissions",
+      params: [{ eth_accounts: {} }] as never,
+    });
+    return "revoked";
+  } catch {
+    return "forgotten";
+  }
+}
+
+/**
+ * The account the wallet already grants, without asking for it.
+ *
+ * `eth_accounts` reads a permission that has been given; `eth_requestAccounts`
+ * asks for one and opens the wallet. A page that only knows the second treats
+ * every reload as a first visit, so a person who connected a minute ago is asked
+ * again, and the prompt teaches them that the button does nothing they can rely
+ * on.
+ *
+ * Null on anything at all: no wallet, no grant, a provider that throws. None of
+ * those is an error worth a message, they are all the same fact, which is that
+ * there is nobody connected yet.
+ */
+export async function restoreConnection(): Promise<`0x${string}` | null> {
+  try {
+    const accounts = (await injected().request({ method: "eth_accounts" })) as `0x${string}`[];
+    return accounts?.[0] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function connect(): Promise<`0x${string}`> {
@@ -121,7 +217,10 @@ function readableAmount(amount: string, token: string): string {
   const atomic = BigInt(amount);
   const whole = atomic / 1_000_000n;
   const frac = (atomic % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "") || "0";
-  return `$${whole}.${frac.padEnd(2, "0")} USDC`;
+  // No currency sign. The amount is a token quantity, and the dollar sign came in
+  // from x402's `maxAmountPerPayment`, which is a fiat denominated spend control
+  // and a different thing. USDC is not dollars and the page should not say it is.
+  return `${whole}.${frac.padEnd(2, "0")} USDC`;
 }
 
 /**
@@ -131,7 +230,12 @@ function readableAmount(amount: string, token: string): string {
  * actually sent rather than from anything this page believes, because the value
  * worth showing a person before they sign is the one the server will charge.
  */
-export async function signChallenge(windowsUrl: string, address: `0x${string}`, maxPerPayment = "$0.05"): Promise<SignedPayment> {
+export async function signChallenge(
+  windowsUrl: string,
+  address: `0x${string}`,
+  maxPerPayment = MAX_PER_PAYMENT,
+  onChallenge?: (challenge: { description: string; amount: string; asset: string; payTo: string; network: string }) => void,
+): Promise<SignedPayment> {
   const core = new x402Client();
   registerExactEvmScheme(core, { signer: walletSigner(address) });
   // A client that signs whatever it is told is one typo away from paying it.
@@ -147,6 +251,28 @@ export async function signChallenge(windowsUrl: string, address: `0x${string}`, 
   const accepted = required.accepts[0];
   if (!accepted) throw new Error("the challenge names no payment option");
   const token = String((accepted.extra as { name?: unknown } | undefined)?.name ?? "an unnamed token");
+  // Handed over BEFORE the wallet opens, which is the only moment it is worth
+  // anything: after the prompt the person has already decided. These are the
+  // counterparty's own words rather than a sentence of this page's, so what a person
+  // reads before signing cannot drift from what the server actually charges for. If
+  // the challenge's description changes, this changes with it and nothing here is
+  // edited.
+  onChallenge?.({
+    // `resource.description`, not `accepted.description`. The x402 version 2
+    // requirements entry has no description field: measured against the live
+    // challenge, `accepts[0]` carries amount, asset, extra, maxTimeoutSeconds,
+    // network, payTo and scheme and nothing else. Reading it there yielded "" on
+    // every run, so the branch that shows it never fired while the price beside it
+    // did, which is why the feature looked half alive rather than absent.
+    description: String(required.resource?.description ?? ""),
+    amount: readableAmount(accepted.amount, token),
+    // The token by itself as well as inside the amount, so the card can draw the
+    // asset as its own value rather than making a reader parse a sentence for it.
+    asset: token,
+    payTo: accepted.payTo,
+    network: accepted.network,
+  });
+
   const payload = await http.createPaymentPayload(required);
   return {
     headers: http.encodePaymentSignatureHeader(payload) as Record<string, string>,

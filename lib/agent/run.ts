@@ -24,7 +24,16 @@ export type RunStep =
   | { step: "unavailable"; status: number; detail: string }
   /** Settled on chain, or served under the free daily allowance. */
   | { step: "paid"; free: boolean; transaction?: string; network?: string }
-  | { step: "read"; served: number }
+  /**
+   * What the paid read returned, as a count and as opaque identifiers.
+   *
+   * The ids and nothing beside them. A window id is a truncated hash of the
+   * channel, the video, the two endpoints and the station, so on its own it names
+   * nothing a reader can resolve; the tank, the species and the alias are in the
+   * window the server sent and reach no browser. The ids travel so the page can
+   * draw what was bought as objects rather than as a number.
+   */
+  | { step: "read"; served: number; ids: string[] }
   /**
    * The window the agent chose, named before it acts on it.
    *
@@ -40,7 +49,7 @@ export type RunStep =
    * handful of stations is a handful of hash trials, and the id stops being
    * opaque. With the duration alone the two endpoints are not recoverable.
    */
-  | { step: "selected"; windowId: string; durationSeconds: number; confidence: number }
+  | { step: "selected"; windowId: string; durationSeconds: number }
   /**
    * Every window served was unusable, reported as a count.
    *
@@ -49,6 +58,15 @@ export type RunStep =
    * carries nothing. The reasons are logged server side for whoever is debugging.
    */
   | { step: "nothing-proposable"; considered: number }
+  /**
+   * Every window in the cell was already a clip.
+   *
+   * Distinct from `nothing-proposable`, which means none of them passed
+   * validation, and reachable only by walking them all: a run that stops at its
+   * first duplicate learns nothing about the rest, so the sentence "already
+   * proposed" belongs to this step and to no other.
+   */
+  | { step: "cell-spent"; considered: number }
   | { step: "proposing"; windowId: string }
   | { step: "proposed"; id: number; clipHash: string; status: string }
   /**
@@ -166,12 +184,21 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
   yield { step: "paid", free: !receipt, transaction, network };
 
   const raw = (body as { windows?: unknown[] }).windows ?? [];
-  yield { step: "read", served: raw.length };
+  yield {
+    step: "read",
+    served: raw.length,
+    // Read off the served windows rather than off the validated ones, because this
+    // reports what was bought and the validation has not run yet.
+    ids: raw.map(w => String((w as { windowId?: unknown }).windowId ?? "")).filter(id => id !== ""),
+  };
 
   const ledger = memoryLedger();
   // Kept out of the stream and logged, because each one names a value.
   const reasons: string[] = [];
-  let chosen: CandidateWindow | null = null;
+  // Every proposable window, not the first. The run walks them, because a cell is
+  // spent only when each one has been offered and refused, and a run that stopped
+  // at the first duplicate could never say so.
+  const proposable: CandidateWindow[] = [];
   for (const candidate of raw) {
     const problems = windowProblems(candidate);
     if (problems.length > 0) {
@@ -184,16 +211,16 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
       continue;
     }
     try {
-      // Evaluated before it is chosen, not after. A window that cannot become a
-      // proposal is not a candidate, and selecting it only to fail would show the
+      // Evaluated before it is offered, not after. A window that cannot become a
+      // proposal is not a candidate, and offering it only to fail would show the
       // agent picking something it cannot use.
       toProposal(w);
-      chosen = w;
-      break;
+      proposable.push(w);
     } catch (err) {
       reasons.push(err instanceof UnproposableWindow ? `${w.windowId}: ${err.message}` : String(err));
     }
   }
+  const chosen = proposable[0] ?? null;
 
   if (!chosen) {
     if (reasons.length > 0) console.warn("[run] nothing proposable:", reasons.join(" | "));
@@ -202,14 +229,12 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
     return;
   }
 
-  yield {
-    step: "selected",
-    windowId: chosen.windowId,
-    durationSeconds: Math.round(chosen.endTime - chosen.startTime),
-    confidence: chosen.confidence,
-  };
-
   if (!cfg.ingestUrl || !cfg.ingestKey) {
+    yield {
+      step: "selected",
+      windowId: chosen.windowId,
+      durationSeconds: Math.round(chosen.endTime - chosen.startTime),
+    };
     // Stops one step short rather than inventing a success. The run is still worth
     // watching to here, and saying so is better than a green "proposed" that never
     // reached anything.
@@ -218,19 +243,56 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
     return;
   }
 
-  yield { step: "proposing", windowId: chosen.windowId };
-  const result = await propose(chosen, {
-    url: cfg.ingestUrl,
-    key: cfg.ingestKey,
-    ledger,
-    fetchImpl: cfg.ingestFetch,
-  });
+  let duplicates = 0;
+  // One proposal at most. A duplicate is the only answer that continues the walk,
+  // because it is the only one that says this window is spoken for while leaving
+  // the next one an open question.
+  for (const window of proposable) {
+    yield {
+      step: "selected",
+      windowId: window.windowId,
+      durationSeconds: Math.round(window.endTime - window.startTime),
+    };
+    yield { step: "proposing", windowId: window.windowId };
+    const result = await propose(window, {
+      url: cfg.ingestUrl,
+      key: cfg.ingestKey,
+      ledger,
+      fetchImpl: cfg.ingestFetch,
+    });
 
-  if (result.kind === "proposed") {
-    yield { step: "proposed", id: result.id, clipHash: result.clipHash, status: result.status };
-  } else if (result.kind === "duplicate") {
-    yield { step: "declined", kind: "duplicate", detail: DECLINE_SENTENCE.duplicate };
-  } else if (result.kind === "rejected") {
+    if (result.kind === "proposed") {
+      yield { step: "proposed", id: result.id, clipHash: result.clipHash, status: result.status };
+      yield { step: "done" };
+      return;
+    }
+    if (result.kind === "duplicate") {
+      duplicates += 1;
+      // Recorded per window. Which runner remembers depends on the ledger it was
+      // given: `bin/agent.ts` keeps a file, so its next run starts where this one
+      // left off, while the run route builds a memory ledger per invocation, so a
+      // browser run walks from the first window every time and pays one ingest
+      // request per window already proposed. The refusal is still worth recording
+      // here, because it is what makes this run's own walk terminate.
+      ledger.remember(window.windowId, "the ingest already holds this clip");
+      yield { step: "declined", kind: "duplicate", detail: DECLINE_SENTENCE.duplicate };
+      continue;
+    }
+    yield* refusal(result);
+    yield { step: "done" };
+    return;
+  }
+
+  if (duplicates === proposable.length) yield { step: "cell-spent", considered: duplicates };
+  yield { step: "done" };
+}
+
+/** The three refusals that stop a walk, kept out of the loop so the loop reads as
+ *  the walk rather than as a switch. */
+type Refusal = Exclude<Awaited<ReturnType<typeof propose>>, { kind: "proposed" } | { kind: "duplicate" }>;
+
+async function* refusal(result: Refusal): AsyncGenerator<RunStep> {
+  if (result.kind === "rejected") {
     yield { step: "declined", kind: "rejected", detail: DECLINE_SENTENCE.rejected };
   } else if (result.kind === "throttled") {
     yield {
@@ -245,5 +307,4 @@ export async function* runOnce(cfg: RunConfig): AsyncGenerator<RunStep> {
     console.warn(`[run] ingest refused ${result.status}:`, result.hint ? `${result.error} (${result.hint})` : result.error);
     yield { step: "declined", kind: "refused", detail: DECLINE_SENTENCE.refused, status: result.status };
   }
-  yield { step: "done" };
 }
