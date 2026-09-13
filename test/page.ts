@@ -1,10 +1,8 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   ACCOUNT_TABS,
   CHAIN,
-  PLAN,
-  planFrom,
   screensFor,
   RECORD,
   SCREENS,
@@ -288,6 +286,11 @@ export async function pageChecks(check: Check) {
    */
   const fixture = JSON.parse(readFileSync(join(process.cwd(), "fixtures/confirmation.259.json"), "utf8"));
   const trimmed = readFileSync(join(process.cwd(), "lib/anchor/confirmation-259.ts"), "utf8");
+  // The module is read before it is searched. Both absences below are satisfied by
+  // a file that could not be read, so a path that stopped resolving would have
+  // reported the opaque field gone rather than the module gone.
+  check(trimmed.length > 0 && /CONFIRMATION_259/.test(trimmed),
+    `237a0 · the module is read and is the one meant (negative control, ${trimmed.length} bytes)`);
   check(!/from "[^"]*fixtures\//.test(ui), "237 · the page imports nothing from the fixtures directory");
   // The module may name the fixture in prose, and does, because that is where its
   // values came from. What it may not do is import it or carry the opaque field.
@@ -323,7 +326,26 @@ export async function pageChecks(check: Check) {
    * asserted from a file's silence is not an absence measured.
    */
   check(/anchored on Ethereum Sepolia/.test(flatRecord), "238 · the page states that this confirmation is anchored");
-  check(!/not anchored/i.test(ui), "238a · and never the opposite, which is the copy this replaced");
+  /*
+   * Over the copy, not over the prose about the copy.
+   *
+   * This read the whole file, so a comment explaining that the lifecycle's third
+   * stage still reads the public list for a confirmed clip that is not anchored
+   * took it red. A sentence in a comment is not a claim the page makes, and a
+   * check that cannot tell the two apart forbids writing down why the code is
+   * shaped as it is. Comments stripped, and the control below proves the read
+   * still sees the sentence it was written for.
+   */
+  const spoken = (block: string) =>
+    block
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, " ")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/^\s*\/\/.*$/gm, " ");
+  check(!/not anchored/i.test(spoken(ui)), "238a · and never the opposite, which is the copy this replaced");
+  check(/not anchored/i.test(spoken('<p>This confirmation is not anchored.</p>')),
+    "238a2 · while the check still reads a sentence the page says (negative control)");
+  check(!/not anchored/i.test(spoken('{/* a confirmed clip that is not anchored */}')),
+    "238a3 · and a comment saying it is not the page saying it");
   check(/"onchain identifier": ANCHOR_259\.onchainUid/.test(ui), "238b · rendering the onchain identifier from the constant");
   /*
    * Pinned literally, all of them. A check that pins the time alone lets an
@@ -676,16 +698,42 @@ export async function pageChecks(check: Check) {
   /*
    * Animations are held by name rather than by duration.
    *
-   * Two run long and both are inherited: the app card's 320ms entrance and the
-   * ambient layers Xovi drifts behind everything. Naming them keeps the bound
-   * live, because a new animation past 300ms carries a new name and fails.
+   * Four are inherited, the app card's entrance and the ambient layers Xovi drifts
+   * behind everything, and one is this repository's own decision: the way out of
+   * the run dialog breathes once the run is over, slowly, so the eye finds it on a
+   * dialog a person has been watching rather than reading. Naming them keeps the
+   * bound live, because a new animation past 300ms carries a new name and fails
+   * until somebody writes down why it is there.
+   *
+   * Every animation in a declaration, not the first.
+   *
+   * This read one name per `animation:`, so a shorthand naming two put its second
+   * past the check entirely: the button's 2600ms breath was declared beside a
+   * 220ms entrance and the whole rule passed as a 220ms one. Split on the commas a
+   * shorthand is split on.
    */
   const INHERITED_LONG = ["xvFadeUp", "xvAurora", "xvRays", "xvPulse"];
-  const longAnimations = [...cssLive.matchAll(/animation:\s*([a-zA-Z][\w-]*)\s+([\d.]+)(m?s)/g)]
+  const DECIDED_LONG = ["xvClosePulse", "xvNodeWait"];
+  const longAnimations = [...cssLive.matchAll(/animation:\s*([^;}]+)/g)]
+    .flatMap(m => m[1].split(","))
+    .map(part => /([a-zA-Z][\w-]*)\s+([\d.]+)(m?s)/.exec(part.trim()))
+    .filter((m): m is RegExpExecArray => m !== null)
     .map(m => ({ name: m[1], ms: m[3] === "s" ? Number(m[2]) * 1000 : Number(m[2]) }))
     .filter(a => a.ms > 300);
-  const unnamed = longAnimations.filter(a => !INHERITED_LONG.includes(a.name));
-  check(unnamed.length === 0, `263d · every animation past 300ms is one of the inherited ones (${unnamed.map(a => a.name).join(", ") || "none"})`);
+  const unnamed = longAnimations.filter(a => ![...INHERITED_LONG, ...DECIDED_LONG].includes(a.name));
+  check(unnamed.length === 0, `263d · every animation past 300ms is inherited or named as a decision (${unnamed.map(a => a.name).join(", ") || "none"})`);
+  check(longAnimations.some(a => a.name === "xvClosePulse"),
+    `263d2 · including one declared second in a shorthand, which this check used to read past (${longAnimations.map(a => a.name).join(", ")})`);
+  /*
+   * And the border that used to carry it declares its own visibility. It was
+   * written that way so the reduced motion clamp would leave something behind when
+   * it stopped the breathing; with nothing breathing it is simply the rule that
+   * makes the border visible at all, and a border whose opacity lived only in
+   * keyframes would now draw nothing for anybody.
+   */
+  const glowBase = /\.ag-board-cell\[data-life\]::after\s*\{([^}]*)\}/.exec(cssLive)?.[1] ?? "";
+  check(glowBase.length > 0, `263f · the lifecycle border's own rule is found (negative control for the read, ${glowBase.length})`);
+  check(/opacity:\s*0?\.[1-9]/.test(glowBase), `263g · and declares an opacity that draws it (${/opacity:[^;]*/.exec(glowBase)?.[0] ?? "none"})`);
   check(longAnimations.length > 0, `263e · and those inherited ones are still there (${longAnimations.length}, negative control)`);
   check(["all 200ms ease"].filter(t => /\ball\b/.test(t)).length === 1, "263c · the all check can see one (negative control)");
 
@@ -765,30 +813,20 @@ export async function pageChecks(check: Check) {
   check(!/\/ 4\)/.test(css), "266e · and no strip arithmetic hard-codes four");
 
   /*
-   * The plan is five nodes, and a node lights from its own event.
+   * 267 to 267d are retired with the plan list they drove.
    *
-   * The propose node is the reason the rule is written that way. A run on a
-   * deployment with no ingest credential ends at not-submitted, and a stepper
-   * that lit propose because pay and read had happened would draw a proposal that
-   * never left the machine, on the deployment where that is exactly what happens.
+   * They held five nodes lit from their own events, and the propose node above
+   * all: a run on a deployment with no ingest credential ends at not-submitted,
+   * and a stepper that lit propose because pay and read had happened would draw a
+   * proposal that never left the machine. The list is gone because the rail beside
+   * the card now carries those same five names, and two steppers in one dialog,
+   * one lit by events and one by a cursor, is worse than either.
+   *
+   * What replaces the rule, rather than the mechanism: the rail's node for a state
+   * is `nodeNameFor` of that state's own step, so a run that never proposed has no
+   * node called propose to light, and a run that stopped is named failed by the
+   * step that stopped it. 417 to 417e hold that below.
    */
-  check(PLAN.length === 5, `267 · the plan is five nodes (${PLAN.length})`);
-  const atRest = planFrom(false, false, []);
-  check(atRest.every(x => !x), "267a · and none of them is lit at rest");
-
-  const notSubmitted: RunStep[] = [
-    { step: "presenting" },
-    { step: "paid", free: false, transaction: "0x1", network: "eip155:84532" },
-    { step: "read", served: 2, ids: ["a1", "b2"] },
-    { step: "selected", windowId: "a1", durationSeconds: 16 },
-    { step: "not-submitted", detail: "no ingest credential is configured on this deployment" },
-    { step: "done" },
-  ];
-  const litOnDeployment = planFrom(true, true, notSubmitted);
-  check(litOnDeployment[2], "267b · a run that paid and read lights that node");
-  check(!litOnDeployment[3], "267c · and a run that stopped before submitting never lights propose");
-  const proposed: RunStep[] = [...notSubmitted.slice(0, 4), { step: "proposing", windowId: "a1" }, { step: "done" }];
-  check(planFrom(true, true, proposed)[3], "267d · while a run that did submit lights it (negative control)");
 
   /*
    * 268 to 268c are retired with the marks they counted.
@@ -801,42 +839,67 @@ export async function pageChecks(check: Check) {
    */
 
   /*
-   * The rolodex: the leaf being read is level and at full opacity, always.
+   * 281 to 281f are retired with the wheel's two neighbours.
    *
-   * The site's own rule at its narrow breakpoint and the reviewer's: partial
-   * opacity on text being read is a contrast loss, not a flourish. Read off the
-   * rules rather than the markup, because the three positions are what carry it.
+   * They held the card being read level and opaque and its neighbours tipped and
+   * faded, which was the site's own rule against partial opacity on text somebody
+   * is reading. The founder could read neither neighbour, so the card area holds
+   * one card and there are no positions left to measure: `data-position` is gone
+   * from the markup and from the stylesheet, which 312k and 312l hold. The rule
+   * those checks protected survives where it can still be broken, on the one card
+   * that is drawn, which carries `opacity: 1` in `.ag-roll-card` itself.
    */
-  // Its own parse, because the shared one is declared further down this file.
   const rollLive = css.replace(/\/\*[\s\S]*?\*\//g, "");
-  const rollRules = [...rollLive.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(m => ({ selector: m[1], body: m[2] }));
-  const positionRule = (name: string) =>
-    rollRules.find(r => new RegExp(`\\.ag-roll-card\\[data-position="${name}"\\]`).test(r.selector) && /transform:/.test(r.body));
-  const current = positionRule("current");
-  check(current !== undefined && /opacity:\s*1/.test(current.body), "281 · the card being read is at full opacity");
-  check(current !== undefined && /rotateX\(0deg\)/.test(current.body), "281a · and level");
-  // The slot the leaf tips into is named `previous` now, because it is drawn
-  // rather than hidden: a wheel shows its neighbours, so the card just read stays
-  // on screen faded above and the next waits faded below.
-  const previous = positionRule("previous");
-  const next = positionRule("next");
-  const away = positionRule("away");
-  check(previous !== undefined && /rotateX\(-42deg\)/.test(previous.body), "281b · the leaf that tipped away carries the site's own angle");
-  check(next !== undefined && /rotateX\(42deg\)/.test(next.body), "281c · and the one waiting carries its opposite");
-  check(previous !== undefined && /transition-duration:\s*160ms/.test(previous.body), "281d · with the exit faster than the entrance");
-  const faded = (body: string | undefined) => /opacity:\s*0?\.3[0-9]/.test(body ?? "");
-  check(faded(previous?.body) && faded(next?.body), "281e · both neighbours are drawn faded rather than hidden");
-  // Drawn nowhere is `display: none` now rather than a transparent card: a
-  // neighbour is a title in its own row, and a fourth card in that row would take
-  // the space whether or not anybody could see it.
-  const awayRule = rollRules.find(r => /\.ag-roll-card\[data-position="away"\]/.test(r.selector));
-  check(awayRule !== undefined && /display:\s*none/.test(awayRule.body), "281f · while every other state is drawn nowhere (negative control)");
+  const cardRule = /\.ag-roll-card\s*\{([^}]*)\}/.exec(rollLive)?.[1] ?? "";
+  check(cardRule.length > 0, `281g · the card's own rule is found (negative control for the read, ${cardRule.length})`);
+  check(/opacity:\s*1\b/.test(cardRule), `281h · and the card being read is at full opacity (${/opacity:[^;]*/.exec(cardRule)?.[0] ?? "none"})`);
+
+  /*
+   * EVERY FILE THIS REPOSITORY SHIPS HAS A ROW IN AI-USAGE.md.
+   *
+   * "Kept current. Files appear here as they land" was a promise kept by whoever
+   * remembered. A module added in this commit landed with no row and nothing saw
+   * it, which is how the gap was found; the table happened to be complete
+   * otherwise, so this costs nothing to hold and catches the next one.
+   *
+   * A path counts when the table names it exactly or names a directory it is
+   * under, written with a trailing slash. A bare wildcard covers nothing: an
+   * earlier version of this rule took `*` for a path and reported full coverage on
+   * a tree with ten uncovered files.
+   */
+  const usage = readFileSync(join(process.cwd(), "AI-USAGE.md"), "utf8");
+  const listed = new Set([...usage.matchAll(/`([^`]+)`/g)].map(m => m[1]));
+  check(listed.size > 20, `415 · the attribution table is read (negative control, ${listed.size} paths named)`);
+  const SHIPPED = /\.(ts|tsx|sql|sol|graphql)$/;
+  const SKIP = new Set(["node_modules", ".next", "out", "cache", "artifacts", "typechain-types"]);
+  const walk = (dir: string): string[] => {
+    const here = join(process.cwd(), dir);
+    if (!existsSync(here)) return [];
+    return readdirSync(here, { withFileTypes: true }).flatMap(entry =>
+      entry.isDirectory()
+        ? SKIP.has(entry.name)
+          ? []
+          : walk(`${dir}/${entry.name}`)
+        : SHIPPED.test(entry.name)
+          ? [`${dir}/${entry.name}`]
+          : [],
+    );
+  };
+  const shipped = ["lib", "app", "bin", "test", "sql", "scripts"].flatMap(walk);
+  const covered = (path: string) => listed.has(path) || [...listed].some(e => e.endsWith("/") && path.startsWith(e));
+  const unnamedFiles = shipped.filter(path => !covered(path));
+  check(shipped.length > 40, `415a · over the files it ships (negative control, ${shipped.length} walked)`);
+  check(unnamedFiles.length === 0, `415b · and each of them is named there (${unnamedFiles.slice(0, 6).join(", ") || "none"})`);
+  check(!covered("lib/agent/a-module-nobody-wrote-a-row-for.ts"),
+    "415c · while a file with no row is not covered by anything (negative control)");
+
 
   // The projected box is wider than the card, so the region clips rather than
   // hides: hidden would make it a scroll container.
-  const stage = rollRules.find(r => /\.ag-roll-stage/.test(r.selector));
-  check(stage !== undefined && /overflow-x:\s*clip/.test(stage.body), "282 · the stage clips the projection");
-  check(stage !== undefined && !/overflow-x:\s*hidden/.test(stage.body), "282a · and never hides it");
+  const stageBody = /\.ag-roll-stage\s*\{([^}]*)\}/.exec(rollLive)?.[1] ?? "";
+  check(stageBody.length > 0, `282c · the stage's rule is found (negative control for the read, ${stageBody.length})`);
+  check(/overflow-x:\s*clip/.test(stageBody), "282 · the stage clips the projection");
+  check(!/overflow-x:\s*hidden/.test(stageBody), "282a · and never hides it");
 
   // Reduced motion drops the tip entirely rather than shortening it.
   const reduced = rollLive.slice(rollLive.indexOf("@media (prefers-reduced-motion: reduce), (max-width: 30rem)"));
@@ -853,7 +916,14 @@ export async function pageChecks(check: Check) {
   const rolodexBlock = rolodexStart >= 0 && rolodexEnd > rolodexStart ? ui.slice(rolodexStart, rolodexEnd) : "";
   check(rolodexBlock.length > 0 && rolodexBlock.length < ui.length / 2, `283c · the rolodex block is found and is a block (${rolodexBlock.length})`);
   const maps = (rolodexBlock.match(/lines\.map\(\(line, i\) =>/g) ?? []).length;
-  check(maps === 2 && /data-position=/.test(rolodexBlock), `283 · every line the log holds is a card and a node on the rail (${maps} maps over the lines)`);
+  /*
+   * The rail is one node per stage now, so it maps the stages rather than the
+   * lines: several steps of one stage advance inside one node. What still has to
+   * be true is that no line is dropped before either is built, which 283b holds,
+   * and that every stage the stream produced is on the rail, which 419 drives.
+   */
+  check(maps === 1 && /railFrom\(lines, at, failed\)\.map/.test(rolodexBlock) && /i !== at \? null : \(/.test(rolodexBlock),
+    `283 · the card area draws the state being read and the rail draws the stages (${maps} maps over the lines)`);
   check(!/lines\.slice/.test(rolodexBlock), "283b · and none of them is dropped before either is built");
   /*
    * Reachable by the rail rather than by a pager.
@@ -863,7 +933,7 @@ export async function pageChecks(check: Check) {
    * now and the node steps to its own index, which is a stronger claim than two
    * arrows: a pager reaches every line by walking, a rail reaches each one at once.
    */
-  check(/onClick=\{\(\) => onStep\(i\)\}/.test(rolodexBlock), "283a · and every one of them is reachable from its own node");
+  check(/onClick=\{\(\) => onStep\(node\.at\)\}/.test(rolodexBlock), "283a · and a node steps to the first state of its own stage");
   check(!/onStep\(at - 1\)|onStep\(at \+ 1\)/.test(ui), "283d · with no pager left to walk them one at a time");
 
   /*
@@ -919,13 +989,36 @@ export async function pageChecks(check: Check) {
    * Read over the button elements alone rather than the file, because confirm and
    * reject appear in the page's own copy as negatives, in the sentence saying no
    * credential of the agent's can confirm or attest.
+   *
+   * And over what a control says rather than what it carries. A board cell reports
+   * its own lifecycle in a data attribute whose value is a state name, and reading
+   * the raw chunk counted `data-life="confirmed"` as a control offering to confirm
+   * a clip. Attribute values go, except the handful a person actually reads, which
+   * are exactly where a Confirm label could hide from a check that dropped them
+   * all.
    */
   const decision = /\b(confirm|approve|reject|accept|decide|attest)\w*\b/i;
+  const READABLE = /^(aria-label|title|alt|placeholder|value)$/;
+  const saidBy = (control: string) =>
+    control
+      .replace(/([a-zA-Z-]+)=(\{(?:[^{}]|\{[^{}]*\})*\}|"[^"]*")/g, (whole, name: string) => (READABLE.test(name) ? whole : " "))
+      // Comments too: a note above an attribute saying why a border turns teal is
+      // neither a label nor an attribute, and it matched before this line existed.
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, " ")
+      .replace(/<\/?[a-zA-Z][^\s/>]*/g, " ");
   const controls = ui.split("<button").slice(1).map(chunk => chunk.slice(0, chunk.indexOf("</button>")));
-  const deciding = controls.filter(c => decision.test(c));
+  const deciding = controls.filter(c => decision.test(saidBy(c)));
   check(controls.length > 0, `227 · the interface has controls to read (${controls.length})`);
   check(deciding.length === 0, `227a · and not one of them is a decision about a clip (${deciding.length})`);
-  check(decision.test("<button>Confirm this clip</button>"), "227b · the decision check can see one (negative control)");
+  check(decision.test(saidBy(' type="button" onClick={() => go()}>Confirm this clip</button>')),
+    "227b · the check reads a label that decides (negative control)");
+  check(decision.test(saidBy(' aria-label="Reject it" onClick={() => go()}>Go</button>')),
+    "227c · including one carried where only a screen reader hears it (negative control)");
+  check(!decision.test(saidBy(' data-life={x ? "confirmed" : "proposed"}>2026-09-04</button>')),
+    "227d · while a state a control reports about itself is not a decision it offers");
+  check(!decision.test(saidBy(' /* teal once one has decided */ type="button">2026-09-04</button>')),
+    "227e · nor prose in a comment about why the control looks as it does");
 
   // A settlement is linked by the chain the receipt names rather than by a chain
   // the page assumes, so a receipt from anywhere else is drawn without a link
@@ -947,17 +1040,27 @@ export async function pageChecks(check: Check) {
    */
   const toneGood = css.slice(css.indexOf(".ag-tone-good {")).split("}")[0];
   check(!/var\(--color-primary\)/.test(toneGood), "211 · the good tone is not teal, so teal on a row means a person");
-  const humanDot = css.slice(css.indexOf(".ag-actor-human .ag-feed-dot {")).split("}")[0];
-  const agentDot = css.slice(css.indexOf(".ag-actor-agent .ag-feed-dot {")).split("}")[0];
+  /*
+   * Over the marker the page draws, which is the wheel's dot.
+   *
+   * These read the feed's dot, and the feed was the run log inside a disclosure at
+   * the foot of the run dialog. That log is gone, so the rules they measured
+   * described a marker nobody could see while the wheel's own dot, which carries
+   * the same distinction on the surface a person watches, was held by nothing.
+   */
+  const humanDot = css.slice(css.indexOf(".ag-actor-human .ag-roll-dot {")).split("}")[0];
+  const agentDot = css.slice(css.indexOf(".ag-actor-agent .ag-roll-dot {")).split("}")[0];
   check(/var\(--color-primary\)/.test(humanDot) && /var\(--color-xv-agent\)/.test(agentDot),
     "212 · the person's marker is teal and the agent's is the agent hue");
+  check(humanDot.length > 0 && agentDot.length > 0 && humanDot !== agentDot,
+    `212a · read off two rules that exist and differ (negative control for the slices, ${humanDot.length}/${agentDot.length})`);
   check(/--color-xv-agent:\s*#c58a5a/i.test(css) && !/#c58a5a/i.test(css.replace(/--color-xv-agent:\s*#c58a5a/i, "")),
     "212b · the agent hue is declared once as a token and appears nowhere as a literal");
   check(!/var\(--color-xv-gold\)/.test(agentDot),
     "212c · and gold is not the agent hue, so the toolbar button means something else (negative control)");
-  const dotRule = css.slice(css.indexOf(".ag-feed-dot {")).split("}")[0];
-  check(!/box-shadow|border:/.test(dotRule) && /width:\s*0\.375rem/.test(dotRule),
-    "213 · and the marker has no shadow and no border, so a marker cannot read as the button");
+  const dotRule = css.slice(css.indexOf(".ag-roll-dot {")).split("}")[0];
+  check(dotRule.length > 0 && !/box-shadow|border:/.test(dotRule) && /width:\s*0\.625rem/.test(dotRule),
+    `213 · and the marker has no shadow and no border, so a marker cannot read as the button (${/width:[^;]*/.exec(dotRule)?.[0] ?? "none"})`);
 
   /*
    * Every class the interface renders has a rule, and every inline mark has a size.

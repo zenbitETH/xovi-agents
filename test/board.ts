@@ -4,18 +4,28 @@ import { join } from "node:path";
 import { GET as boardGET } from "../app/api/agent/board/route";
 import { GET as windowsGET } from "../app/api/agent/windows/route";
 import { GET as registrationGET } from "../app/api/agent/registration/route";
+import { POST as runPOST } from "../app/api/agent/run/route";
+import { type RunMark, type RunRow, recordRun, runsStoreFrom, setRunsStoreForTest } from "../lib/agent/runs-store";
+import { type RunOutcome, type RunStep, runOutcome } from "../lib/agent/run";
 import { POST as namePOST } from "../app/api/agent/name/route";
 import { setClockForTest } from "../lib/human/clock";
 import { ENROLLMENT_CALLS_PER_MINUTE, ENROLLMENT_WINDOW_MS, enrollmentThrottle } from "../lib/human/throttle";
 import { readFileSync } from "node:fs";
-import { setRegistryForTest } from "../lib/human/registry";
+import { AGENTBOOK_ADDRESS_WORLDCHAIN, setRegistryForTest } from "../lib/human/registry";
 import { capFrom, setCapForTest, standingBehind, takeFreeRead } from "../lib/human/cap";
 import { ensureCredential } from "../lib/agent/credentials";
 import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
-import { CREDENTIAL_REFUSED, PROCESS, clearSkipped, readSkipped, writeSkipped, newestRecording, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
-import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
-import { NOT_SUBMITTED_SENTENCE } from "../lib/agent/run";
+import { CREDENTIAL_REFUSED, PROCESS, clearSkipped, readSkipped, writeSkipped, newestRecording, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, screensFor } from "../app/app-shell";
+import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellRecording, cellState, loadSnapshot, servedCell } from "../lib/windows/snapshot";
+import { UNKNOWN_REFUSAL } from "../lib/agent/refusal";
+import { NOT_SUBMITTED_SENTENCE, environmentCredentialCovers, namesACell, windowsUrlFor as runWindowsUrlFor } from "../lib/agent/run";
+import { AUTHORIZATION_TYPES, PAYMENT_TOKEN, ruledValue } from "../lib/human/free-read";
+import { setNonceStoreForTest } from "../lib/human/nonces";
+import { getAddress, hashDomain } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { AGENTBOOK_ON_WORLD_CHAIN, ENS_APP, LIFECYCLE, NEXT_STEP, NODE_NAMES, NODE_NAME_MAX, failedAt, railFrom, stepState, NOT_SEEN_REASON, WORLDSCAN_ADDRESS, WORLD_ID_PAGE, reasonForStage, registrationHref, registrationHrefTitle, type BoardCellView, cellMetaLine, lifecycleLine, lifecycleOf, readableLength, stopReason, windowsUrlFor } from "../app/app-shell";
+import { type AnchorRow, nextAction, setStoreForTest } from "../lib/anchor/store";
 import { resetServerForTest } from "../lib/x402";
 
 type Check = (ok: boolean, label: string) => void;
@@ -94,18 +104,91 @@ export async function boardChecks(check: Check) {
   check(board.cells.some(c => c.species === "andersoni" && !c.onOffer), "270b · andersoni is drawn where no stream exists, as its negative");
   check(BOARD_SPECIES.length === 3, "270c · and the board draws three species");
 
-  const served = (await (await boardGET()).json()) as { days: string[]; cells: Record<string, unknown>[] };
+  const served = (await (await boardGET(new Request("http://127.0.0.1/api/agent/board"))).json()) as { days: string[]; cells: Record<string, unknown>[] };
   const keys = [...new Set(served.cells.flatMap(c => Object.keys(c)))].sort();
-  check(keys.join(",") === "day,onOffer,species", `271 · a cell carries three fields (${keys.join(",")})`);
   /*
-   * No count, and no field a count could be read out of.
+   * A CLOSED LIST OF FIELDS, AND NOT ONE OF THEM IS A COUNT.
    *
-   * The files are public in this repository, so a count served here is the
-   * embargo drop by subtraction: the rows in the file minus the rows offered is
-   * the number withheld, which is the one number the embargo exists to keep.
+   * This asserted three fields and no digit outside a date, which held while a
+   * cell was a word and a pill. A cell carries its recording's length and the
+   * range of its windows now, so the blunt rule is gone and the two properties
+   * underneath it are checked directly: nothing may be served that is not on the
+   * list, and nothing served may depend on how many windows a cell holds.
+   *
+   * The second is the one that matters. The window files are public, so a count
+   * served here is the embargo drop by subtraction: the rows in a file minus the
+   * rows offered is the number withheld, which is the one number the gate exists
+   * to keep. A range is two of the numbers already in that public file and says
+   * nothing about how many lie between them.
    */
+  const ALLOWED_CELL_KEYS = ["day", "onOffer", "recordingSeconds", "species", "thumbnail", "videoId", "windowSeconds"];
+  const stray = keys.filter(k => !ALLOWED_CELL_KEYS.includes(k));
+  check(stray.length === 0 && keys.includes("day") && keys.includes("species") && keys.includes("onOffer"),
+    `271 · a cell carries the three it must and nothing off the list (${stray.join(", ") || keys.join(",")})`);
   const body = JSON.stringify(served);
-  check(!/\d+/.test(body.replace(/2026-\d\d-\d\d/g, "")), "271a · and no number outside a date reaches the board");
+  check(!/count|total|withheld|dropped|offered/i.test(body), "271a · with no field named for a quantity of windows");
+  /*
+   * Driven rather than read: the same durations and the same recording, twice the
+   * windows. A cell's served facts must come back identical, which no count and
+   * no sum can do.
+   */
+  const one = window("vidA", "mexicanum", "2026-09-03T00:00:00Z", "w1");
+  const two = { ...window("vidA", "mexicanum", "2026-09-03T00:00:00Z", "w2"), startTime: one.startTime, endTime: one.endTime };
+  const three = { ...window("vidA", "mexicanum", "2026-09-03T00:00:00Z", "w3"), startTime: one.startTime, endTime: one.endTime };
+  const asTwo = cellRecording([{ ...one, day: "2026-09-03" }, { ...two, day: "2026-09-03" }] as never);
+  const asFour = cellRecording([one, two, three, { ...one, windowId: "w4" }].map(w => ({ ...w, day: "2026-09-03" })) as never);
+  check(JSON.stringify(asTwo) === JSON.stringify(asFour),
+    `271c · and a cell's facts do not move when the number of windows does (${JSON.stringify(asTwo)} against ${JSON.stringify(asFour)})`);
+  const wider = cellRecording([{ ...one, day: "2026-09-03" }, { ...two, endTime: two.endTime + 9, day: "2026-09-03" }] as never);
+  check(JSON.stringify(wider) !== JSON.stringify(asTwo), "271d · while a different duration does (negative control)");
+  /*
+   * THE WIRE'S OWN MAPPING, DRIVEN WITH MORE THAN IT MAY CARRY.
+   *
+   * Every guard above reads the cells this fixture happens to produce, so none of
+   * them could see the route publishing a field the fixture never has. Driven
+   * with a cell carrying a count, which is the field that must never cross.
+   */
+  const overfull = servedCell({ day: "2026-09-03", species: "mexicanum", onOffer: true, videoId: "vidA", offered: 7, station: "AM 1" } as never);
+  check(!("offered" in overfull) && !("station" in overfull),
+    `271e · the wire drops what is not on its list (${Object.keys(overfull).join(",")})`);
+  check("videoId" in overfull && overfull.day === "2026-09-03", "271f · and keeps what is (negative control)");
+  /*
+   * A cell fed by two recordings claims neither, and a cell with nothing to sell
+   * carries no invitation. Neither case exists in the committed fixtures, so both
+   * are planted.
+   */
+  const split = cellRecording([
+    { ...window("vidA", "mexicanum", "2026-09-03T00:00:00Z", "s1"), day: "2026-09-03" },
+    { ...window("vidB", "mexicanum", "2026-09-03T00:00:00Z", "s2"), day: "2026-09-03" },
+  ] as never);
+  check(split.videoId === undefined && split.thumbnail === undefined && split.recordingSeconds === undefined,
+    `271g · a cell drawing on two recordings names neither (${JSON.stringify(split)})`);
+  check(split.windowSeconds !== undefined, "271h · while the range, which is true of all of them, stays (negative control)");
+  const mixed = boardFrom([
+    { ...window("vidA", "mexicanum", "2026-09-03T00:00:00Z", "o1"), day: "2026-09-03", meta: { durationSeconds: 99, thumbnail: "https://i.ytimg.com/vi/vidA/mqdefault.jpg" } },
+  ] as never);
+  const offered = mixed.cells.filter(c => c.onOffer);
+  const idle = mixed.cells.filter(c => !c.onOffer);
+  check(offered.length > 0 && offered.every(c => c.recordingSeconds === 99), "271i · an on offer cell carries its recording");
+  check(idle.length > 0 && idle.every(c => c.recordingSeconds === undefined && c.thumbnail === undefined && c.videoId === undefined),
+    `271j · and a cell with nothing to sell carries no thumbnail and no length (${idle.length} such cells)`);
+  /*
+   * The cell that separates the two, and without it 271j proves nothing.
+   *
+   * Every cell that is not on offer in the fixture above is EMPTY, so deriving the
+   * facts from the raw file rather than from what the gate leaves changes nothing
+   * and 271j stays green through a mutation it exists to catch. An UNSCREENED cell
+   * has windows and is still not on offer, which is the only shape where the two
+   * readings differ.
+   */
+  const unscreenedBoard = boardFrom(
+    [{ ...window("vidA", "mexicanum", "2026-09-03T00:00:00Z", "u1"), day: "2026-09-03", meta: { durationSeconds: 99, thumbnail: "https://i.ytimg.com/vi/vidA/mqdefault.jpg" } }] as never,
+    { EMBARGOED_ALIASES: "Alfa" },
+  );
+  const held = unscreenedBoard.cells.filter(c => c.day === "2026-09-03" && c.species === "mexicanum");
+  check(held.length === 1 && held[0].onOffer === false, `271k · a cell the gate holds back is not on offer (${JSON.stringify(held[0])})`);
+  check(held[0].videoId === undefined && held[0].thumbnail === undefined && held[0].recordingSeconds === undefined && held[0].windowSeconds === undefined,
+    "271l · and carries none of its recording, though the file behind it has one");
   check(!/station|alias|AM 1|AD\b/.test(body), "271b · nor any station or alias");
 
   /*
@@ -467,29 +550,31 @@ export async function boardChecks(check: Check) {
    * them one at a time; what this counts is that a burst of ten leaves ten cards
    * with exactly one in the middle and one neighbour on each side.
    */
-  const burst = 10;
-  const slotsAt = (at: number) => Array.from({ length: burst }, (_, i) => rollPosition(i, at));
-  const middle = slotsAt(3);
-  check(middle.length === burst, `312 · a burst of ten states leaves ten cards (${middle.length})`);
-  check(middle.filter(p => p === "current").length === 1, "312a · with exactly one of them in the middle");
-  check(middle.filter(p => p === "previous").length === 1 && middle.filter(p => p === "next").length === 1,
-    "312b · and one neighbour above and one below");
-  check(middle.filter(p => p === "away").length === burst - 3, `312c · every other state drawn nowhere (${middle.filter(p => p === "away").length})`);
-  check(slotsAt(0).filter(p => p === "previous").length === 0 && slotsAt(0).filter(p => p === "next").length === 1,
-    "312d · at the first state nothing is above it");
-  check(slotsAt(burst - 1).filter(p => p === "next").length === 0 && slotsAt(burst - 1).filter(p => p === "previous").length === 1,
-    "312e · and at the last nothing is below it");
+  /*
+   * 312 to 312e are retired with the window of three they measured.
+   *
+   * They drove `rollPosition`, which put the state being read in the middle with
+   * one faded neighbour above and one below. The founder could not read either
+   * neighbour, and the sequence they were there to show is on the line beside the
+   * card, where every node now carries its own title. The card area holds one
+   * card, `rollPosition` is gone with the three slots it named, and what the
+   * stage draws is held by 312j below.
+   */
   check(ROLL_DWELL_MS >= 600 && ROLL_DWELL_MS <= 1500, `312f · each state holds the middle long enough to read (${ROLL_DWELL_MS}ms)`);
   // The pager still moves it, and the dwell stops while a person is holding one.
   check(/if \(pinned !== null\) return;/.test(page) && /setCursor\(c => c \+ 1\), ROLL_DWELL_MS\)/.test(page),
     "312g · the wheel turns on that timer and stops while a card is pinned");
   const roll = page.slice(page.indexOf("function Rolodex("), page.indexOf("function Enrol("));
-  check(roll.length > 0 && /aria-hidden=\{current \? undefined : "true"\}/.test(roll) && /inert=\{!current\}/.test(roll),
-    "312h · the neighbours are scenery: read by no screen reader and reachable by no keyboard");
-  // And they carry a title and nothing else. Drawn whole they overlapped the state
-  // being read, which is what the three rows and this branch fix together.
-  check(/\{current \? \(/.test(roll) && /<p className="ag-roll-title">\{line\.text\}<\/p>/.test(roll),
-    "312i · a neighbour is the state's title alone, never its content");
+  /*
+   * 312h and 312i are retired with the neighbours they described: the two faded
+   * cards are gone, so there is nothing to hide from a screen reader or to hold to
+   * a title alone. What replaces them is the card area holding one card.
+   */
+  check(roll.length > 0, `312j0 · the wheel is found (negative control for the read, ${roll.length})`);
+  check(/i !== at \? null : \(/.test(roll), "312j · the card area draws the state being read and nothing else");
+  check(!/ag-roll-title/.test(page) && !/ag-roll-title/.test(css),
+    "312k · with no faded title left above or below it, and no rule for one");
+  check(!/data-position/.test(page), "312l · nor a position on a card that can only be in one place");
   /*
    * THE LINE OF STATES, AND WHAT EACH NODE SAYS.
    *
@@ -512,9 +597,65 @@ export async function boardChecks(check: Check) {
     `324a · a state already read is drawn as a mark, in two strokes rather than a glyph (${doneStrokes.length} rules, ${withContent} with content, ${rotated} rotated)`);
   check(/\.ag-steps-item\[data-state="at"\] \.ag-steps-dot\s*\{[^}]*transform:\s*scale\(1\.45\)/.test(sheetRoll),
     "324b · and the one being read is marked apart by the site's own scale");
-  check(/data-state=\{i < at \? "done" : i === at \? "at" : "ahead"\}/.test(roll),
-    "324c · the three states are the wheel's own arithmetic and not a second count");
-  check(/aria-current=\{i === at \? "step" : undefined\}/.test(roll), "324d · with the one being read named to a screen reader");
+  check(/data-state=\{node\.state\}/.test(roll) && /railFrom\(lines, at, failed\)/.test(roll),
+    "324c · a node's state is the rail's own arithmetic and not a second count");
+  /*
+   * A FAILURE READS AS ONE, ON THE LINE AND NOT ONLY ON A PILL.
+   *
+   * The node the run stopped on keeps its mark whatever the wheel is showing, and
+   * what follows it has not happened: drawing those as ahead of a cursor would say
+   * the run is on its way to them. A duplicate is supply rather than a stop, which
+   * is the distinction the tone carries everywhere else on this page.
+   */
+  const failedLines = [lineFor({ step: "presenting" }), lineFor({ step: "payment-refused", status: 402, detail: "insufficient_funds" })];
+  check(failedAt(failedLines) === 1, `324h · the line the run stopped on is where the stop is (${failedAt(failedLines)})`);
+  check(failedAt([lineFor({ step: "presenting" }), lineFor({ step: "done" })]) === null,
+    "324h2 · and a run that did not stop has none (negative control)");
+  check(failedAt([lineFor({ step: "declined", kind: "duplicate", detail: "x" })]) === null,
+    "324h3 · nor does a duplicate, which is supply rather than a stop");
+  check(stepState(1, 1, 1) === "failed" && stepState(1, 0, 1) === "failed",
+    "324i · the node that failed keeps its mark whatever the wheel is showing");
+  check(stepState(2, 2, 1) === "ahead" && stepState(2, 3, 1) === "ahead",
+    "324j · and nothing after it is ever drawn as reached");
+  check(stepState(0, 1, 1) === "done" && stepState(0, 0, null) === "at" && stepState(2, 0, null) === "ahead",
+    "324k · while a run with no stop reads exactly as it did (negative control)");
+  const crossRules = [...sheetRoll.matchAll(/\.ag-steps-item\[data-state="failed"\][^{]*\{([^}]*)\}/g)].map(m => m[1]);
+  check(crossRules.length >= 3, `324l · the failed node has rules of its own (negative control for the read, ${crossRules.length})`);
+  const strokes = crossRules.filter(b => /rotate\((-?45)deg\)/.test(b));
+  check(strokes.length === 2, `324m · drawn as two strokes, the way the mark beside it is (${strokes.length})`);
+  const crossInk = crossRules.join(" ");
+  check(/var\(--color-error\)/.test(crossInk), "324n · in the semantic error hue");
+  const wrongInk = ["--color-xv-agent", "--color-xv-gold", "--color-primary", "--color-accent"].filter(t => crossInk.includes(t));
+  check(wrongInk.length === 0, `324o · and never the agent hue, the gold, the primary or the accent (${wrongInk.join(", ") || "none"})`);
+  /*
+   * And the card says what would change it, from one map, in the present tense.
+   */
+  const refusedLine = lineFor({ step: "payment-refused", status: 402, detail: "insufficient_funds" });
+  check(refusedLine.detail === "this wallet holds no USDC on Base Sepolia",
+    `324p · a refused payment names the facilitator's reason as a sentence (${refusedLine.detail})`);
+  const unmet = lineFor({ step: "payment-refused", status: 402, detail: "some_code_nobody_has_seen" });
+  check(unmet.detail === UNKNOWN_REFUSAL,
+    `324p2 · while a code this deployment has not met becomes one sentence of Zenbit's own (${unmet.detail})`);
+  check(!/some_code_nobody_has_seen/.test(unmet.detail ?? ""),
+    "324p3 · and never the code itself, which is text a third party wrote on Zenbit's surface");
+  check(/not accepted/.test(UNKNOWN_REFUSAL) && !/\bwill\b|\bsoon\b/i.test(UNKNOWN_REFUSAL),
+    `324p4 · saying the payment was not accepted and promising nothing (${UNKNOWN_REFUSAL})`);
+  check(refusedLine.next !== undefined && /Fund this wallet/.test(refusedLine.next),
+    `324q · and the card says what would change it (${refusedLine.next})`);
+  const nexts = Object.values(NEXT_STEP);
+  const promised = nexts.filter(l => /\b(will|soon|coming|shortly|shall)\b/i.test(l));
+  check(promised.length === 0, `324r · with no conditional future in any of them (${promised.join(" | ") || "none"})`);
+  check(nexts.every(l => l.trim().length > 0), `324s · and every stop the map names has a sentence (${nexts.length})`);
+  check(lineFor({ step: "done" }).next === undefined, "324t · while a run that finished says nothing about what would change it");
+  // And the card draws it. 324q holds that the line carries the sentence, which a
+  // card that never renders it satisfies: removing the element left every check
+  // green, which is how this one came to exist.
+  check(/\{line\.next !== undefined && <p className="ag-roll-next">\{line\.next\}<\/p>\}/.test(roll),
+    "324t2 · and the card being read draws that sentence rather than only carrying it");
+  check(/\.ag-roll-next\s*\{[^}]*font-size/.test(sheetRoll), "324t3 · with a rule of its own, so it is drawn as a line and not as a paragraph like the reason");
+  const secondCopy = (page.match(/this wallet holds no USDC on Base Sepolia/g) ?? []).length;
+  check(secondCopy === 0, `324u · the reason is the run's own constant and is not typed again on the card (${secondCopy})`);
+  check(/aria-current=\{node\.state === "at" \? "step" : undefined\}/.test(roll), "324d · with the one being read named to a screen reader");
 
   /*
    * THE DEFAULT HOME, BEFORE A WALLET.
@@ -550,6 +691,35 @@ export async function boardChecks(check: Check) {
   check(newest?.videoId === "newest" && newest.day === "2026-09-09", `325d · the newest recording on offer is the one embedded (${JSON.stringify(newest)})`);
   check(newestRecording([{ day: "2026-09-04", onOffer: true }]) === null,
     "325e · and a board that serves no recording embeds none rather than guessing one");
+  /*
+   * A DAY CAN CARRY MORE THAN ONE RECORDING, AND THE TIE IS A RULE.
+   *
+   * The days are cut per species, so the snapshot this deployment serves holds two
+   * for 2026-09-09. The reduce takes a strictly later day, so the earliest cell of
+   * the newest day survives every comparison, which is the first species in the
+   * board's own row order that has one. Driven on a fixture with the tie in it,
+   * because a fixture with one recording per day cannot tell the rule from an
+   * accident, and `>=` in that reduce passes such a fixture.
+   */
+  const tied = [
+    { day: "2026-09-04", onOffer: true, videoId: "older" },
+    { day: "2026-09-09", onOffer: true, videoId: "firstOfTheDay" },
+    { day: "2026-09-09", onOffer: true, videoId: "secondOfTheDay" },
+  ];
+  check(newestRecording(tied)?.videoId === "firstOfTheDay",
+    `325e2 · a tie goes to the first cell in the board's row order (${newestRecording(tied)?.videoId ?? "none"})`);
+  check(newestRecording([...tied].reverse())?.videoId === "secondOfTheDay",
+    `325e3 · which is the cell order and not a property of the ids (negative control, ${newestRecording([...tied].reverse())?.videoId ?? "none"})`);
+  /*
+   * And the caption says so. "The recording of that day" is a claim the board
+   * contradicts one screen later, where the same day carries another.
+   */
+  const captions = [...home.matchAll(/recording of \{newest\.day\}|recording of \$\{newest\.day\}/gi)].length;
+  check(captions === 2, `325e4 · the day is named twice on the home, in the frame's title and in the line under it (${captions})`);
+  check(!/[Tt]he recording of \{newest\.day\}/.test(home) && !/[Tt]he recording of \$\{newest\.day\}/.test(home),
+    "325e5 · and neither calls it the recording of that day, where the board serves two");
+  check(/[Tt]he recording of \$\{newest\.day\}/.test("title={`The recording of ${newest.day}`}"),
+    "325e6 · the caption check can see the definite article (negative control)");
   const cards = (home.match(/ag-process-card/g) ?? []).length;
   /*
    * The array itself, imported rather than read out of the file.
@@ -570,8 +740,30 @@ export async function boardChecks(check: Check) {
   const stateWords = PROCESS.flatMap(c => [c.title, c.line]).join(" ").match(/\b(not yet|waiting|done|registered|issued|requested|skipped|enrolled)\b/gi) ?? [];
   check(stateWords.length === 0, `325h · and says nothing about the reader's state (${stateWords.join(", ") || "none"})`);
   check(/\bnot yet\b/i.test("a card saying not yet"), "325i · the state check can see one (negative control)");
+  /*
+   * THE DESCRIPTIONS WENT UP, AND A TITLE IS LARGER THAN WHAT IT INTRODUCES.
+   *
+   * This pass first took every description a step down, to 0.75rem, and the
+   * founder read the result as small. The page's own scale steps by 0.0625rem and
+   * the descriptions now sit a step above where this interface started, at
+   * 0.875rem. A title under that has to be larger than the words it introduces,
+   * which `.ag-panel-title` was not: it is an uppercase label at label size, and a
+   * description a step larger left the heading smaller than its own paragraph.
+   *
+   * Read as numbers rather than as patterns, so the relationship is what is held
+   * and either can move as long as the gap survives.
+   */
+  const STEP = 0.0625;
+  const sizeOf = (rule: string) => Number(/font-size:\s*([0-9.]+)rem/.exec(rule)?.[1] ?? NaN);
   const subRule = /\.ag-sub\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
-  check(/font-size:\s*0\.75rem/.test(subRule), `325j · the descriptions are one step down the page's own scale (${/font-size:[^;]*/.exec(subRule)?.[0] ?? "none"})`);
+  const titleRule = /\.ag-process-title\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(sizeOf(subRule) === 0.875, `325j · a description is one step above where this interface started (${sizeOf(subRule)}rem)`);
+  check(Number.isFinite(sizeOf(titleRule)), `325j2 · the home's card title has a size of its own (negative control for the read, ${sizeOf(titleRule)})`);
+  check(sizeOf(titleRule) >= sizeOf(subRule) + 2 * STEP,
+    `325k · and a card title is at least two steps above its description (${sizeOf(titleRule)}rem over ${sizeOf(subRule)}rem)`);
+  check(!(0.75 >= 0.875 + 2 * STEP), "325k2 · the ratio check can see a title that is not (negative control)");
+  check(/<h3 className="ag-process-title">\{step\.title\}<\/h3>/.test(home),
+    "325k3 · which is the class the home's cards actually carry, not one measured beside them");
   /*
    * Three rows, so a neighbour cannot sit on the state being read.
    *
@@ -579,15 +771,11 @@ export async function boardChecks(check: Check) {
    * mechanism rather than the translate distances, which is why this reads the
    * template and the row each neighbour is placed in.
    */
-  const stageBody = /\.ag-roll-stage\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
-  const rows = /grid-template-rows:([^;]*);/.exec(stageBody)?.[1]?.trim() ?? "";
-  check(rows.split(/\s+(?![^(]*\))/).length === 3, `324f · the stage is three rows (${rows || "none read"})`);
-  const rowOf = (name: string) => {
-    const body = new RegExp(`\\.ag-roll-card\\[data-position="${name}"\\]\\s*\\{([^}]*)\\}`).exec(sheetRoll)?.[1] ?? "";
-    return /grid-row:\s*(\d)/.exec(body)?.[1] ?? null;
-  };
-  check(rowOf("previous") === "1" && rowOf("current") === "2" && rowOf("next") === "3",
-    `324g · with the state being read between its two neighbours (${rowOf("previous")}, ${rowOf("current")}, ${rowOf("next")})`);
+  /*
+   * 324f and 324g are retired with the three rows they counted. The stage held the
+   * state being read between its two neighbours; the neighbours are gone and the
+   * stage is one row, which 313a holds.
+   */
   const stepTransitions = [...sheetRoll.matchAll(/\.ag-steps[^{]*\{([^}]*)\}/g)].map(m => m[1]).filter(b => /transition:/.test(b));
   const badSteps = stepTransitions.filter(b => !/transition:\s*(transform|opacity)/.test(b) || /\ball\b/.test(b));
   check(stepTransitions.length >= 2 && badSteps.length === 0,
@@ -601,7 +789,18 @@ export async function boardChecks(check: Check) {
   const dialogRule = /\.ag-run-dialog\s*\{[^}]*\}/.exec(sheetLive)?.[0] ?? "";
   check(/min-height:/.test(dialogRule) && /max-height:/.test(dialogRule), `313 · the dialog declares one height for every state (${dialogRule ? "found" : "no rule read"})`);
   const stageRule = /\.ag-roll-stage\s*\{[^}]*\}/.exec(sheetLive)?.[0] ?? "";
-  check(/height:\s*[0-9]/.test(stageRule) && !/min-height/.test(stageRule), `313a · and the card area is a fixed height rather than a floor (${stageRule ? "found" : "no rule read"})`);
+  /*
+   * And the card area takes the room the dialog has rather than a height in rem.
+   *
+   * It was a fixed height because three cards had to sit in a frame that did not
+   * jump between states. One card, and the dialog's own min and max above still
+   * hold the frame still, so a number here would be a box drawn around nothing and
+   * would leave the rail beside it stopping short of the frame.
+   */
+  // `min-height: 0` contains the word, so the fixed height is matched at the start
+  // of its own declaration rather than anywhere the six letters appear.
+  check(!/(^|[;{]\s*)height:\s*[0-9]/.test(stageRule) && /grid-template-rows:\s*minmax\(0, 1fr\)/.test(stageRule),
+    `313a · and the card area takes the height the dialog gives it (${stageRule.replace(/\s+/g, " ").trim().slice(0, 70)})`);
 
   /*
    * Run is a destination only while there is a run.
@@ -634,15 +833,43 @@ export async function boardChecks(check: Check) {
     `316b · with no promise about when in either sentence (${credentialPill("none")})`);
   check(/credential: input\.registration === "registered" \? credentialPill\(input\.agentCredential\) : null/.test(page),
     "316c · drawn beside the registration wherever the identity is drawn");
+  /*
+   * AND THE CARD CANNOT CONTRADICT THE RUN.
+   *
+   * The run proposes under the wallet's own credential, or under the
+   * environment's for the one wallet it belongs to. The read only asked about the
+   * wallet's own, so that wallet was told it had none while the run proposed for
+   * it under exactly that credential, and on the deployment that carries one it is
+   * the wallet a person is most likely to be looking at. Both read this rule now.
+   */
+  const OWNER = "0xC0686ae97FDf62A37F081922c2a92537862E0B95";
+  const OTHER = "0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe";
+  check(environmentCredentialCovers(OWNER, "ingest-key", OWNER), "316d · the environment's credential covers the wallet it belongs to");
+  check(!environmentCredentialCovers(OTHER, "ingest-key", OWNER), "316e · and covers no other wallet (negative control)");
+  check(!environmentCredentialCovers(OWNER, "", OWNER) && !environmentCredentialCovers(OWNER, "ingest-key", ""),
+    "316f · and covers nobody where either half is unset");
+  check(environmentCredentialCovers(OWNER.toLowerCase(), "ingest-key", OWNER.toUpperCase().replace("0X", "0x")),
+    "316g · comparing the two addresses as addresses rather than as text");
+  check(/environmentCredentialCovers\(payer, process\.env\.XOVI_INGEST_KEY, process\.env\.XOVI_INGEST_KEY_PAYER\)/.test(readFileSync("app/api/agent/registration/route.ts", "utf8")),
+    "316h · and the registration read answers through it rather than through a second copy of the rule");
 
   /*
    * A run that stops before proposing says why, in the run's own sentence.
    */
-  const unconfigured = lineFor({ step: "not-submitted", detail: "no ingest route is configured on this deployment", reason: "unconfigured" });
-  const noCredential = lineFor({ step: "not-submitted", detail: "this wallet holds no credential, so nothing is proposed", reason: "no-credential" });
-  check(unconfigured.text === "no ingest route is configured on this deployment" && noCredential.text === "this wallet holds no credential, so nothing is proposed",
+  /*
+   * Read off the run's own map rather than off literals supplied here.
+   *
+   * The first version handed `lineFor` two sentences it had written itself and
+   * compared the rendering with them, so both entries of the map could have become
+   * one sentence and the pair would have stayed green: they held the drawing and
+   * not the thing being drawn.
+   */
+  const unconfigured = lineFor({ step: "not-submitted", detail: NOT_SUBMITTED_SENTENCE.unconfigured, reason: "unconfigured" });
+  const noCredential = lineFor({ step: "not-submitted", detail: NOT_SUBMITTED_SENTENCE["no-credential"], reason: "no-credential" });
+  check(unconfigured.text === NOT_SUBMITTED_SENTENCE.unconfigured && noCredential.text === NOT_SUBMITTED_SENTENCE["no-credential"],
     `317 · the stop card carries the reason's own sentence (${noCredential.text})`);
-  check(unconfigured.text !== noCredential.text, "317a · and the two reasons are not one sentence (negative control)");
+  check(NOT_SUBMITTED_SENTENCE.unconfigured !== NOT_SUBMITTED_SENTENCE["no-credential"],
+    "317a · and the run gives the two reasons two sentences rather than one");
   check(noCredential.detail === "no-credential" && noCredential.tone === "stopped", "317b · with the machine's word for it in the detail lane");
 
   /*
@@ -691,8 +918,19 @@ export async function boardChecks(check: Check) {
   const headerEnd = page.indexOf("</header>", headerStart);
   const accountStart = page.indexOf('<div className="ag-account-body">');
   check(headerStart > 0 && headerEnd > headerStart && accountStart > 0, "311 · the header and the account body are found (negative control for the slices)");
-  check(/<IdentityChips chips=\{identity\} onName=/.test(page.slice(headerStart, headerEnd)), "311a · the header carries them on every destination");
-  check(/<IdentityChips chips=\{identity\} onName=/.test(page.slice(accountStart, accountStart + 400)), "311b · and the account body opens with the same two");
+  const headerChips = page.slice(headerStart, headerEnd);
+  const accountChips = page.slice(accountStart, accountStart + 500);
+  check(/<IdentityChips\b/.test(headerChips), "311a · the header carries them on every destination");
+  check(/<IdentityChips\b/.test(accountChips), "311b · and the account body opens with them too");
+  /*
+   * THE CREDENTIAL IS NOT ONE OF THE HEADER'S.
+   *
+   * Three chips over every destination was one thing too many, and the credential
+   * is the one a person acts on least: its state is unchanged and is on the
+   * enrolment card and in the account, which is where somebody goes to read it.
+   */
+  check(/credential=\{false\}/.test(headerChips), "311g · and the credential is not among them");
+  check(/\bcredential\b(?!=\{false\})/.test(accountChips), "311h · while the account draws it (negative control)");
   /*
    * Derived, not remembered, which was a claim in a comment and held by nothing.
    * Driven twice with one input changed, and the same call site read for the
@@ -712,6 +950,69 @@ export async function boardChecks(check: Check) {
   const memoed = /useMemo\([\s\S]{0,120}?identityChips/;
   check(!memoed.test(page), "311e · with no memo standing between the reads and the chips");
   check(memoed.test("const identity = useMemo(() => identityChips({}), []);"), "311f · and the memo check can see one (negative control)");
+
+  /*
+   * THE TWO CHIPS THAT MAKE A CLAIM CAN BE CHECKED, EACH WHERE ITS CLAIM LIVES.
+   *
+   * A registration answered by AgentBook is a row on World Chain; one made in this
+   * page is a verification against World's own credential, and World publishes no
+   * page about a particular wallet, so that link's title says which of the two it
+   * opens rather than letting a reader take it for their own record. The name goes
+   * to the app the runbook administers it in. Same tab, as every explorer link on
+   * this surface already is, and nothing is fetched: these are hrefs, so the page
+   * loads no origin it does not serve.
+   */
+  check(registrationHref("agentbook") === `${WORLDSCAN_ADDRESS}${AGENTBOOK_ON_WORLD_CHAIN}`,
+    `413g · a registration AgentBook answered links to that registry on World Chain (${registrationHref("agentbook")})`);
+  check(registrationHref("worldid") === WORLD_ID_PAGE,
+    `413h · one made in this page links to World's own page about the credential (${registrationHref("worldid")})`);
+  check(registrationHref(null) === null, "413i · and a wallet no source answered for links nowhere (negative control)");
+  check(/not a record of this wallet/.test(registrationHrefTitle("worldid") ?? ""),
+    `413j · with that link saying it is about World ID and not about this wallet (${registrationHrefTitle("worldid")})`);
+  check(/registry on World Chain/.test(registrationHrefTitle("agentbook") ?? ""),
+    `413k · while the registry link says it holds the registration (negative control, ${registrationHrefTitle("agentbook")})`);
+  check(AGENTBOOK_ON_WORLD_CHAIN === AGENTBOOK_ADDRESS_WORLDCHAIN,
+    `413l · the registry linked is the one the lookup reads (${AGENTBOOK_ON_WORLD_CHAIN} against ${AGENTBOOK_ADDRESS_WORLDCHAIN})`);
+  const chipAnchors = [...page.matchAll(/<a className="ag-chip[^"]*" href=\{([^}]*)\}/g)].map(m => m[1]);
+  check(chipAnchors.length === 2, `413m · the two chips are anchors and the third is not (${chipAnchors.join(" | ") || "none"})`);
+  check(!/ag-chip[^>]*target=/.test(page), "413n · opening in the same tab, as the explorer links on this surface do");
+  /*
+   * AND NOTHING LOADS FROM THEM, WHICH IS MORE WAYS THAN A FETCH.
+   *
+   * This searched the shell for a `fetch` naming one of the three, so a preconnect
+   * in the layout and an image from the registry host on the chip both stayed
+   * green: a link element and an `src` load an origin exactly as a fetch does, and
+   * a preconnect reaches the host before anybody clicks anything. Read over every
+   * file under `app`, since the layout is where a link tag would live and this
+   * check only ever looked at the shell.
+   */
+  // The hosts and the names the page holds them under. Matching the literal alone
+  // left an `img` whose src was built from the exported constant green, which is
+  // the same hole one level up: what matters is that the browser reaches the host,
+  // however the string was spelled at the call site.
+  const HOSTS = ["worldscan.org", "world.org", "app.ens.dev", "WORLDSCAN_ADDRESS", "WORLD_ID_PAGE", "ENS_APP"];
+  const appFiles = (function walk(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap(entry =>
+      entry.isDirectory() ? walk(join(dir, entry.name)) : /\.(tsx?|css)$/.test(entry.name) ? [join(dir, entry.name)] : [],
+    );
+  })("app");
+  check(appFiles.length > 3, `413o0 · the app's own files are walked (negative control, ${appFiles.length})`);
+  const LOADERS = /(?:\bsrc\s*=|<iframe|rel=["'](?:preconnect|dns-prefetch|prefetch|preload)["']|@import|url\()/;
+  const loading: string[] = [];
+  for (const file of appFiles) {
+    for (const raw of readFileSync(file, "utf8").split("\n")) {
+      const line = raw.trim();
+      if (!HOSTS.some(h => line.includes(h))) continue;
+      // An href on an anchor is a destination a person chooses. Anything that
+      // makes the browser reach the host on its own is a load.
+      if (LOADERS.test(line) || /rel=\{?["']?(?:preconnect|dns-prefetch|prefetch|preload)/.test(line)) loading.push(`${file}: ${line.slice(0, 60)}`);
+    }
+  }
+  check(loading.length === 0, `413o · and nothing under app loads any of the three, by any tag (${loading.join(" | ") || "none"})`);
+  check(LOADERS.test('<link rel="preconnect" href="https://worldscan.org" />') && LOADERS.test('<img src="https://worldscan.org/x.png" />'),
+    "413o2 · the loader check can see a preconnect and an image (negative control)");
+  check(!LOADERS.test('<a href="https://worldscan.org/address/0x00">chip</a>'),
+    "413o3 · while an anchor a person chooses to follow is not a load (negative control)");
   // A rung and not a button: the settings screen has the connect and the board
   // actions and no third that would do nothing.
   const settingsBlock = page.slice(page.indexOf("function Enrol("), page.indexOf("function Board("));
@@ -736,8 +1037,576 @@ export async function boardChecks(check: Check) {
   // The board never says how many, and the chosen cell travels as day and species.
   const boardBlock = page.slice(page.indexOf("function Board("), page.indexOf("function Records("));
   check(/on offer/.test(boardBlock) && !/\{cell\?\.count|length\}/.test(boardBlock), "280 · a cell says on offer or none and never how many");
-  check(/searchParams\.set\("day", chosen\.day\)/.test(page) && /searchParams\.set\("species", chosen\.species\)/.test(page),
-    "280a · and the chosen cell is what the run reads");
+  // Driven rather than read: one builder makes the url the price is read from and
+  // the url the run pays for, so a cell cannot be priced from one request and read
+  // from another.
+  const cellUrl = windowsUrlFor("https://example.test", { day: "2026-09-04", species: "mexicanum" });
+  check(cellUrl === "https://example.test/api/agent/windows?day=2026-09-04&species=mexicanum",
+    `280a · the chosen cell is what the run reads (${cellUrl})`);
+  check(windowsUrlFor("https://example.test", null) === "https://example.test/api/agent/windows",
+    "280a2 · and no cell asks for the whole snapshot (negative control)");
+  const builders = (page.match(/new URL\("\/api\/agent\/windows"/g) ?? []).length;
+  check(builders === 1, `280a3 · with one place building that url (${builders})`);
+
+  /*
+   * THE CELL'S TWO TIMES, THE WORDS THAT LEFT THEM, AND THE NUMBER IT NEVER
+   * CARRIES.
+   *
+   * How long the recording runs and the span its windows cover, in that order, and
+   * each left out where it is not known rather than guessed. The labels are gone
+   * and the units carry the difference, since a recording runs in minutes or hours
+   * and a window in seconds; the price left this line for a ribbon of its own,
+   * because it is the thing being decided about rather than a fact about the
+   * footage.
+   */
+  const full: BoardCellView = { day: "2026-09-04", species: "mexicanum", onOffer: true, videoId: "vidA", thumbnail: "https://i.ytimg.com/vi/vidA/mqdefault.jpg", recordingSeconds: 10013, windowSeconds: { min: 12, max: 36 } };
+  const line = cellMetaLine(full);
+  check(line === "2 h 47 min · 12 to 36 s", `318 · a cell says how long the recording runs and the span its windows cover (${line})`);
+  check(!/\b5\b/.test(line), `318a · and never how many windows it holds (${line})`);
+  check(!/recording|windows/i.test(line), `318a2 · with neither word read out loud beside its own value (${line})`);
+  check(/recording|windows/i.test("recording 2 h 47 min · windows 12 to 36 s"), "318a3 · the label check can see them (negative control)");
+  const bare = cellMetaLine({ day: "2026-09-04", species: "mexicanum", onOffer: true });
+  check(bare === "", `318b · a cell with nothing known says nothing rather than guessing (${bare || "empty"})`);
+  check(!/USDC|\$/.test(line), `318c · and no price, which is a ribbon on the cell rather than a third fact in this line (${line})`);
+  const single = cellMetaLine({ ...full, windowSeconds: { min: 94, max: 94 } });
+  check(/94 s/.test(single) && !/94 to 94/.test(single), `318d · one span is said once rather than as a range of itself (${single})`);
+  check(readableLength(10013) === "2 h 47 min" && readableLength(600) === "10 min", `318e · a recording's length reads as hours and minutes (${readableLength(10013)})`);
+
+  /*
+   * The thumbnail is the recording's own, and its alt text names the day and the
+   * species and nothing else: a station or an alias there would put on a public
+   * surface exactly what the gate keeps off the wire.
+   */
+  const boardJsx = page.slice(page.indexOf("function Board("), page.indexOf("function Records("));
+  // The alt text itself, extracted and read, rather than the line it sits on: a
+  // field name in it is one way to leak a station and a literal is another, and a
+  // check that only refuses the field names would never see the literal.
+  const alts = [...boardJsx.matchAll(/alt=\{`([^`]*)`\}|alt="([^"]*)"/g)].map(m => m[1] ?? m[2]);
+  check(alts.length === 1 && alts[0] === "The recording for ${day}, ${species}",
+    `319 · the thumbnail names the day and the species in its alt text (${alts.join(" | ") || "none found"})`);
+  const leaky = alts.filter(a => /stationId|specimenAlias|candidates|detector|\bAM ?[0-9]|\bAD\b/i.test(a));
+  check(leaky.length === 0, `319a · and nothing the gate keeps off the wire (${leaky.join(" | ") || "none"})`);
+  check(/\bAM ?[0-9]/i.test("The recording for AM 1"), "319a2 · the station check can see one (negative control)");
+  // Anchored on the condition itself. Reading the block for `on &&` matched the
+  // meta line's own guard, so dropping it from the thumbnail left the check green.
+  check(/\{on && cell\?\.thumbnail !== undefined && \(/.test(boardJsx),
+    "319b · drawn only for a cell on offer that has one");
+  /*
+   * WHAT A PAID READ RETURNS, COUNTED.
+   *
+   * The cell reached the challenge and never the read: a person chose one cell,
+   * signed for it, and the run was served the whole snapshot, five days for the
+   * price of one cell. Driven through the same handler the run calls, with the
+   * cell's own count as the measure and the whole snapshot as the control, so a
+   * url that quietly stops carrying the cell is a number that changes here.
+   */
+  const wholeSnapshot = loadSnapshot();
+  const oneCell = cellOf(wholeSnapshot, "2026-09-03", "mexicanum");
+  check(oneCell.length > 0 && oneCell.length < wholeSnapshot.length,
+    `320 · a cell is a part of the snapshot and not all of it (${oneCell.length} of ${wholeSnapshot.length})`);
+  const runUrl = runWindowsUrlFor("http://127.0.0.1/api/agent/run?day=2026-09-03&species=mexicanum");
+  check(runUrl.endsWith("?day=2026-09-03&species=mexicanum"),
+    `320a · the url the run builds carries the cell it was paid for (${runUrl})`);
+  // Past the cell check, which is what says the run asked for that cell. Whether
+  // the payment path then answers 402 or 503 is the facilitator's and is asserted
+  // elsewhere, which is the standard 272c holds this to.
+  const cellAnswer = await windowsGET(new Request(runUrl));
+  check(cellAnswer.status !== 404 && cellAnswer.status !== 400,
+    `320b · and that cell is one the route serves (${cellAnswer.status})`);
+  // The url a run with no cell would have asked for, which is the whole snapshot,
+  // and the route answers it: that is the behaviour the refusal now stands in front
+  // of, kept here as the measure of what was being given away.
+  const snapshotUrl = runWindowsUrlFor("http://127.0.0.1/api/agent/run");
+  check(snapshotUrl === "http://127.0.0.1/api/agent/windows" && !namesACell("http://127.0.0.1/api/agent/run"),
+    `320c · a run naming no cell asks for the whole snapshot, which is why the route refuses one (${snapshotUrl})`);
+  const bodyForCell = JSON.stringify(await cellAnswer.json());
+  check(!/"windowId"/.test(bodyForCell), "320d · and nothing is served before it is paid for (negative control)");
+  // The refusal itself, driven through the route rather than through the rule it
+  // calls: a run that names no cell is turned away instead of being handed the
+  // snapshot, which is what it used to be handed.
+  const cellless = await runPOST(new Request("http://127.0.0.1/api/agent/run", { method: "POST" }));
+  check(cellless.status === 400, `320e · a run naming no cell is refused (${cellless.status})`);
+  const halfCell = await runPOST(new Request("http://127.0.0.1/api/agent/run?day=2026-09-03", { method: "POST" }));
+  check(halfCell.status === 400, `320f · and so is one naming half of one (${halfCell.status})`);
+  const withCell = await runPOST(new Request("http://127.0.0.1/api/agent/run?day=2026-09-03&species=mexicanum", { method: "POST" }));
+  check(withCell.status !== 400, `320g · while a run naming a cell is not (negative control, ${withCell.status})`);
+  await withCell.body?.cancel();
+  /*
+   * And the page's own half, which is the half a browser runs.
+   *
+   * The route refuses a run with no cell and the url builder carries one, and both
+   * are beside the point if the page never sends it: removing the cell from the
+   * post left every check above green, because none of them is the browser.
+   */
+  const postStart = page.indexOf('new URL("/api/agent/run"');
+  const postEnd = page.indexOf("if (!response.body)", postStart);
+  check(postStart > 0 && postEnd > postStart, "320h · the page's run request is found (negative control for the slice)");
+  const runPost = page.slice(postStart, postEnd);
+  check(/searchParams\.set\("day", chosen\.day\)/.test(runPost) && /searchParams\.set\("species", chosen\.species\)/.test(runPost),
+    "320i · and the page sends the chosen cell with the run it pays for");
+  check(/fetch\(runUrl\.toString\(\), \{ method: "POST"/.test(runPost),
+    "320j · posting that url rather than a second one built beside it");
+
+  /*
+   * WHERE THIS WALLET'S OWN AGENT HAS BEEN, AND NOBODY ELSE'S.
+   *
+   * The row is thin on purpose: a cell, a payer, how it was paid for, what came of
+   * it and when. No window, no station, no alias, because the windows are the thing
+   * being sold and the thing the gate screens, and a table that remembered which
+   * ones a person received would put exactly that behind an address the board reads
+   * from. And no count of anything, for the reason the board serves none.
+   */
+  const MINE = "0x1111111111111111111111111111111111111aaa";
+  const THEIRS = "0x1111111111111111111111111111111111111bbb";
+  const rows: RunRow[] = [];
+  const asked: string[] = [];
+  setRunsStoreForTest({
+    record: async row => {
+      rows.push({ ...row, ranAt: row.ranAt.toISOString() });
+    },
+    marksFor: async payer => {
+      asked.push(String(payer));
+      const seen = new Map<string, RunMark>();
+      for (const r of rows) {
+        if (r.payer.toLowerCase() !== payer.toLowerCase()) continue;
+        const key = `${r.day}|${r.species}`;
+        const kept = seen.get(key);
+        if (kept === undefined || kept.ranAt < r.ranAt) seen.set(key, { day: r.day, species: r.species, outcome: r.outcome, clipId: r.clipId, ranAt: r.ranAt });
+      }
+      return [...seen.values()];
+    },
+  });
+
+  const paidStep: RunStep = { step: "paid", free: false, transaction: "0xabc", network: "eip155:84532" };
+  const proposedRun = runOutcome([paidStep, { step: "proposed", id: 261, clipHash: "0xhash", status: "proposed" }]);
+  check(proposedRun?.outcome === "proposed" && proposedRun.clipId === 261 && proposedRun.free === false && proposedRun.txHash === "0xabc",
+    `321 · a run that proposed is recorded as proposed, with its clip (${JSON.stringify(proposedRun)})`);
+  const duplicateRun = runOutcome([{ step: "paid", free: true }, { step: "declined", kind: "duplicate", detail: "" }]);
+  check(duplicateRun?.outcome === "declined:duplicate" && duplicateRun.free === true && duplicateRun.txHash === null && duplicateRun.clipId === null,
+    `321a · a declined run keeps its kind, and a free read carries no transaction (${JSON.stringify(duplicateRun)})`);
+  check(runOutcome([{ step: "presenting" }, { step: "payment-refused", status: 402, detail: "" }]) === null,
+    "321b · a run the route never served leaves no row, because it read nothing");
+  check(runOutcome([{ step: "paid", free: false }]) === null,
+    "321c · and a settled read with no transaction is not recorded as free (negative control)");
+  const rowKeys = Object.keys(proposedRun ?? {}).sort().join(",");
+  check(rowKeys === "clipId,free,outcome,txHash", `321d · a row carries those four facts and nothing about a window (${rowKeys})`);
+
+  const record = async (payer: string, day: string, species: string, outcome: RunOutcome, at: string) => {
+    const store = runsStoreFrom();
+    await store?.record({ payer, day, species, ...outcome, ranAt: new Date(at) });
+  };
+  await record(MINE, "2026-09-03", "mexicanum", { free: true, txHash: null, outcome: "proposed", clipId: 261 }, "2026-09-13T05:12:00Z");
+  await record(THEIRS, "2026-09-03", "dumerilii", { free: true, txHash: null, outcome: "proposed", clipId: 999 }, "2026-09-13T05:20:00Z");
+  check(rows.length === 2, `321e · two runs recorded leave two rows (${rows.length})`);
+  /*
+   * ONE SERVED RUN WRITES ONE ROW, COUNTED.
+   *
+   * Counting rows after two calls proves that two calls made two rows and nothing
+   * about how many a run makes: a second write in the finalizer would have left it
+   * green. The write is its own function for that reason, since a route handler is
+   * somewhere a check cannot reach, and here the calls are counted.
+   */
+  const servedRun: RunStep[] = [{ step: "paid", free: true }, { step: "proposed", id: 262, clipHash: "0xh", status: "proposed" }];
+  const writesBefore = rows.length;
+  await recordRun({ outcome: runOutcome(servedRun), payer: MINE, day: "2026-09-05", species: "mexicanum", store: runsStoreFrom(), at: new Date("2026-09-13T06:00:00Z") });
+  check(rows.length === writesBefore + 1, `321f · one served run writes exactly one row (${rows.length - writesBefore})`);
+  await recordRun({ outcome: runOutcome([{ step: "presenting" }]), payer: MINE, day: "2026-09-05", species: "mexicanum", store: runsStoreFrom(), at: new Date() });
+  check(rows.length === writesBefore + 1, "321g · a run the route never served writes none (negative control)");
+  await recordRun({ outcome: runOutcome(servedRun), payer: null, day: "2026-09-05", species: "mexicanum", store: runsStoreFrom(), at: new Date() });
+  check(rows.length === writesBefore + 1, "321h · nor one whose header named no payer");
+  await recordRun({ outcome: runOutcome(servedRun), payer: MINE, day: "2026-09-05", species: "mexicanum", store: null, at: new Date() });
+  check(rows.length === writesBefore + 1, "321i · and no store configured writes nothing and throws nothing");
+  const finalizer = readFileSync("app/api/agent/run/route.ts", "utf8");
+  const calls = (finalizer.match(/recordRun\(/g) ?? []).length;
+  check(calls === 1, `321j · the route calls it once (${calls})`);
+  rows.length = writesBefore;
+
+  const mineBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`))).json()) as { cells: Record<string, unknown>[] };
+  const myMarks = mineBoard.cells.filter(c => c.read !== undefined);
+  check(myMarks.length === 1 && (myMarks[0] as { day: string }).day === "2026-09-03" && (myMarks[0] as { species: string }).species === "mexicanum",
+    `322 · the board marks the cell this payer read (${JSON.stringify(myMarks)})`);
+  check(!JSON.stringify(mineBoard).includes("999"), "322a · and carries nothing of another payer's runs (negative control)");
+  const theirsBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${THEIRS}`))).json()) as { cells: Record<string, unknown>[] };
+  check(theirsBoard.cells.filter(c => c.read !== undefined).length === 1 && JSON.stringify(theirsBoard).includes("999"),
+    "322b · while that payer sees its own (negative control)");
+  const anonymous = (await (await boardGET(new Request("http://127.0.0.1/api/agent/board"))).json()) as { cells: Record<string, unknown>[] };
+  check(anonymous.cells.every(c => c.read === undefined), "322c · a board asked without a payer carries no marks at all");
+  // And the table is not asked at all, which is the property the guard carries: a
+  // store asked about nobody answers nothing either way, so the absence of marks
+  // alone cannot tell whether the guard is there.
+  const askedBefore = asked.length;
+  await boardGET(new Request("http://127.0.0.1/api/agent/board"));
+  check(asked.length === askedBefore, `322c2 · and the table is never asked (${asked.length - askedBefore} asks)`);
+  await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`));
+  check(asked.length === askedBefore + 1, "322c3 · while a board naming a payer asks once (negative control)");
+  const markKeys = [...new Set(myMarks.flatMap(c => Object.keys(c.read as object)))].sort().join(",");
+  check(markKeys === "clipId,outcome,ranAt", `322d · a mark carries what came of the run and when, and nothing else (${markKeys})`);
+  const planted = servedCell({ day: "2026-09-03", species: "mexicanum", onOffer: true, read: { outcome: "proposed", clipId: 1, ranAt: "2026-09-13T05:12:00Z", stationId: "AM 1", specimenAlias: "Alfa" } } as never);
+  check(!JSON.stringify(planted).includes("AM 1") && !JSON.stringify(planted).includes("Alfa"),
+    `322e · and a station or an alias planted in a row is refused by the shape (${JSON.stringify(planted.read)})`);
+
+  /*
+   * WHETHER THAT CLIP IS ANCHORED, ASKED OF THE ANCHOR STORE AND NEVER INFERRED.
+   *
+   * The board's fourth stage is a separate event with a separate store, so it is
+   * read rather than derived from the proposal existing. Only the clips this
+   * payer's own runs produced are looked up, which are the ids already on this
+   * payer's own marks, so no identifier that was not going to be served is asked
+   * about. And a half finished anchor is not done: a row written before the first
+   * transaction and never completed is the state the High finding on `claim` was
+   * about, and reading it as anchored is that confusion again.
+   */
+  const lookedUp: number[] = [];
+  const anchorRows = new Map<number, AnchorRow>();
+  const signedStub = { clipId: 0 } as never;
+  anchorRows.set(261, { clipId: 261, uid: "0xu", clipHash: "0xh", schemaUid: "0xs", attester: "0xa", signed: signedStub, attestTx: "0xt", onchainUid: "0xo" });
+  setStoreForTest({
+    claim: async () => ({ fresh: false, row: anchorRows.get(261) as AnchorRow }),
+    byClipId: async clipId => {
+      lookedUp.push(clipId);
+      return anchorRows.get(clipId) ?? null;
+    },
+    complete: async () => undefined,
+    byUid: async () => null,
+  });
+  const anchoredBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`))).json()) as { cells: Record<string, unknown>[] };
+  const anchoredMark = anchoredBoard.cells.find(c => c.read !== undefined)?.read as { attested?: boolean } | undefined;
+  check(anchoredMark?.attested === true, `410 · a clip the anchor store has finished rides on the mark as attested (${JSON.stringify(anchoredMark)})`);
+  check(lookedUp.join(",") === "261", `410a · asked only about the clip this payer's own run produced (${lookedUp.join(", ") || "none"})`);
+  check(!lookedUp.includes(999), "410a2 · and never about another payer's (negative control)");
+
+  // A row with no attestation transaction is a half anchor. `nextAction` decides
+  // it, the same function the anchoring run decides on, rather than a second rule.
+  anchorRows.set(261, { clipId: 261, uid: "0xu", clipHash: "0xh", schemaUid: "0xs", attester: "0xa", signed: signedStub, timestampTx: "0xtt" });
+  const halfBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`))).json()) as { cells: Record<string, unknown>[] };
+  const halfMark = halfBoard.cells.find(c => c.read !== undefined)?.read as { attested?: boolean } | undefined;
+  check(halfMark?.attested === false, `410b · a half finished anchor is carried as not attested rather than as anchored (${JSON.stringify(halfMark)})`);
+  check(nextAction(anchorRows.get(261) as AnchorRow) !== "done", "410b2 · which is the anchoring run's own reading of that row (negative control)");
+
+  /*
+   * A STORE THAT ANSWERS NOTHING AND A STORE THAT CANNOT ANSWER ARE TWO THINGS.
+   *
+   * No row for a clip is an answer: nothing has been anchored for it, which is
+   * what `nextAction` says of a null row, so the mark carries not attested. A read
+   * that threw is not an answer and leaves the key off, and the bar reads an
+   * absent key as not seen rather than as no.
+   */
+  anchorRows.delete(261);
+  const unknownBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`))).json()) as { cells: Record<string, unknown>[] };
+  const unknownMark = unknownBoard.cells.find(c => c.read !== undefined)?.read as { attested?: boolean } | undefined;
+  check(unknownMark?.attested === false, `410c · a clip the store has no row for is not attested, because the store answered (${JSON.stringify(unknownMark)})`);
+  check(nextAction(null) !== "done", "410c2 · which is the anchoring run's own reading of no row (negative control)");
+
+  setStoreForTest({
+    claim: async () => ({ fresh: false, row: signedStub }),
+    byClipId: async () => {
+      throw new Error("the anchor store is unavailable");
+    },
+    complete: async () => undefined,
+    byUid: async () => null,
+  });
+  const brokenBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`))).json()) as { cells: Record<string, unknown>[] };
+  const brokenMark = brokenBoard.cells.find(c => c.read !== undefined)?.read as Record<string, unknown> | undefined;
+  check(brokenMark !== undefined && !("attested" in brokenMark),
+    `410c3 · while a store that threw leaves the key off, which is not an answer (${JSON.stringify(brokenMark)})`);
+
+  setStoreForTest(null);
+  const noStoreBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`))).json()) as { cells: Record<string, unknown>[] };
+  const noStoreMark = noStoreBoard.cells.find(c => c.read !== undefined)?.read as Record<string, unknown> | undefined;
+  check(noStoreMark !== undefined && !("attested" in noStoreMark), `410d · and no store configured serves the mark without it rather than failing the board (${JSON.stringify(noStoreMark)})`);
+  setStoreForTest(undefined);
+
+  const plantedAnchor = servedCell({ day: "2026-09-03", species: "mexicanum", onOffer: true, read: { outcome: "proposed", clipId: 1, ranAt: "2026-09-13T05:12:00Z", attested: true } } as never);
+  check((plantedAnchor.read as { attested?: boolean })?.attested === true, "410e · the served shape carries the answer through rather than dropping it");
+  setRunsStoreForTest(undefined);
+
+  /*
+   * HOW FAR A CELL GOT, AS FOUR EVENTS AND NOT AS ONE WORD.
+   *
+   * Four sources: the runs table, the run's own outcome, Zenbit's public list and
+   * the anchor store. None is inferred from the one before it, which is the whole
+   * reason the bar has four segments; driven here on the same read with three
+   * different answers from the last two, so a stage that filled itself forward
+   * from the one before shows.
+   */
+  const proposedRead = { outcome: "proposed", clipId: 261, ranAt: "2026-09-13T05:12:00Z" };
+  check(LIFECYCLE.join(",") === "read,proposed,confirmed,attested", `323 · four events in order (${LIFECYCLE.join(", ")})`);
+  const waiting = lifecycleOf(proposedRead, new Set<number>());
+  check(waiting.join(",") === "done,done,not seen,not seen", `323a · a proposal the public list does not carry is read and proposed and no further (${waiting.join(", ")})`);
+  const listUnread = lifecycleOf(proposedRead, null);
+  check(listUnread.join(",") === waiting.join(","), `323a2 · and a list nobody could read leaves it exactly there rather than further or worse (${listUnread.join(", ")})`);
+  const confirmedOnly = lifecycleOf(proposedRead, new Set([261]));
+  check(confirmedOnly.join(",") === "done,done,done,not seen", `323b · a clip the list carries is confirmed and not yet attested (${confirmedOnly.join(", ")})`);
+  const anchoredToo = lifecycleOf({ ...proposedRead, attested: true }, new Set([261]));
+  check(anchoredToo.join(",") === "done,done,done,done", `323b2 · and the anchor's own answer is what fills the fourth (${anchoredToo.join(", ")})`);
+  /*
+   * AND THE ANCHOR ANSWERS FOR BOTH OF THE LAST TWO.
+   *
+   * An attestation is of a confirmation: Zenbit anchors the reviewer's own signed
+   * decision, so a clip this deployment has anchored was confirmed by a person
+   * whatever the public list carries. This check said the opposite, and the state
+   * it got wrong is real: the list returns the fifty most recent, so a clip that
+   * falls out of the fifty was drawn as not seen for both stages while Zenbit held
+   * its own record of the confirmation.
+   */
+  const attestedAlone = lifecycleOf({ ...proposedRead, attested: true }, new Set<number>());
+  check(attestedAlone.join(",") === "done,done,done,done",
+    `323b3 · a clip the chain carries is confirmed and attested however old it is, since the list keeps only fifty (${attestedAlone.join(", ")})`);
+  const attestedUnread = lifecycleOf({ ...proposedRead, attested: true }, null);
+  check(attestedUnread.join(",") === "done,done,done,done",
+    `323b3b · and a list nobody could read takes nothing away from what the chain says (${attestedUnread.join(", ")})`);
+  check(confirmedOnly.join(",") === "done,done,done,not seen",
+    `323b3c · while the list is still the source for a confirmed clip that is not anchored (negative control, ${confirmedOnly.join(", ")})`);
+  /*
+   * And nothing reaches past a stop, whatever the two later sources say.
+   *
+   * The wire cannot produce this today: a mark carries an anchor answer only where
+   * it carries a clip id, and a clip id only where the run proposed. It is held
+   * anyway, because the guard is one line and removing it changed no check: a bar
+   * drawing confirmed and attested under a run that stopped is exactly the chain
+   * that has not happened.
+   */
+  const stoppedYetAnchored = lifecycleOf({ outcome: "declined:duplicate", clipId: null, attested: true }, new Set([261]));
+  check(stoppedYetAnchored.join(",") === "done,stopped,not reached,not reached",
+    `323b3d · a run that stopped reaches nothing past the stop, whatever the chain and the list carry (${stoppedYetAnchored.join(", ")})`);
+  const readYetAnchored = lifecycleOf({ outcome: "read", clipId: null, attested: true }, new Set([261]));
+  check(readYetAnchored.join(",") === "done,not seen,not reached,not reached",
+    `323b3e · and nor does one that only read (negative control, ${readYetAnchored.join(", ")})`);
+  /*
+   * NOT REACHED IS NOT NOT SEEN, AND IT CARRIES NO REASON.
+   *
+   * A run that never proposed has no clip for the list to carry or the chain to
+   * anchor, so saying those two did not see it suggests they looked. The reason
+   * explains the list, and there is nothing about the list to explain here.
+   */
+  const stoppedStages = lifecycleOf({ outcome: "not-submitted", clipId: null }, new Set<number>());
+  check(stoppedStages.slice(2).every(x => x === "not reached"),
+    `319g · a stopped run's later stages are not reached rather than not seen (${stoppedStages.join(", ")})`);
+  check(stoppedStages.every((_, i) => reasonForStage(stoppedStages, i) === undefined),
+    "319h · and not one of them carries the list's reason");
+  /*
+   * And for a proposal the list does not carry, the reason is said once, on the
+   * only stage the list could have filled. The anchor stage being unseen is the
+   * anchor store's silence, not the list's.
+   */
+  const unconfirmedStages = lifecycleOf(proposedRead, new Set<number>());
+  const withReason = unconfirmedStages.map((_, i) => reasonForStage(unconfirmedStages, i)).filter(x => x !== undefined);
+  check(withReason.length === 1, `319i · a proposal the list does not carry says why once (${withReason.length} stages)`);
+  check(reasonForStage(unconfirmedStages, LIFECYCLE.indexOf("confirmed")) === NOT_SEEN_REASON,
+    "319j · on the confirmed stage, which is the one the list could have filled");
+  check(reasonForStage(unconfirmedStages, LIFECYCLE.indexOf("attested")) === undefined,
+    "319k · and not on the anchor's, whose silence is the anchor store's and not the list's");
+  const confirmedStages = lifecycleOf(proposedRead, new Set([261]));
+  check(confirmedStages.map((_, i) => reasonForStage(confirmedStages, i)).filter(x => x !== undefined).length === 0,
+    `319l · while a confirmed clip carries it nowhere (negative control, ${confirmedStages.join(", ")})`);
+  const otherClip = lifecycleOf(proposedRead, new Set([260]));
+  check(otherClip[2] === "not seen", `323b4 · and the list is matched on this clip rather than on carrying any (${otherClip.join(", ")})`);
+
+  /*
+   * NOT SEEN IS NEVER REJECTED, ANYWHERE.
+   *
+   * The list serves confirmed rows only and returns the fifty most recent, so a
+   * proposal missing from it is waiting on a person, refused by one, or older than
+   * fifty, and nothing here holds those apart. Over every outcome the run can
+   * write plus one it cannot, because the branch nobody drives is the branch
+   * nobody guards, and a count planted in a fallback stayed green once already.
+   */
+  const everyOutcome = ["proposed", "declined:duplicate", "declined:refused", "declined:rejected", "cell-spent", "nothing-proposable", "not-submitted", "read", "something-new"];
+  const everyLine = everyOutcome.map(outcome => lifecycleLine({ outcome, clipId: outcome === "proposed" ? 261 : null, ranAt: "2026-09-13T05:12:00Z" }, lifecycleOf({ outcome, clipId: outcome === "proposed" ? 261 : null }, new Set<number>())));
+  const judged = everyLine.filter(l => /\breject|\brefused\b|\bturned down\b/i.test(l));
+  check(judged.length === 0, `323c · no sentence turns an absence from the list into a decision (${judged.join(" | ") || "none"})`);
+  check(/\breject/i.test("your agent proposed clip 261, rejected"), "323c2 · the decision check can see one (negative control)");
+  const counted = everyLine.filter(l => /\d+\s*(windows|reads|clips)\b/.test(l));
+  check(counted.length === 0, `323c3 · and no branch counts anything (${counted.join(" | ") || "none"})`);
+  check(/\d+\s*windows\b/.test("your agent read it, 5 windows · 05:12 UTC"), "323c4 · the count check can see one (negative control)");
+  check(everyLine.every(l => /05:12 UTC$/.test(l) && l.startsWith("your agent")), `323d · and every branch says whose agent and when (${everyLine.length} branches)`);
+  check(lifecycleLine(proposedRead, waiting) === "your agent proposed clip 261, not seen in the public list · 05:12 UTC",
+    `323d2 · a proposal the list does not carry says not seen (${lifecycleLine(proposedRead, waiting)})`);
+  check(lifecycleLine(proposedRead, anchoredToo) === "your agent proposed clip 261, a person confirmed it, and it is attested · 05:12 UTC",
+    `323d3 · and one the chain carries says so (${lifecycleLine(proposedRead, anchoredToo)})`);
+
+  /*
+   * A run that stopped says why, in the run's own vocabulary rather than in a
+   * second one grown on the board.
+   */
+  const duplicateStages = lifecycleOf({ outcome: "declined:duplicate", clipId: null }, null);
+  check(duplicateStages[1] === "stopped", `323e · a run that ended before proposing is drawn as stopped, not as unseen (${duplicateStages.join(", ")})`);
+  check(lifecycleOf({ outcome: "read", clipId: null }, null)[1] === "not seen",
+    "323e2 · while a run the board has no stop for says nothing about why (negative control)");
+  check(stopReason("declined:duplicate") === "already a clip" && stopReason("cell-spent") === "already a clip",
+    `323e3 · a window already made into a clip says so either way it is reported (${stopReason("declined:duplicate")})`);
+  check(stopReason("declined:anything") === "declined" && stopReason("proposed") === null,
+    `323e4 · a refusal says declined and a proposal is not a stop (${stopReason("declined:anything")})`);
+
+  /*
+   * THE BOARD CARRIES NO PROSE OF ITS OWN, AND NOTHING IT SAID IS LOST.
+   *
+   * It carried an instruction, which is the interface read out loud over a grid
+   * of days and species with a control in every cell, and two claims. The claim
+   * the grid cannot make, that the agent picks the window, is the board's own
+   * head line and was already there. The other, why an unseen mark is not a
+   * decision, moved onto the stage that needs it, so it is read by somebody
+   * looking at an unseen cell rather than by everybody arriving.
+   */
+  check(!/Choose a day and a species/i.test(boardJsx), "405 · the board no longer tells a person to choose a cell from a grid of cells");
+  // Every paragraph of this kind in the board is an early return for a state that
+  // has no grid to draw, so counting them against the returns says that none
+  // stands over the grid itself, without naming the four states here.
+  const boardParagraphs = (boardJsx.match(/<p className="xv-desc ag-empty">/g) ?? []).length;
+  const emptyReturns = (boardJsx.match(/return <p className="xv-desc ag-empty">/g) ?? []).length;
+  check(boardParagraphs > 0 && boardParagraphs === emptyReturns,
+    `405a · and every paragraph it has is an empty state, so none stands over the grid (${boardParagraphs} of ${emptyReturns})`);
+  const headsAt = page.indexOf("const HEADS");
+  const headsBlock = headsAt === -1 ? "" : page.slice(headsAt, page.indexOf("};", headsAt));
+  const boardHead = /board: \{[^}]*sub: "([^"]*)"/.exec(headsBlock)?.[1] ?? "";
+  check(boardHead.length > 0, `405b0 · the board's head line is found (negative control for the read, ${boardHead})`);
+  check(/The agent chooses the window and forms the proposal/.test(boardHead),
+    `405b · while the claim the grid cannot make stays, in the board's own head (${boardHead})`);
+  /*
+   * The reason is one constant, and both the pointer and the screen reader are
+   * given that same constant rather than two copies of one sentence.
+   */
+  check(/confirmed clips only, and the fifty most recent/.test(NOT_SEEN_REASON),
+    `405c · the reason says the list holds confirmed clips only and fifty of them (${NOT_SEEN_REASON})`);
+  const reasonCopies = (page.match(/confirmed clips only, and the fifty most recent/g) ?? []).length;
+  check(reasonCopies === 1, `405d · written once in the page and read from there twice (${reasonCopies})`);
+  check(/title=\{reasonForStage\(stages, i\)\}/.test(boardJsx),
+    "405e · a pointer gets it as the stage's own title, from the one rule that decides which stage carries it");
+  check(/reasonForStage\(stages, i\) === undefined \? "" : `\. \$\{NOT_SEEN_REASON\}`/.test(boardJsx),
+    "405f · and a screen reader gets the same constant through the same rule, in the words the cell carries");
+  /*
+   * Counted over the words the cell would actually say, so the sentence is heard
+   * once rather than once per unseen stage.
+   */
+  const saidFor = (stages: ReturnType<typeof lifecycleOf>) =>
+    LIFECYCLE.map((stage, i) => `${stage}: ${stages[i]}${reasonForStage(stages, i) === undefined ? "" : `. ${NOT_SEEN_REASON}`}`).join(" ");
+  const unseenSaid = saidFor(lifecycleOf(proposedRead, new Set<number>()));
+  check((unseenSaid.match(/confirmed clips only, and the fifty most recent/g) ?? []).length === 1,
+    `405f2 · the cell says the reason once in its own name (${(unseenSaid.match(/confirmed clips only/g) ?? []).length})`);
+  const stoppedSaid = saidFor(lifecycleOf({ outcome: "not-submitted", clipId: null }, new Set<number>()));
+  check(!/confirmed clips only/.test(stoppedSaid), `405f3 · and a stopped run's name carries it nowhere (${stoppedSaid})`);
+  const hiddenRule = /\.ag-said\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(hiddenRule.length > 0 && /clip-path:\s*inset\(50%\)/.test(hiddenRule) && /position:\s*absolute/.test(hiddenRule),
+    `405g · those words are clipped rather than hidden, so they are said and not drawn (${hiddenRule.replace(/\s+/g, " ").trim().slice(0, 60)})`);
+  check(/\.ag-board-cell:focus-visible \.ag-life-seg\[data-state="not seen"\]::after\s*\{[^}]*content:\s*attr\(title\)/.test(css),
+    "405h · and a keyboard is shown the same attribute, since no browser shows a title on focus");
+
+  /*
+   * The legend is gone with it. Two hues named over every screen, where a person
+   * meets both on the cards themselves and the run's own rail names its actors.
+   */
+  check(!/ag-key/.test(page), "405i · and the hue legend no longer stands over every screen");
+  check(!/ag-key/.test(css), "405j · with no rule left for it either");
+
+  /*
+   * THE PRICE IS A RIBBON ON THE CELL, NOT A THIRD FACT ABOUT THE FOOTAGE.
+   *
+   * It is the thing a person is deciding about, and it read as a third property of
+   * the recording at the end of a line of two. Positioned on the cell, which is
+   * why the cell is the positioned element and the ribbon is not in its column.
+   */
+  check(/<span className="ag-board-price">\{priceForCell\}<\/span>/.test(boardJsx),
+    "406 · the price is drawn as its own element rather than inside the cell's line");
+  const priceRule = /\.ag-board-price\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(priceRule.length > 0, `406a · and it has a rule (negative control for the read, ${priceRule.length})`);
+  check(/position:\s*absolute/.test(priceRule) && /top:/.test(priceRule) && /right:/.test(priceRule),
+    `406b · placed on the cell's upper right (${/top:[^;]*/.exec(priceRule)?.[0] ?? "none"}, ${/right:[^;]*/.exec(priceRule)?.[0] ?? "none"})`);
+  const cellRule = /\.ag-board-cell\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(/position:\s*relative/.test(cellRule), "406c · against the cell it prices, which is the positioned element");
+
+  /*
+   * THE TWO TIMES SIT WITH THE SPECIES AND THE PILL, ON ONE ROW.
+   *
+   * They were a caption under the cell's name and its state, which read as a
+   * second thing about a first. Held on the markup rather than on the rule, since
+   * a row that carries the three is what the order is.
+   */
+  /*
+   * Bounded by the row's own closing tag, found by its indentation.
+   *
+   * The first version stopped at the first `</span>`, which belongs to the species
+   * nested inside, and gave a row of one. The second ran to the bar after it,
+   * which meant moving the times out of the row and under it left them inside the
+   * slice: the check could not see its own mutation, which is the whole thing it
+   * exists to catch. JSX in this file closes at the indentation it opened at, and
+   * the two controls below hold that the block is the row and stops at it.
+   */
+  const rowAt = boardJsx.indexOf('<span className="ag-board-row">');
+  const rowIndent = rowAt === -1 ? 0 : rowAt - (boardJsx.lastIndexOf("\n", rowAt) + 1);
+  const rowEnd = rowAt === -1 ? -1 : boardJsx.indexOf(`\n${" ".repeat(rowIndent)}</span>`, rowAt);
+  const rowBlock = rowAt === -1 || rowEnd === -1 ? "" : boardJsx.slice(rowAt, rowEnd);
+  check(rowBlock.length > 0 && rowBlock.length < boardJsx.length / 4, `407 · the cell's row is found and is a row (negative control for the read, ${rowBlock.length})`);
+  check(!/ag-life|ag-board-read|ag-board-thumb/.test(rowBlock),
+    "407a0 · and stops at the row, so what follows it is outside this read (negative control)");
+  const order = ["ag-board-name", "ag-chip", "ag-board-meta"].map(c => rowBlock.indexOf(c));
+  check(order.every(i => i >= 0) && order[0] < order[1] && order[1] < order[2],
+    `407a · carrying the species, then the pill, then the times (${order.join(", ")})`);
+  const rowRule = /\.ag-board-row\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(/display:\s*flex/.test(rowRule) && /flex-wrap:\s*wrap/.test(rowRule),
+    `407b · laid out as one row that wraps rather than as a column (${rowRule.replace(/\s+/g, " ").trim().slice(0, 60)})`);
+  const metaRule = /\.ag-board-meta\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(!/margin-top/.test(metaRule), `407c · and the times no longer push themselves onto a line of their own (${metaRule.replace(/\s+/g, " ").trim().slice(0, 60)})`);
+
+  /*
+   * THE MARK IS A BAR OF FOUR EVENTS, AND THE BAR CARRIES NO WORDS.
+   *
+   * A colour cannot say why a run stopped and must not be asked to, so the bar is
+   * four states and the sentence under it is the run's own. Hidden from assistive
+   * technology, because the sentence says everything it says and a screen reader
+   * hearing four unlabelled segments hears nothing.
+   */
+  const barAt = boardJsx.indexOf('<span className="ag-life">');
+  const bar = barAt === -1 ? "" : boardJsx.slice(barAt, boardJsx.indexOf("ag-board-read", barAt));
+  check(bar.length > 0 && bar.length < boardJsx.length / 4, `408 · the bar is found and is the bar (negative control for the read, ${bar.length})`);
+  check(!/aria-hidden/.test(bar), "408a0 · and is not hidden from a screen reader, since its stages are how far the run got");
+  check(/LIFECYCLE\.map/.test(bar) && /data-state=\{stages\[i\]\}/.test(bar),
+    "408a · one segment per event, read off the array and the states rather than written out");
+  const segRules = [...css.matchAll(/\.ag-life-seg(\[data-state="([^"]+)"\])?\s*\{([^}]*)\}/g)];
+  const stated = segRules.map(m => m[2] ?? "base");
+  check(stated.includes("base") && stated.includes("done") && stated.includes("stopped"),
+    `408b · with a rule for the base, for done and for stopped (${stated.join(", ")})`);
+  check(!stated.includes("not seen"), "408c · and none for not seen, which is the absence of a state rather than one of its own");
+  check(/<span className="ag-board-read">\{lifecycleLine\(cell\.read, stages\)\}<\/span>/.test(boardJsx),
+    "408d · the sentence under it is built from the same stages the bar draws, so the two cannot disagree");
+
+  /*
+   * THE BORDER SAYS WHICH OF TWO THINGS HAPPENED, AND STOPS WHEN ONE DID.
+   *
+   * Gold while the agent's proposal waits on a person and teal once one decided,
+   * and the motion stops there: a border still breathing after a decision would
+   * say something is still happening. Only `opacity` moves, on a pseudo element,
+   * because animating a box shadow is a paint on every frame.
+   */
+  const lifeAttr = /data-life=\{([^\n]*)\}/.exec(boardJsx)?.[1] ?? "";
+  check(lifeAttr.length > 0, `409 · the cell reports its own lifecycle to the stylesheet (negative control for the read, ${lifeAttr})`);
+  check(/stages\[2\] === "done" \? "confirmed"/.test(lifeAttr) && /stages\[1\] === "done" \? "proposed"/.test(lifeAttr),
+    `409a · confirmed where a person decided and proposed where one has not (${lifeAttr})`);
+  check(/stages === null \? undefined/.test(lifeAttr), "409b · and nothing at all on a cell nobody has read");
+  const glow = /\.ag-board-cell\[data-life\]::after\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  const decided = /\.ag-board-cell\[data-life="confirmed"\]::after\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(glow.length > 0 && decided.length > 0, `409c · the border's two rules are found (negative control for the reads, ${glow.length}/${decided.length})`);
+  check(/var\(--color-xv-agent\)/.test(glow) && /var\(--color-primary\)/.test(decided),
+    "409d · the agent's own hue while it waits and teal once a person decided, from the tokens rather than as literals");
+  /*
+   * AND IT DOES NOT MOVE, IN ANY STATE.
+   *
+   * It breathed while a proposal waited. A board of cells breathing at a reader is
+   * motion reporting nothing that is happening: the proposal is not moving, it is
+   * waiting, and the founder read the pulse as the page working. Read over every
+   * rule that mentions the cell rather than over the two above, so a third state
+   * cannot arrive with an animation on it.
+   */
+  const cellRules = [...css.matchAll(/([^{}]*\.ag-board-cell[^{}]*)\{([^{}]*)\}/g)].map(m => ({ sel: m[1].replace(/\s+/g, " ").trim(), body: m[2] }));
+  check(cellRules.length > 0, `409e0 · the cell's rules are found (negative control for the read, ${cellRules.length})`);
+  const moving = cellRules.filter(r => /animation\s*:/.test(r.body));
+  check(moving.length === 0, `409e · and none of them animates anything (${moving.map(r => r.sel).join(" | ") || "none"})`);
+  check(!/@keyframes xvCellWait/.test(css), "409f · with the frames it used gone rather than left unreferenced");
+  check([{ sel: ".x", body: "animation: a 1s linear;" }].filter(r => /animation\s*:/.test(r.body)).length === 1,
+    "409g · the animation check can see one (negative control)");
+
+  const lookups = [...boardJsx.matchAll(/prices\[([^\]]*)\]/g)].map(m => m[1]);
+  check(lookups.length === 1 && lookups[0] === "`${day}|${species}`",
+    `319c · with one lookup, so each card shows the price its own cell was quoted (${lookups.join(" | ") || "none"})`);
 
   /*
    * A run lands the viewer on the screen the run is on.
@@ -1024,6 +1893,529 @@ export async function boardChecks(check: Check) {
     "402d · and it draws the enrolment's own card rather than a second implementation of the widget");
   const widgets = (page.match(/<WorldIdCard /g) ?? []).length;
   check(widgets === 2, `402e · which the file holds twice, on the enrolment step and in this one component (${widgets})`);
+
+  /*
+   * THE RUN DIALOG HOLDS ONE THING, AND IT IS THE WHEEL.
+   *
+   * A disclosure headed "The whole sequence" stood under the wheel with the same
+   * run written out as a list, so the dialog carried the run twice and the wheel
+   * shared the frame with a control most people never open. The wheel and its rail
+   * take the height now, which is what a dialog with one subject should do.
+   */
+  const dialogAt = page.indexOf('<dialog ref={runDialog}');
+  const dialogBody = dialogAt === -1 ? "" : page.slice(dialogAt, page.indexOf("</dialog>", dialogAt));
+  check(dialogBody.length > 0 && dialogBody.length < page.length / 4,
+    `411 · the run dialog is found and is the dialog (negative control for the read, ${dialogBody.length})`);
+  check(!/<details/.test(dialogBody), "411a · and carries no disclosure of any kind");
+  check(!/whole sequence/i.test(page), "411b · with the log's own heading gone from the page");
+  check(!/ag-feed/.test(page) && !/ag-feed/.test(css),
+    "411c · and the feed it drew rendered by nothing and styled by nothing");
+  check(/<Rolodex /.test(dialogBody), "411d · what is left is the wheel");
+  const openRule = /\.ag-run-dialog\[open\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(/display:\s*flex/.test(openRule) && /flex-direction:\s*column/.test(openRule),
+    `411e · which takes the frame's height, from a rule bound to the open state (${openRule.replace(/\s+/g, " ").trim().slice(0, 60)})`);
+  // On `[open]` and not on the element: an author `display` beats the user agent's
+  // `dialog:not([open]) { display: none }` whatever the specificity, so a bare rule
+  // would stand the closed dialog on the page.
+  const bareDialog = /(?<![\w\]-])\.ag-run-dialog\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  check(bareDialog.length > 0 && !/display\s*:/.test(bareDialog),
+    `411f · and never from the element's own rule, which would stand the closed dialog on the page (${/display:[^;]*/.exec(bareDialog)?.[0] ?? "none"})`);
+
+  /*
+   * The surfaces a person works in carry more room than the ones they read.
+   * Measured as a step up this file's own spacing scale rather than as a value.
+   */
+  const paddingOf = (rule: string) => Number(/padding:\s*([0-9.]+)rem/.exec(rule)?.[1] ?? NaN);
+  const boardRule = /\.ag-board\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  const cardRule = /\.ag-roll-card\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  const cellPad = /padding:\s*([0-9.]+)rem\s+([0-9.]+)rem/.exec(cellRule);
+  check(paddingOf(boardRule) === 0.375, `412 · the board carries a step more room than it did (${paddingOf(boardRule)}rem)`);
+  check(cellPad !== null && Number(cellPad[1]) === 0.75 && Number(cellPad[2]) === 0.625,
+    `412a · and so does every cell in it (${cellPad?.[0] ?? "none"})`);
+  check(paddingOf(cardRule) === 1.25, `412b · as does the card the run draws itself on (${paddingOf(cardRule)}rem)`);
+
+  /*
+   * THE README'S CELL ROW COUNTS ITS OWN LIST, AND NAMES WHAT THE CODE READS.
+   *
+   * It said four events from three sources and then named four, because the run's
+   * outcome was listed beside the runs table when it is a column of that table's
+   * own row. A reviewer found that by reading; putting the number back left every
+   * check green, which is how this one came to exist.
+   *
+   * Two bindings rather than a pattern over a sentence: the prose must count as
+   * many sources as it names, and the names must be the stores the board actually
+   * reads, so neither the sentence nor the list can drift alone.
+   */
+  const readme = readFileSync("README.md", "utf8");
+  const cellRow = readme.split("\n").find(l => l.startsWith("| A cell says what it is")) ?? "";
+  check(cellRow.length > 0, `413 · the README's cell row is found (negative control for the read, ${cellRow.length})`);
+  const SOURCES = ["the runs table", "Zenbit's public list", "the anchor store"];
+  const namedSources = SOURCES.filter(x => cellRow.includes(x));
+  const WORDS: Record<string, number> = { two: 2, three: 3, four: 4, five: 5 };
+  const claimedCount = WORDS[/from (\w+) sources/.exec(cellRow)?.[1] ?? ""] ?? NaN;
+  check(namedSources.length === SOURCES.length,
+    `413a · naming each source the board reads (${namedSources.length} of ${SOURCES.length})`);
+  /*
+   * Counted over the items the row actually lists, not over the names this check
+   * knows.
+   *
+   * The first version matched the three known names, so putting "the run's own
+   * outcome" back beside the runs table left it green: the defect is a fourth item
+   * in a list of three, and a check that only looks for three cannot see a fourth.
+   * The clause is split where a list is split, on its commas and its and.
+   */
+  const listed = /from \w+ sources,\s*([^.]*?),\s*none of them/.exec(cellRow)?.[1] ?? "";
+  const items = listed.split(/,\s*|\s+and\s+/).map(x => x.trim()).filter(x => x.length > 0);
+  check(items.length > 0, `413b0 · the row's own list is found (negative control for the read, ${items.join(" | ") || "none"})`);
+  check(claimedCount === items.length,
+    `413b · and the row counts as many sources as it lists (${claimedCount} claimed, ${items.length} listed: ${items.join(" | ")})`);
+  const countOf = (row: string) => {
+    const clause = /from \w+ sources,\s*([^.]*?),\s*none of them/.exec(row)?.[1] ?? "";
+    return { claimed: WORDS[/from (\w+) sources/.exec(row)?.[1] ?? ""] ?? NaN, listed: clause.split(/,\s*|\s+and\s+/).filter(x => x.trim().length > 0).length };
+  };
+  const plantedRow = "four events from three sources, the runs table, the run's own outcome, Zenbit's public list and the anchor store, none of them derived.";
+  check(countOf(plantedRow).claimed !== countOf(plantedRow).listed,
+    `413c · the count check can see a row that lists more than it claims (negative control, ${JSON.stringify(countOf(plantedRow))})`);
+  const goodRow = "four events from three sources, the runs table with the outcome it recorded, Zenbit's public list and the anchor store, none of them derived.";
+  check(countOf(goodRow).claimed === countOf(goodRow).listed,
+    `413c2 · and one that agrees (negative control, ${JSON.stringify(countOf(goodRow))})`);
+  /*
+   * And the three are the three the board asks. The outcome is not among them
+   * because it arrives on the mark the runs table returns, which is why listing it
+   * beside that table was a fourth source that does not exist.
+   */
+  const boardRoute = readFileSync("app/api/agent/board/route.ts", "utf8");
+  check(/runsStoreFrom\(\)/.test(boardRoute) && /anchorStoreFrom\(\)/.test(boardRoute),
+    "413d · the route reads the runs table and the anchor store, and no third of its own");
+  check(/fetch\(`\/api\/proposals\?submitter=/.test(page), "413e · while the page reads the public list for the third");
+  check(/outcome: mark\.outcome/.test(boardRoute),
+    "413f · and the outcome comes off the mark the runs table returned, which is why it is not a source beside it");
+
+  /*
+   * THE WAY OUT, AND THERE IS ONLY ONE OF IT.
+   *
+   * A modal dialog closes on Escape by itself, so a disabled button alone would
+   * have left one way out open while the page called the dialog held. The cancel
+   * event is prevented for exactly the window the button is disabled for, and both
+   * read the same value, so the two cannot disagree.
+   */
+  const footAt = page.indexOf('<div className="ag-run-dialog-foot">');
+  const foot = footAt === -1 ? "" : page.slice(footAt, page.indexOf("</div>", footAt) + 6);
+  check(foot.length > 0, `414 · the dialog's foot is found (negative control for the read, ${foot.length})`);
+  check(/disabled=\{runInProgress\}/.test(foot), "414a · the way out is inactive while the run is");
+  check(/aria-label=\{runInProgress \? CLOSE_WHEN : undefined\}/.test(foot),
+    "414b · and says when it will be available rather than only refusing to be pressed");
+  /*
+   * Visibly, and not only in its name. A disabled button takes no focus, so the
+   * accessible name reached a screen reader already on the button and nobody else;
+   * a keyboard could not Tab to it to hear it at all.
+   */
+  check(/\{runInProgress && <p className="ag-sub ag-run-close-when">\{CLOSE_WHEN\}<\/p>\}/.test(foot),
+    "414b2 · and a line beside it says the same thing to everybody else");
+  const closeWhenCopies = (page.match(/Close, available when the run ends/g) ?? []).length;
+  check(closeWhenCopies === 1, `414b3 · from one constant, not two sentences that can drift (${closeWhenCopies})`);
+  check(/className=\{runInProgress \? "btn xv-action ag-run-close" : "btn xv-action ag-run-close ag-run-close-ready"\}/.test(foot),
+    "414c · taking its active class from the same value, so the look and the state cannot disagree");
+  check(/addEventListener\("cancel", hold\)/.test(page) && /if \(runInProgress\) event\.preventDefault\(\);/.test(page),
+    "414d · and Escape is held for that same window, since a modal closes on it without asking");
+  check(/removeEventListener\("cancel", hold\)/.test(page), "414d2 · released when the run ends rather than for the page's life");
+  const footRule = /\.ag-run-dialog-foot\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/align-items:\s*center/.test(footRule), `414e · drawn at the centre of the foot (${footRule.replace(/\s+/g, " ").trim()})`);
+  const readyRule = /\.ag-run-close-ready\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/xvCloseReady\s+220ms/.test(readyRule), `414f · arriving into its active state in one pass under 300ms (${readyRule.replace(/\s+/g, " ").trim().slice(0, 70)})`);
+  check(/xvClosePulse/.test(readyRule), "414g · and breathing after it, so the eye finds it");
+  const closeFrames = [...sheetRoll.matchAll(/@keyframes (xvCloseReady|xvClosePulse)\s*\{([\s\S]*?)\n\}/g)].map(m => m[2]);
+  check(closeFrames.length === 2, `414h · both its frames are found (negative control for the read, ${closeFrames.length})`);
+  const closeMoves = [...new Set(closeFrames.join(" ").match(/^\s*([a-z-]+):/gm)?.map(x => x.trim().replace(":", "")) ?? [])];
+  check(closeMoves.length > 0 && closeMoves.every(prop => prop === "opacity" || prop === "transform"),
+    `414i · which move transform and opacity and nothing that paints (${closeMoves.join(", ") || "none"})`);
+  const reducedClose = /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.ag-run-close-ready\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/animation:\s*none/.test(reducedClose) && /opacity:\s*1/.test(reducedClose),
+    `414j · and under reduced motion it is in its active state and does not breathe (${reducedClose.replace(/\s+/g, " ").trim()})`);
+
+  /*
+   * The line runs the height the card beside it runs, with the cap gone. It was
+   * capped and scrolled, so on a tall dialog it stopped short of the card and a
+   * long run hid its own first states behind a scroll nobody saw.
+   */
+  // At the start of its own line, so the phone rule inside a media query, which is
+  // indented, is not read as the base one: it declares `height: auto` and took
+  // these two red the moment the column was added.
+  const stepsRule = /\n\.ag-steps\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(stepsRule.length > 0, `414k · the line's own rule is found (negative control for the read, ${stepsRule.length})`);
+  check(/height:\s*100%/.test(stepsRule) && !/max-height/.test(stepsRule),
+    `414l · it takes the height it is given and is capped at nothing (${stepsRule.replace(/\s+/g, " ").trim().slice(0, 80)})`);
+  check(!/overflow-y:\s*auto/.test(stepsRule), "414m · so no run hides its own first states behind a scroll");
+  check(/grid-auto-rows:\s*1fr/.test(stepsRule), "414n · and its nodes spread over that height rather than sitting at the top");
+  // The base rule, anchored at the start of its own line: the failed node's label
+  // rule is written above it and a bare match read that one's `opacity: 1`.
+  const labelRule = /\n\.ag-steps-label\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/opacity:\s*0\.[1-9]/.test(labelRule), `414o · every node carries its title rather than one at a time (${/opacity:[^;]*/.exec(labelRule)?.[0] ?? "none"})`);
+
+  /*
+   * THE FREE READ IS PROVED LOCALLY AND ASKS THE FACILITATOR NOTHING.
+   *
+   * The defect: the route verified every payment with the facilitator before it
+   * consulted the allowance, and the facilitator refuses an authorization the
+   * wallet cannot fund. A registered person with an empty wallet was answered 402
+   * on every read, never reached the free reads their allowance grants, and left
+   * no row behind, so the board's marks looked hardcoded because nothing had ever
+   * persisted.
+   *
+   * Driven through the real route with a real signature, and the facilitator is a
+   * counter: what is being held is that a free read does not touch it.
+   */
+  const freeAt = new Date("2026-09-13T12:00:00Z");
+  const FREE_KEY = `0x${"a7".repeat(32)}` as const;
+  const freeAccount = privateKeyToAccount(FREE_KEY);
+  const PAY_TO = "0x1111111111111111111111111111111111111111";
+  let facilitatorCalls = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    facilitatorCalls += 1;
+    return new Response(JSON.stringify({ isValid: false, invalidReason: "insufficient_funds" }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+
+  const signAuthorization = async (over: { to: string; value: string; validAfter: string; validBefore: string; nonce: string }, account = freeAccount) =>
+    account.signTypedData({
+      domain: {
+        name: PAYMENT_TOKEN.name,
+        version: PAYMENT_TOKEN.version,
+        chainId: PAYMENT_TOKEN.chainId,
+        verifyingContract: getAddress(PAYMENT_TOKEN.address),
+      },
+      types: AUTHORIZATION_TYPES,
+      primaryType: "TransferWithAuthorization",
+      message: {
+        from: getAddress(freeAccount.address),
+        to: getAddress(over.to),
+        value: BigInt(over.value),
+        validAfter: BigInt(over.validAfter),
+        validBefore: BigInt(over.validBefore),
+        nonce: over.nonce as `0x${string}`,
+      },
+    });
+
+  const headerFor = async (over: Partial<{ to: string; value: string; validAfter: string; validBefore: string; nonce: string }> = {}, signer = freeAccount) => {
+    // The fixture clock, the same one the route reads, so a validity window is
+    // driven rather than raced against the wall clock.
+    const at = Math.floor(freeAt.getTime() / 1000);
+    const a = {
+      to: over.to ?? PAY_TO,
+      value: over.value ?? ruledValue("$0.01"),
+      validAfter: over.validAfter ?? String(at - 60),
+      validBefore: over.validBefore ?? String(at + 600),
+      nonce: over.nonce ?? `0x${"b".repeat(64)}`,
+    };
+    const signature = await signAuthorization(a, signer);
+    const body = { x402Version: 2, scheme: "exact", network: "eip155:84532", payload: { signature, authorization: { from: freeAccount.address, ...a } } };
+    return Buffer.from(JSON.stringify(body), "utf8").toString("base64");
+  };
+
+  const freeStore = fakeStore();
+  const freeTable = fakeVerifications();
+  freeTable.rows.set(freeAccount.address.toLowerCase(), {
+    payer: freeAccount.address.toLowerCase(),
+    action: "enrol-agent",
+    nullifierDigest: "f".repeat(64),
+    credential: "proof_of_human",
+    verifiedAt: freeAt,
+    expiresAt: new Date(freeAt.getTime() + 86_400_000),
+  });
+  const spent = new Map<string, string>();
+  setNonceStoreForTest({
+    take: async (nonce, signer) => (spent.has(nonce) ? false : (spent.set(nonce, signer), true)),
+    forgetOlderThan: async () => undefined,
+  });
+  setClockForTest(() => freeAt);
+  setRegistryForTest(async () => 0n);
+  setCapForTest({ registry: async () => 0n, store: freeStore, verifications: freeTable, freePerDay: 1 });
+  const priceBefore = process.env.X402_PRICE;
+  const payToBefore2 = process.env.X402_PAY_TO;
+  process.env.X402_PRICE = "$0.01";
+  process.env.X402_PAY_TO = PAY_TO;
+  process.env.HUMAN_ID_KEY = "k".repeat(40);
+  resetServerForTest();
+
+  const askFree = async (header: string) =>
+    windowsGET(new Request("http://127.0.0.1/api/agent/windows", { headers: { "PAYMENT-SIGNATURE": header } }));
+
+  const callsBefore = facilitatorCalls;
+  const firstFree = await askFree(await headerFor());
+  check(firstFree.status === 200, `416 · an unfunded wallet its allowance covers is served (${firstFree.status})`);
+  check(facilitatorCalls === callsBefore, `416a · with no facilitator call at all (${facilitatorCalls - callsBefore})`);
+  check(spent.size === 1 && [...spent.values()][0] === freeAccount.address,
+    `416b · and the nonce recorded against the recovered signer (${[...spent.values()].join(", ") || "none"})`);
+
+  /*
+   * The same header again, with the allowance refilled first.
+   *
+   * Without the refill this passed on the allowance rather than on the nonce: one
+   * free read a day, spent by the request above, so the replay was refused by the
+   * counter and the replay guard was never reached. Replacing the take with `true`
+   * left it green, which is how that was found. Refilled, a second serving of the
+   * same header can only be refused by the nonce.
+   */
+  setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: freeTable, freePerDay: 2 });
+  const replayed = await askFree(await headerFor());
+  check(replayed.status !== 200, `416c · the same header served free twice is refused the second time (${replayed.status})`);
+  // And the control: with that same refilled allowance, a fresh nonce is served,
+  // so the refusal above is the nonce and not the allowance after all.
+  const freshNonce = await askFree(await headerFor({ nonce: `0x${"8e".repeat(32)}` }));
+  check(freshNonce.status === 200, `416c2 · while a fresh nonce on the same allowance is served (negative control, ${freshNonce.status})`);
+  setCapForTest({ registry: async () => 0n, store: freeStore, verifications: freeTable, freePerDay: 1 });
+
+  // The allowance is spent now, so the same wallet with a fresh nonce goes to the
+  // facilitator like any other read, and the facilitator is what refuses it.
+  const callsBeforeSettle = facilitatorCalls;
+  const afterAllowance = await askFree(await headerFor({ nonce: `0x${"c".repeat(64)}` }));
+  check(afterAllowance.status !== 200, `416d · a wallet whose allowance is spent is answered through the facilitator (${afterAllowance.status})`);
+  check(facilitatorCalls > callsBeforeSettle, `416e · which is asked, unlike on the free path (${facilitatorCalls - callsBeforeSettle} calls)`);
+
+  /*
+   * An authorization signed by another key is refused before the allowance and
+   * before any call. Recovery over the wrong key does not raise: it answers with a
+   * different valid address, so this is a comparison and never a catch.
+   */
+  const otherKey = privateKeyToAccount(`0x${"c3".repeat(32)}`);
+  const strangerHeader = await headerFor({ nonce: `0x${"d".repeat(64)}` }, otherKey);
+  const forged = await askFree(strangerHeader);
+  check(forged.status !== 200, `416f · an authorization another key signed is refused (${forged.status})`);
+  check(!spent.has(`0x${"d".repeat(64)}`), "416g · its nonce is never taken, so the allowance is never reached");
+
+  /*
+   * EVERY REQUIREMENT DRIVEN WITH A HEADER THAT BREAKS IT, ONE AT A TIME.
+   *
+   * A fixture that only ever sends a correct authorization cannot tell a route
+   * that checks the price from one that does not: removing each of these checks
+   * left the suite green, which is how these cases came to exist. The allowance is
+   * refilled before each so that a refusal is the check refusing and not the
+   * allowance being spent, and each is given its own nonce so a refusal is never
+   * the replay guard answering instead.
+   */
+  const refuses = async (what: string, over: Partial<{ to: string; value: string; validAfter: string; validBefore: string; nonce: string }>) => {
+    setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: freeTable, freePerDay: 1 });
+    const before = facilitatorCalls;
+    const answer = await askFree(await headerFor(over));
+    return { status: answer.status, asked: facilitatorCalls - before, what };
+  };
+  const wrongPayee = await refuses("payee", { to: "0x2222222222222222222222222222222222222222", nonce: `0x${"1e".repeat(32)}` });
+  check(wrongPayee.status !== 200, `416h · an authorization payable to somebody else is not served free (${wrongPayee.status})`);
+  const wrongPrice = await refuses("price", { value: "1", nonce: `0x${"2e".repeat(32)}` });
+  check(wrongPrice.status !== 200, `416i · nor one signed for a cent against the ruled price (${wrongPrice.status})`);
+  const expiredAt = Math.floor(freeAt.getTime() / 1000);
+  const expired = await refuses("expired", { validBefore: String(expiredAt - 1), validAfter: String(expiredAt - 600), nonce: `0x${"3e".repeat(32)}` });
+  check(expired.status !== 200, `416j · nor one whose validity window has closed (${expired.status})`);
+  const early = await refuses("early", { validAfter: String(expiredAt + 600), validBefore: String(expiredAt + 1200), nonce: `0x${"4e".repeat(32)}` });
+  check(early.status !== 200, `416k · nor one that is not valid yet (${early.status})`);
+  // And the control: with the allowance refilled and nothing else changed, the
+  // same shape of request is served, so the four refusals above are the four
+  // checks and not the fixture having run out of something.
+  setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: freeTable, freePerDay: 1 });
+  const good = await askFree(await headerFor({ nonce: `0x${"5e".repeat(32)}` }));
+  check(good.status === 200, `416l · while the same request with none of those faults is served (negative control, ${good.status})`);
+
+  /*
+   * THE PINNED DOMAIN IS THE TOKEN'S OWN, AND THE WRONG ONE IS NOT.
+   *
+   * A wrong domain does not raise: it recovers a different, perfectly well formed
+   * address, so the pin is what makes the recovery mean anything. The separator
+   * below was read from the token on Base Sepolia on 2026-09-13 with
+   * `DOMAIN_SEPARATOR()`, and version "1" computes a different one, which is why
+   * the version is pinned rather than assumed.
+   */
+  const SEPARATOR_ON_CHAIN_2026_09_13 = "0x71f17a3b2ff373b803d70a5a07c046c1a2bc8e89c09ef722fcb047abe94c9818";
+  const EIP712_DOMAIN = [
+    { name: "name", type: "string" },
+    { name: "version", type: "string" },
+    { name: "chainId", type: "uint256" },
+    { name: "verifyingContract", type: "address" },
+  ] as const;
+  const separatorFor = (version: string) =>
+    hashDomain({
+      domain: { name: PAYMENT_TOKEN.name, version, chainId: BigInt(PAYMENT_TOKEN.chainId), verifyingContract: getAddress(PAYMENT_TOKEN.address) },
+      types: { EIP712Domain: [...EIP712_DOMAIN] },
+    });
+  check(separatorFor(PAYMENT_TOKEN.version) === SEPARATOR_ON_CHAIN_2026_09_13,
+    `416m · the pinned domain computes the separator the token answers with (${separatorFor(PAYMENT_TOKEN.version)})`);
+  check(separatorFor("1") !== SEPARATOR_ON_CHAIN_2026_09_13,
+    "416n · while another version computes a different one, which is why it is pinned (negative control)");
+  check(PAYMENT_TOKEN.chainId === 84532 && /^0x[0-9a-fA-F]{40}$/.test(PAYMENT_TOKEN.address),
+    `416o · on the chain the payments settle on (${PAYMENT_TOKEN.chainId})`);
+  /*
+   * And a deployment configured for another chain gets no free reads at all.
+   *
+   * The domain is one token's on one chain. Recovered against it, a payment signed
+   * for another chain answers with a valid address that signed nothing here, so
+   * the signature would prove nothing and the read would be given to whoever
+   * asked. The first version of this guard compared the pinned address with
+   * itself, which no fixture could ever break.
+   */
+  setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: freeTable, freePerDay: 1 });
+  process.env.X402_NETWORK = "eip155:11155111";
+  resetServerForTest();
+  const otherChain = await askFree(await headerFor({ nonce: `0x${"6e".repeat(32)}` }));
+  check(otherChain.status !== 200, `416p · a deployment settling on another chain serves no free read (${otherChain.status})`);
+  delete process.env.X402_NETWORK;
+  resetServerForTest();
+  setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: freeTable, freePerDay: 1 });
+  const backOnBase = await askFree(await headerFor({ nonce: `0x${"7e".repeat(32)}` }));
+  check(backOnBase.status === 200, `416q · while the chain it is pinned for does (negative control, ${backOnBase.status})`);
+
+  process.env.X402_PRICE = priceBefore === undefined ? "" : priceBefore;
+  if (priceBefore === undefined) delete process.env.X402_PRICE;
+  if (payToBefore2 === undefined) delete process.env.X402_PAY_TO;
+  else process.env.X402_PAY_TO = payToBefore2;
+  globalThis.fetch = realFetch;
+  setNonceStoreForTest(undefined);
+  setCapForTest(null);
+  setClockForTest(undefined);
+  setRegistryForTest(undefined);
+  resetServerForTest();
+
+  /*
+   * THE LINE CARRIES NAMES, AND THE CARD CARRIES THE SENTENCE.
+   *
+   * The rail drew each state's full text, absolutely positioned and so out of the
+   * layout entirely: nothing measured it, nothing stopped it, and on a long
+   * sentence it ran under the card beside it. The founder read it on the
+   * deployment. Names now, from one fixed list, with the sentence left on the card
+   * where somebody is reading it.
+   */
+  const everyStepKind: RunStep[] = [
+    { step: "presenting" },
+    { step: "payment-refused", status: 402, detail: "insufficient_funds" },
+    { step: "unavailable", status: 503, detail: "x" },
+    { step: "paid", free: true },
+    { step: "read", served: 2, ids: ["a", "b"] },
+    { step: "selected", windowId: "a", durationSeconds: 16 },
+    { step: "nothing-proposable", considered: 2 },
+    { step: "cell-spent", considered: 2 },
+    { step: "proposing", windowId: "a" },
+    { step: "proposed", id: 1, clipHash: "0x", status: "proposed" },
+    { step: "declined", kind: "duplicate", detail: "x" },
+    { step: "not-submitted", detail: "x" },
+    { step: "done" },
+  ];
+  const namesGiven = everyStepKind.map(st => lineFor(st).node);
+  const offList = namesGiven.filter(n => !(NODE_NAMES as readonly string[]).includes(n));
+  check(namesGiven.length === everyStepKind.length, `417 · every kind of step the run reports is named (${namesGiven.length})`);
+  check(offList.length === 0, `417a · each from the fixed list and nothing invented (${offList.join(", ") || "none"})`);
+  const tooLong = NODE_NAMES.filter(n => n.length > NODE_NAME_MAX);
+  check(tooLong.length === 0, `417b · and every name is within the bound the column is sized for (${tooLong.join(", ") || "none"}, max ${NODE_NAME_MAX})`);
+  check(NODE_NAME_MAX <= 24, `417b2 · which is short rather than nominal (${NODE_NAME_MAX})`);
+  const sentences = everyStepKind.map(st => lineFor(st)).filter(l => l.node === l.text);
+  check(sentences.length === 0, `417c · and no node is drawn as its own sentence (${sentences.length})`);
+  check(lineFor({ step: "payment-refused", status: 402, detail: "insufficient_funds" }).node === "failed",
+    "417d · a run that stopped is named failed by the step that stopped it");
+  check(lineFor({ step: "proposed", id: 1, clipHash: "0x", status: "proposed" }).node === "propose" && lineFor({ step: "done" }).node === "stop",
+    "417e · while a run that proposed and finished carries those two (negative control)");
+  check(/<span className="ag-steps-label">\{node\.name\}<\/span>/.test(roll),
+    "417f · the rail draws the name rather than the text");
+  check(!/ag-plan\b/.test(page), "417g · with the plan list retired, so the dialog does not draw the stepper twice");
+
+  /*
+   * AND THE LINE HAS A COLUMN OF ITS OWN, SO AN OVERLAP IS NOT POSSIBLE.
+   *
+   * A narrower label would have been a smaller version of the same bug. The column
+   * has a width, the labels are in flow inside it, and the card area begins where
+   * the column ends, whatever any name says.
+   */
+  const rollRule = /\n\.ag-roll\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(rollRule.length > 0, `418 · the wheel's own rule is found (negative control for the read, ${rollRule.length})`);
+  const column = /--ag-steps-col:\s*([0-9.]+)rem/.exec(rollRule)?.[1] ?? "";
+  check(column !== "", `418a · the line's column has a width of its own (${column || "none"}rem)`);
+  check(/grid-template-columns:\s*var\(--ag-steps-col\)\s+minmax\(0, 1fr\)/.test(rollRule),
+    `418b · and the card area begins after it (${/grid-template-columns:[^;]*/.exec(rollRule)?.[0] ?? "none"})`);
+  check(!/grid-template-columns:\s*auto/.test(rollRule),
+    "418c · never sized from its own longest label, which is what let the labels out");
+  const labelRuleNow = /\n\.ag-steps-label\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/position:\s*static/.test(labelRuleNow), `418d · the names are in the layout rather than out of it (${/position:[^;]*/.exec(labelRuleNow)?.[0] ?? "none"})`);
+  const stacked = /@media \(max-width: 30rem\)\s*\{\s*\.ag-roll\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/grid-template-columns:\s*minmax\(0, 1fr\)/.test(stacked),
+    `418e · and on a phone the column stacks above the card rather than sharing the width (${stacked.replace(/\s+/g, " ").trim()})`);
+  const dialogWidth = /\n\.ag-run-dialog\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/width:\s*min\(64rem,\s*90vw\)/.test(dialogWidth), `418f · with a dialog wide enough for both (${/width:[^;]*/.exec(dialogWidth)?.[0] ?? "none"})`);
+  check(/min-height:/.test(dialogWidth) && /max-height:/.test(dialogWidth), "418g · and its height rule unchanged");
+
+  /*
+   * ONE NODE PER STAGE, NOT ONE PER STEP.
+   *
+   * A stage takes several steps: presenting, paid and read are all "pay and read",
+   * and selected, proposing and proposed are all "propose". A node per step made
+   * the rail repeat its own names, three "propose" in a row on an ordinary run,
+   * which is a list of five stages written out as eleven. Driven on a stream that
+   * has two steps in one stage, because a stream with one step per stage cannot
+   * tell the grouping from the absence of it.
+   */
+  const twoInAStage = [
+    lineFor({ step: "presenting" }),
+    lineFor({ step: "paid", free: true }),
+    lineFor({ step: "read", served: 2, ids: ["a", "b"] }),
+    lineFor({ step: "done" }),
+  ];
+  const railed = railFrom(twoInAStage, 0, null);
+  check(railed.length === 3, `419 · four steps across three stages draw three nodes (${railed.map(n => n.name).join(", ")})`);
+  check(new Set(railed.map(n => n.name)).size === railed.length, "419a · with no name drawn twice");
+  const payAndRead = railed.find(n => n.name === "pay and read");
+  check(payAndRead !== undefined && payAndRead.at === 1, `419b · and a node steps to the first state of its own stage (${payAndRead?.at})`);
+  /*
+   * The mark lands when the stage's last step is behind the cursor, not its first:
+   * a stage with steps still to come has not finished because one of them passed.
+   */
+  const midStage = railFrom(twoInAStage, 2, null).find(n => n.name === "pay and read");
+  check(midStage?.state === "at", `419c · a stage is still the one being read while any of its steps is (${midStage?.state})`);
+  const pastStage = railFrom(twoInAStage, 3, null).find(n => n.name === "pay and read");
+  check(pastStage?.state === "done", `419d · and is marked only once its last step is behind the cursor (${pastStage?.state})`);
+  const beforeStage = railFrom(twoInAStage, 0, null).find(n => n.name === "pay and read");
+  check(beforeStage?.state === "ahead", `419e · while a stage not reached is neither (negative control, ${beforeStage?.state})`);
+  /*
+   * And on a stage whose steps are not contiguous, which is where first and last
+   * differ at all. Marking from the first step passed every contiguous fixture:
+   * for indices side by side the cursor is either inside the stage or past all of
+   * it, so the two readings agree and the mutation went green.
+   */
+  const interleaved = [
+    lineFor({ step: "presenting" }),
+    lineFor({ step: "paid", free: true }),
+    lineFor({ step: "proposing", windowId: "a" }),
+    lineFor({ step: "read", served: 1, ids: ["a"] }),
+  ];
+  const splitStage = railFrom(interleaved, 2, null).find(n => n.name === "pay and read");
+  check(splitStage?.state === "ahead",
+    `419e2 · a stage with a step still to come is not marked because an earlier one passed (${splitStage?.state})`);
+  const splitDone = railFrom(interleaved, 4, null).find(n => n.name === "pay and read");
+  check(splitDone?.state === "done", `419e3 · and is marked once its last is behind the cursor (negative control, ${splitDone?.state})`);
+  /*
+   * A failure takes the node its own step is in, and nothing after it is reached.
+   */
+  const failedStream = [lineFor({ step: "presenting" }), lineFor({ step: "payment-refused", status: 402, detail: "insufficient_funds" })];
+  const failedRail = railFrom(failedStream, 1, failedAt(failedStream));
+  check(failedRail.find(n => n.name === "failed")?.state === "failed",
+    `419f · a run that stopped draws the cross on its own node (${failedRail.map(n => `${n.name}:${n.state}`).join(", ")})`);
+  check(failedRail.filter(n => n.state === "failed").length === 1, "419g · and on that one alone");
+
+  /*
+   * The rail's labels are the page's own words, and the one being read breathes.
+   *
+   * A button does not inherit the page's font family, so these rendered in the
+   * browser's default while every other word on the surface was in the page's own.
+   */
+  const labelNow = /\n\.ag-steps-label\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/font-family:\s*var\(--font-sans\)/.test(labelNow),
+    `419h · the label takes its family from the token rather than from the button's default (${/font-family:[^;]*/.exec(labelNow)?.[0] ?? "none"})`);
+  check(/font-size:/.test(labelNow), `419i · and a size of its own (${/font-size:[^;]*/.exec(labelNow)?.[0] ?? "none"})`);
+  const pulsing = [...sheetRoll.matchAll(/\.ag-steps-item\[data-state="([a-z]+)"\] \.ag-steps-dot\s*\{([^}]*)\}/g)]
+    .filter(m => /animation:\s*xvNodeWait/.test(m[2]))
+    .map(m => m[1]);
+  check(pulsing.join(",") === "at", `419j · the stage being read breathes and no other does (${pulsing.join(", ") || "none"})`);
+  const reducedNode = /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.ag-steps-item\[data-state="at"\] \.ag-steps-dot\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/animation:\s*none/.test(reducedNode) && /opacity:\s*1/.test(reducedNode),
+    `419k · and under reduced motion it is lit and still (${reducedNode.replace(/\s+/g, " ").trim() || "none"})`);
+  const nodeFrames = /@keyframes xvNodeWait\s*\{([\s\S]*?)\n\}/.exec(sheetRoll)?.[1] ?? "";
+  const nodeMoves = [...new Set(nodeFrames.match(/^\s*([a-z-]+):/gm)?.map(x => x.trim().replace(":", "")) ?? [])];
+  check(nodeMoves.length > 0 && nodeMoves.every(prop => prop === "opacity" || prop === "transform"),
+    `419l · moving opacity and nothing that paints (${nodeMoves.join(", ") || "none"})`);
 
   check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
   check(/const enrolment = enrolmentState\(\{ address, registration, skipped \}\);/.test(page) &&

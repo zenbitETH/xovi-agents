@@ -1,8 +1,18 @@
 import { NextResponse } from "next/server";
 import { applyEmbargo as applyEmbargoAtServe } from "~~/lib/windows/embargo";
 import { BOARD_SPECIES, SnapshotUnavailable, type BoardWindow, cellState, loadSnapshot } from "~~/lib/windows/snapshot";
-import { authorizationFrom, recordSettlement, takeFreeRead } from "~~/lib/human/cap";
-import { PaymentMisconfigured, WINDOWS_ROUTE, adapterFor, buildServer, paymentHeaderFrom } from "~~/lib/x402";
+import { RETENTION_DAYS, authorizationFrom, recordSettlement, takeFreeRead } from "~~/lib/human/cap";
+import { now as clockNow } from "~~/lib/human/clock";
+import { nonceStoreFrom } from "~~/lib/human/nonces";
+import {
+  decodePaymentHeader,
+  freeReadRefusal,
+  ruledValue,
+  sameAddress,
+  signedAuthorizationFrom,
+  signerOf,
+} from "~~/lib/human/free-read";
+import { PaymentMisconfigured, WINDOWS_ROUTE, adapterFor, buildServer, paymentHeaderFrom, readConfig } from "~~/lib/x402";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +90,93 @@ export async function GET(request: Request) {
     });
   }
 
+  /*
+   * THE FREE READ, PROVED LOCALLY AND SETTLED BY NOBODY.
+   *
+   * The facilitator refuses an authorization the wallet cannot fund, and this used
+   * to run after it, so a registered person with an empty wallet was answered 402
+   * on every read and never reached the free reads their allowance grants. The
+   * ordering below keeps the only thing the old ordering was protecting: the payer
+   * address is client supplied and worth nothing until something proves the signer
+   * owns it. Verification was that proof; recovering the signer here is the same
+   * proof, and it spends nothing and asks nobody.
+   *
+   * Above `buildServer`, which contacts the facilitator once at startup and fails
+   * closed: a free read that a facilitator outage refuses is a free read that
+   * depends on the facilitator, which is the thing this path exists not to do.
+   *
+   * In order, and each step is refused before the next is reached: the signature
+   * recovers to the address the authorization names, the authorization is for this
+   * route's asset, recipient, price and validity window, its nonce has not already
+   * bought a free read, and only then is the allowance asked, keyed on the
+   * recovered signer and never on the body's `from`.
+   */
+  /**
+   * The windows this request is for, built once because two paths serve them.
+   *
+   * It sat between verification and settlement so that a failure in it could not
+   * be paid for, and it still does: the free path reaches it before anything is
+   * settled, and the settling path reaches it before `processSettlement`. Neither
+   * pays for a snapshot that could not be read.
+   */
+  const servePayload = (): { payload: Record<string, unknown>; error: null } | { payload: null; error: NextResponse } => {
+    try {
+      // Already read and already gated where a cell was named, which is also the
+      // answer to reading the snapshot twice on one request.
+      const chosen = cell ?? loadSnapshot();
+      /*
+       * Where a cell was named the gate has already run, in front of the payment,
+       * and a cell that lost anything to it refused there rather than arriving
+       * here smaller. What reaches this point is the whole of the cell or the
+       * whole of the snapshot, so there is nothing left to drop.
+       */
+      const { kept } = cell !== null ? { kept: cell } : applyEmbargoAtServe(chosen);
+      return {
+        payload: {
+          schema: "xovi/candidate-window/v1",
+          windows: kept,
+          // Deliberately not a count of what was withheld. Publishing "3 dropped"
+          // tells a caller who knows the roster exactly how many embargoed animals
+          // were active, which is the thing the embargo exists to withhold.
+          served: kept.length,
+          note: "A window marks where something moved and a person should look. It is not a claim that a behaviour occurred, that an animal was identified, or that confidence is a probability.",
+        },
+        error: null,
+      };
+    } catch (err) {
+      const why = err instanceof SnapshotUnavailable ? err.message : "unexpected";
+      // Payment was verified and is NOT settled: the caller keeps their money
+      // because they did not get what they paid for.
+      return { payload: null, error: refuse(503, "No hay instantánea de ventanas disponible", { detail: why }) };
+    }
+  };
+
+  const now = clockNow();
+  const freeAuthorization = header === undefined ? null : signedAuthorizationFrom(decodePaymentHeader(header));
+  if (freeAuthorization !== null) {
+    const signer = await signerOf(freeAuthorization);
+    // Compared, never caught: recovery over a wrong domain or a wrong message
+    // answers with a different, perfectly well formed address rather than raising.
+    if (signer !== null && sameAddress(signer, freeAuthorization.from)) {
+      const cfg = readConfig(process.env);
+      const want = { payTo: cfg.payTo, network: cfg.network, value: ruledValue(cfg.price) };
+      if (freeReadRefusal(freeAuthorization, want, now) === null) {
+        const nonces = nonceStoreFrom();
+        // A free read settles nothing, so the token never burns this nonce and the
+        // same header stays presentable. Taking it here is what makes a free read
+        // cost something; without a store there is no free path at all, because an
+        // unspendable nonce is a replay nobody can refuse.
+        const first = nonces === null ? false : await nonces.take(freeAuthorization.nonce, signer, now).catch(() => false);
+        if (first && (await takeFreeRead(signer, process.env, now))) {
+          const free = servePayload();
+          if (free.error !== null) return free.error;
+          void nonces?.forgetOlderThan(RETENTION_DAYS, now).catch(() => undefined);
+          return NextResponse.json(free.payload, { headers: NO_STORE });
+        }
+      }
+    }
+  }
+
   let server;
   try {
     server = await buildServer();
@@ -112,34 +209,9 @@ export async function GET(request: Request) {
 
   // The work happens HERE, between verification and settlement, so that a failure
   // in it cannot be paid for. Nothing below this line settles unless it returns.
-  let payload;
-  try {
-    // Already read and already gated where a cell was named, which is also the
-    // answer to reading the snapshot twice on one request.
-    const chosen = cell ?? loadSnapshot();
-    /*
-     * Where a cell was named the gate has already run, in front of the payment,
-     * and a cell that lost anything to it refused there rather than arriving here
-     * smaller. What reaches this point is the whole of the cell or the whole of
-     * the snapshot, so there is nothing left to drop and `dropped` is zero.
-     */
-    const { kept, dropped } = cell !== null ? { kept: cell, dropped: 0 } : applyEmbargoAtServe(chosen);
-    payload = {
-      schema: "xovi/candidate-window/v1",
-      windows: kept,
-      // Deliberately not a count of what was withheld. Publishing "3 dropped"
-      // tells a caller who knows the roster exactly how many embargoed animals
-      // were active, which is the thing the embargo exists to withhold.
-      served: kept.length,
-      note: "A window marks where something moved and a person should look. It is not a claim that a behaviour occurred, that an animal was identified, or that confidence is a probability.",
-    };
-    void dropped;
-  } catch (err) {
-    const why = err instanceof SnapshotUnavailable ? err.message : "unexpected";
-    // Payment was verified and is NOT settled: the caller keeps their money
-    // because they did not get what they paid for.
-    return refuse(503, "No hay instantánea de ventanas disponible", { detail: why });
-  }
+  const served = servePayload();
+  if (served.error !== null) return served.error;
+  const payload = served.payload;
 
   if (result.type === "no-payment-required") {
     return NextResponse.json(payload, { headers: NO_STORE });

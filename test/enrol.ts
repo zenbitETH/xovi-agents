@@ -160,6 +160,10 @@ export async function enrolChecks(check: Check) {
   const logged: string[] = [];
   const real = { log: console.log, warn: console.warn, error: console.error };
   const capture = (...parts: unknown[]) => void logged.push(parts.map(String).join(" "));
+  // Warnings and errors, not `console.log`: the check harness prints with it, so
+  // capturing it swallows this file's own results and fills the sweep below with
+  // the harness's output instead of the routes'. `real.log` is saved and restored
+  // for that reason and redirects nothing.
   console.warn = capture;
   console.error = capture;
 
@@ -440,7 +444,26 @@ export async function enrolChecks(check: Check) {
   const leaks = needles.filter(n => served.some(s => s.toLowerCase().includes(n.toLowerCase())));
   check(leaks.length === 0, `347 · the nullifier, its decimal form and its unkeyed keccak appear in no response body or header (${wires.length} responses, ${leaks.length} hits)`);
   const inLogs = needles.filter(n => logged.some(l => l.toLowerCase().includes(n.toLowerCase())));
-  check(inLogs.length === 0, `347a · nor in anything the routes logged (${logged.length} lines)`);
+  /*
+   * Nothing was logged at all, which is the stronger statement and the true one.
+   *
+   * This read "nor in anything the routes logged" and swept an empty array: the
+   * line count sat in the label and in no assertion, so a clean sweep of nothing
+   * read exactly like a clean sweep of something. These routes emit no warning and
+   * no error on the paths driven here, and the only `console.warn` and
+   * `console.error` in the modules under them are on the ledger's fabricated
+   * receipt path, which this block never reaches. So the claim is made as what it
+   * is, an absence of output rather than a search through output, and the sweeping
+   * is done by 347 over the wires and 347b over the stored rows.
+   *
+   * `console.log` is deliberately not captured: the check harness prints with it,
+   * so capturing it would fill this array with this file's own results and the
+   * sweep would be reading itself.
+   */
+  check(logged.length === 0 && inLogs.length === 0,
+    `347a · the routes wrote no warning and no error, so the nullifier is in no log of theirs (${logged.length} lines)`);
+  check(["console.warn", "console.error"].every(fn => new RegExp(`${fn.replace(".", "\\.")} = capture`).test(readFileSync("test/enrol.ts", "utf8"))),
+    "347a2 · with both channels they do write on captured for the whole block (negative control)");
   const storedRows = JSON.stringify([...table.rows.values()]);
   const inRows = needles.filter(n => storedRows.toLowerCase().includes(n.toLowerCase()));
   check(inRows.length === 0 && table.rows.size > 0, `347b · nor in any stored row (${table.rows.size} rows, ${inRows.length} hits)`);

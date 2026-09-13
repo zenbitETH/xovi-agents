@@ -244,6 +244,51 @@ function readableAmount(amount: string, token: string): string {
  * actually sent rather than from anything this page believes, because the value
  * worth showing a person before they sign is the one the server will charge.
  */
+/**
+ * What a cell costs, read without signing anything.
+ *
+ * The board shows a price before a person decides, and the only honest source for
+ * it is the challenge the route itself serves, so this asks for the cell and reads
+ * the 402 it comes back with. No signer is registered and nothing is paid: an
+ * unpaid request to a paid route is exactly what a 402 is for.
+ *
+ * **The formatting is shared with the signing path rather than written twice.**
+ * `readableAmount` is the one place a number becomes a sentence, so the price on
+ * the card and the price in the wallet prompt cannot say different things about
+ * one challenge. The fetch and the decode are this function's own, deliberately:
+ * the signing client registers a scheme before it reads, and reaching into that
+ * path to share a few lines would put the recording's one paid route behind a
+ * refactor for a label.
+ *
+ * The fetcher is a parameter so a check can drive the real route in process and
+ * read the real challenge rather than a fixture of one.
+ */
+export async function readChallenge(
+  windowsUrl: string,
+  fetcher: (url: string, init?: RequestInit) => Promise<Response> = fetch,
+): Promise<{ amount: string; asset: string; network: string } | null> {
+  let answer: Response;
+  try {
+    answer = await fetcher(windowsUrl, { headers: { accept: "application/json" } });
+  } catch {
+    return null;
+  }
+  // Any other status is an answer about the cell rather than a price, and a card
+  // with no price says nothing instead of guessing one.
+  if (answer.status !== 402) return null;
+  try {
+    const body = await answer.json().catch(() => ({}));
+    const http = new x402HTTPClient(new x402Client());
+    const required = http.getPaymentRequiredResponse(name => answer.headers.get(name), body);
+    const accepted = required.accepts[0];
+    if (!accepted) return null;
+    const token = String((accepted.extra as { name?: unknown } | undefined)?.name ?? "an unnamed token");
+    return { amount: readableAmount(accepted.amount, token), asset: token, network: accepted.network };
+  } catch {
+    return null;
+  }
+}
+
 export async function signChallenge(
   windowsUrl: string,
   address: `0x${string}`,
