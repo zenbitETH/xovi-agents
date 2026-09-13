@@ -14,6 +14,7 @@ import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
 import { CREDENTIAL_REFUSED, NO_CREDENTIAL, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, onboardingFrom, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellRecording, cellState, loadSnapshot, servedCell } from "../lib/windows/snapshot";
+import { NOT_SUBMITTED_SENTENCE, environmentCredentialCovers } from "../lib/agent/run";
 import { resetServerForTest } from "../lib/x402";
 
 type Check = (ok: boolean, label: string) => void;
@@ -577,15 +578,43 @@ export async function boardChecks(check: Check) {
     `316b · with no promise about when in either sentence (${credentialPill("none")})`);
   check(/credentialPill\(agentCredential\)/.test(page) && /of\("person"\) === "done" &&/.test(page),
     "316c · drawn on the card beside the registration, once there is one");
+  /*
+   * AND THE CARD CANNOT CONTRADICT THE RUN.
+   *
+   * The run proposes under the wallet's own credential, or under the
+   * environment's for the one wallet it belongs to. The read only asked about the
+   * wallet's own, so that wallet was told it had none while the run proposed for
+   * it under exactly that credential, and on the deployment that carries one it is
+   * the wallet a person is most likely to be looking at. Both read this rule now.
+   */
+  const OWNER = "0xC0686ae97FDf62A37F081922c2a92537862E0B95";
+  const OTHER = "0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe";
+  check(environmentCredentialCovers(OWNER, "ingest-key", OWNER), "316d · the environment's credential covers the wallet it belongs to");
+  check(!environmentCredentialCovers(OTHER, "ingest-key", OWNER), "316e · and covers no other wallet (negative control)");
+  check(!environmentCredentialCovers(OWNER, "", OWNER) && !environmentCredentialCovers(OWNER, "ingest-key", ""),
+    "316f · and covers nobody where either half is unset");
+  check(environmentCredentialCovers(OWNER.toLowerCase(), "ingest-key", OWNER.toUpperCase().replace("0X", "0x")),
+    "316g · comparing the two addresses as addresses rather than as text");
+  check(/environmentCredentialCovers\(payer, process\.env\.XOVI_INGEST_KEY, process\.env\.XOVI_INGEST_KEY_PAYER\)/.test(readFileSync("app/api/agent/registration/route.ts", "utf8")),
+    "316h · and the registration read answers through it rather than through a second copy of the rule");
 
   /*
    * A run that stops before proposing says why, in the run's own sentence.
    */
-  const unconfigured = lineFor({ step: "not-submitted", detail: "no ingest route is configured on this deployment", reason: "unconfigured" });
-  const noCredential = lineFor({ step: "not-submitted", detail: "this wallet holds no credential, so nothing is proposed", reason: "no-credential" });
-  check(unconfigured.text === "no ingest route is configured on this deployment" && noCredential.text === "this wallet holds no credential, so nothing is proposed",
+  /*
+   * Read off the run's own map rather than off literals supplied here.
+   *
+   * The first version handed `lineFor` two sentences it had written itself and
+   * compared the rendering with them, so both entries of the map could have become
+   * one sentence and the pair would have stayed green: they held the drawing and
+   * not the thing being drawn.
+   */
+  const unconfigured = lineFor({ step: "not-submitted", detail: NOT_SUBMITTED_SENTENCE.unconfigured, reason: "unconfigured" });
+  const noCredential = lineFor({ step: "not-submitted", detail: NOT_SUBMITTED_SENTENCE["no-credential"], reason: "no-credential" });
+  check(unconfigured.text === NOT_SUBMITTED_SENTENCE.unconfigured && noCredential.text === NOT_SUBMITTED_SENTENCE["no-credential"],
     `317 · the stop card carries the reason's own sentence (${noCredential.text})`);
-  check(unconfigured.text !== noCredential.text, "317a · and the two reasons are not one sentence (negative control)");
+  check(NOT_SUBMITTED_SENTENCE.unconfigured !== NOT_SUBMITTED_SENTENCE["no-credential"],
+    "317a · and the run gives the two reasons two sentences rather than one");
   check(noCredential.detail === "no-credential" && noCredential.tone === "stopped", "317b · with the machine's word for it in the detail lane");
 
   /*

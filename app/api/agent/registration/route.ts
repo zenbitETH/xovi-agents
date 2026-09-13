@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isAddress } from "viem";
 import { credentialStoreFrom, ensureCredential } from "~~/lib/agent/credentials";
 import { storeFrom as namesStoreFrom } from "~~/lib/agent/names-store";
+import { environmentCredentialCovers } from "~~/lib/agent/run";
 import { capFrom, registrationOf } from "~~/lib/human/cap";
 import { now } from "~~/lib/human/clock";
 import { enrollmentThrottle } from "~~/lib/human/throttle";
@@ -42,10 +43,20 @@ export async function GET(request: Request) {
 
   const at = now();
   const answer = await registrationOf(payer, capFrom(), at);
+  /*
+   * The wallet's own credential, or the environment's where that one covers it.
+   *
+   * Read through the same rule the run proposes under, so the card cannot say no
+   * credential for a wallet the run is about to propose for. On the deployment
+   * that carries an environment credential, that wallet is exactly the one a
+   * person is most likely to be looking at.
+   */
   const agentCredential =
-    answer.state === "registered"
-      ? await ensureCredential(payer, { store: credentialStoreFrom(), names: namesStoreFrom(), at }).catch(() => "none" as const)
-      : "none";
+    answer.state !== "registered"
+      ? "none"
+      : environmentCredentialCovers(payer, process.env.XOVI_INGEST_KEY, process.env.XOVI_INGEST_KEY_PAYER)
+        ? ("issued" as const)
+        : await ensureCredential(payer, { store: credentialStoreFrom(), names: namesStoreFrom(), at }).catch(() => "none" as const);
   return NextResponse.json({ state: answer.state, source: answer.source, credential: answer.credential, agentCredential }, { headers: NO_STORE });
 }
 

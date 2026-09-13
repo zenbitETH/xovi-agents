@@ -180,6 +180,21 @@ export function payerFromHeader(header: string | undefined): string | null {
   }
 }
 
+/**
+ * Whether the environment's own credential covers this payer.
+ *
+ * One rule with two readers. The run proposes under it and the registration read
+ * says whether a wallet has a credential, and those answered differently: the
+ * wallet the environment credential belongs to was told it had none while the run
+ * proposed for it under exactly that credential, so the card contradicted the run
+ * for the one wallet where it mattered most. Whatever this returns, both say it.
+ */
+export function environmentCredentialCovers(payer: string | null, ingestKey?: string, ingestKeyPayer?: string): boolean {
+  const key = (ingestKey ?? "").trim();
+  const owner = (ingestKeyPayer ?? "").trim().toLowerCase();
+  return key !== "" && owner !== "" && payer !== null && payer.toLowerCase() === owner;
+}
+
 /** Which credential this run proposes with, or null for none. The wallet's own
  *  first; the environment's only for the wallet it was minted for. */
 async function credentialToUse(cfg: RunConfig, payer: string | null): Promise<string | null> {
@@ -187,7 +202,7 @@ async function credentialToUse(cfg: RunConfig, payer: string | null): Promise<st
     const own = await cfg.credentialFor(payer);
     if (own) return own;
   }
-  if (cfg.ingestKey && cfg.ingestKeyPayer && payer && payer === cfg.ingestKeyPayer.toLowerCase()) return cfg.ingestKey;
+  if (environmentCredentialCovers(payer, cfg.ingestKey, cfg.ingestKeyPayer)) return cfg.ingestKey ?? null;
   return null;
 }
 
