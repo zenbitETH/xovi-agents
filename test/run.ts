@@ -34,6 +34,8 @@ import { mcpChecks } from "./mcp";
 import { pageChecks } from "./page";
 import { agentRunChecks } from "./agent-run";
 import { boardChecks } from "./board";
+import { enrolChecks } from "./enrol";
+import { verificationChecks } from "./verifications";
 import { nameChecks } from "./name";
 import { namesChecks } from "./names";
 import { proposalsChecks } from "./proposals";
@@ -591,7 +593,7 @@ async function main() {
   // calls, and only a counter can hold it.
   let asked = 0;
   const counting = { ...store, recordReceipt: async () => { asked++; return true; } };
-  setCapForTest({ registry: null as never, store: counting as never, freePerDay: 0 });
+  setCapForTest({ registry: null as never, store: counting as never, verifications: null, freePerDay: 0 });
   const refusal = await capturingWarn(() => recordSettlement(fabricated));
   check(asked === 0, "100c · and recordSettlement never reaches the store with it");
   check(refusal.warned.length === 1 && /ledger guard/.test(refusal.warned[0]) && refusal.warned[0].includes(FABRICATED_TX),
@@ -649,6 +651,7 @@ async function main() {
   setCapForTest({
     registry: fakeRegistry({ [payerA.address]: HUMAN_A, [payerB.address]: HUMAN_A }).read,
     store: capStore,
+    verifications: null,
     freePerDay: 2,
   });
 
@@ -758,6 +761,8 @@ async function main() {
   await nameChecks(check);
   await namesChecks(check);
   await boardChecks(check);
+  await verificationChecks(check);
+  await enrolChecks(check);
 
   await pageChecks(check);
 
