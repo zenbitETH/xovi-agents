@@ -2,11 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ACCOUNT_TABS,
+  CHAIN,
   PLAN,
   planFrom,
   screensFor,
   RECORD,
-  RUNGS,
   SCREENS,
   fabricated,
   lineFor,
@@ -182,11 +182,17 @@ export async function pageChecks(check: Check) {
    * number is opaque and belongs to neither list and to no surface.
    */
   const SEVEN = ["clipId", "clipHash", "decision", "verifier", "verifierSignature", "verifierNonce", "verifierChainId"];
-  const recordBlock = ui.slice(ui.indexOf("const RECORD = {"), ui.indexOf("const ASSERTED = {"));
+  // Each object delimited by its own closing brace rather than by whatever is
+  // declared next: the end anchor used to be the comment above the four links,
+  // and rewording that comment ran the slice to the end of the file, which swept
+  // seven component props into the list of fields Zenbit asserts.
+  const recordAt = ui.indexOf("const RECORD = {");
+  const recordBlock = ui.slice(recordAt, ui.indexOf("};", recordAt));
   const shown = [...recordBlock.matchAll(/^\s{2}(\w+):/gm)].map(m => m[1]);
   check(shown.sort().join(",") === [...SEVEN].sort().join(","), `231 · the record shows spec 05's seven checkable fields and no others (${shown.length})`);
 
-  const assertedBlock = ui.slice(ui.indexOf("const ASSERTED = {"), ui.indexOf("/** The four links"));
+  const assertedAt = ui.indexOf("const ASSERTED = {");
+  const assertedBlock = ui.slice(assertedAt, ui.indexOf("};", assertedAt));
   const asserted = [...assertedBlock.matchAll(/^\s{2}(\w+):/gm)].map(m => m[1]);
   check(asserted.sort().join(",") === "submitter,verifiedAt", `231a · and names the two the operator asserts (${asserted.join(",")})`);
   check(!recordBlock.includes("confidence") && !assertedBlock.includes("confidence"), "231b · the model's number is on neither list");
@@ -318,7 +324,7 @@ export async function pageChecks(check: Check) {
    */
   check(/anchored on Ethereum Sepolia/.test(flatRecord), "238 · the page states that this confirmation is anchored");
   check(!/not anchored/i.test(ui), "238a · and never the opposite, which is the copy this replaced");
-  check(/\{ANCHOR_259\.onchainUid\}/.test(ui), "238b · rendering the onchain identifier from the constant");
+  check(/"onchain identifier": ANCHOR_259\.onchainUid/.test(ui), "238b · rendering the onchain identifier from the constant");
   /*
    * Pinned literally, all of them. A check that pins the time alone lets an
    * identifier, an attester or a transaction hash drift by a digit and stay
@@ -350,12 +356,68 @@ export async function pageChecks(check: Check) {
       ANCHOR_259.timestampTx === CHAIN_READ_2026_09_12.timestampTx,
     "238d · and the offchain identifier, its getTimestamp time and its transaction likewise",
   );
-  check(/\{ANCHOR_259\.offchainUid\}/.test(ui) && /\{ANCHOR_259\.timestampedAt\}/.test(ui),
+  check(/"offchain identifier": ANCHOR_259\.offchainUid/.test(ui) && /"timestamped at": ANCHOR_259\.timestampedAt/.test(ui),
     "238f · and the offchain identifier with the time getTimestamp returns");
+  // Structural, so the four above cannot be satisfied by a value typed in beside
+  // the constant they name. Every hexadecimal on this surface is interpolated.
+  const literals = records.match(/0x[0-9a-f]{20,}/gi) ?? [];
+  check(literals.length === 0, `238i · and no value the record draws is written as a literal (${literals.join(", ") || "none"})`);
+  check((/0x[0-9a-f]{20,}/gi.test("0x3252123f3ac9e0521296847836c61f757c939e54")), "238j · the literal check can see one (negative control)");
   check(String(ANCHOR_259.offchainUid) !== String(ANCHOR_259.onchainUid) && ANCHOR_259.timestampedAt === 1789110504,
     "238g · the two identifiers share nothing, which is why each has its own call");
   check(/sepolia\.etherscan\.io\/tx\/\$\{ANCHOR_259\.attestTx\}/.test(ui), "238c · and linking the transaction that carries it");
   check(/sepolia\.etherscan\.io\/tx\/\$\{ANCHOR_259\.timestampTx\}/.test(ui), "238h · and the timestamp's own transaction beside the offchain identifier, never the attestation's");
+
+  /*
+   * The record is four tabs, one object each.
+   *
+   * It was a stack: a paragraph, four links as a list, seven fields, two more, a
+   * check, five anchor values, one column. A reader asking what the attestation
+   * is read everything above and below it to find out, and the anchor section was
+   * nested inside the check's, which is not where it belongs.
+   *
+   * The tabs are the links, so the four sentences that say what each object is
+   * cannot drift from the four panels, and the arm no tab takes is uninhabitable
+   * by its parameter: a fifth link without a panel stops compiling rather than
+   * drawing nothing.
+   */
+  const recordsBody = records;
+  const panelless = CHAIN.filter(l => !new RegExp(`tab === "${l.id}"`).test(recordsBody));
+  check(CHAIN.length === 4, `403 · the record is four links (${CHAIN.length})`);
+  check(panelless.length === 0, `403a · and each of them has a panel of its own (${panelless.map(l => l.id).join(", ") || "none"})`);
+  check(/\) : \(\s*exhausted\(tab\)\s*\)\}/.test(recordsBody),
+    "403b · with the arm no tab takes uninhabitable, so a fifth link without a panel stops compiling");
+  check(/<p className="ag-sub">\{link\.says\}<\/p>/.test(recordsBody),
+    "403c · and a panel's first line is its link's own sentence, read off the array rather than written twice");
+
+  /*
+   * Each panel carries its own object and no other's. The hazard this is against
+   * is the one 232e names: an identifier under the call that does not answer for
+   * it, which is a badge with nothing behind it.
+   */
+  const panelOf = (id: string): string => {
+    const from = recordsBody.indexOf(`tab === "${id}"`);
+    if (from === -1) return "";
+    const rest = recordsBody.slice(from + 1);
+    const nexts = CHAIN.map(l => rest.indexOf(`tab === "${l.id}"`)).filter(i => i > 0);
+    const end = nexts.length > 0 ? Math.min(...nexts) : rest.indexOf("exhausted(tab)");
+    return end > 0 ? rest.slice(0, end) : rest;
+  };
+  const panels = CHAIN.map(l => ({ id: l.id, body: panelOf(l.id) }));
+  const empty = panels.filter(p => p.body.length < 80);
+  check(empty.length === 0, `403d · the four panels are found (negative control for the slices, ${empty.map(p => p.id).join(", ") || "none"})`);
+  const [clipPanel, confirmationPanel, attestationPanel, anchorPanel] = panels.map(p => p.body);
+  check(/Seven fields/.test(confirmationPanel) && /Zenbit asserts/.test(confirmationPanel) &&
+    />The check</.test(confirmationPanel) && /Recover the signer/.test(confirmationPanel),
+    "403e · the seven, the two Zenbit asserts and the check are under the confirmation");
+  const strays = panels.filter(p => p.id !== "confirmation" && /Seven fields|Zenbit asserts|>The check<|Recover the signer/.test(p.body));
+  check(strays.length === 0, `403f · and under nothing else (${strays.map(p => p.id).join(", ") || "none"})`);
+  check(/offchainUid/.test(attestationPanel) && !/onchainUid/.test(attestationPanel),
+    "404 · the attestation panel carries the offchain identifier and not the onchain one");
+  check(/onchainUid/.test(anchorPanel) && !/offchainUid/.test(anchorPanel),
+    "404a · and the anchor panel the onchain one and not the offchain, since the two share nothing");
+  check(/RECORD\.clipHash/.test(clipPanel) && !/ANCHOR_259/.test(clipPanel),
+    "404b · while the clip panel carries the clip and no identifier from the chain");
 
   /*
    * An empty proposals section must not read as "you proposed nothing".
@@ -387,81 +449,112 @@ export async function pageChecks(check: Check) {
    * asserted rather than each sentence separately, because two copies of a claim
    * drift and the interesting failure is that they disagree.
    */
-  const mainnetRung = RUNGS.find(r => r.rung === "a mainnet");
-  const rungNegative = (mainnetRung?.sentences ?? "").split(/(?<=\.)\s+/)[1] ?? "";
+  // Out of DISCLOSURE.md rather than out of a constant. The ladder that used to
+  // carry this sentence is gone, and a new constant in this file would be a third
+  // copy for the other two to agree with instead of the document they are about.
+  const disclosure = readFileSync(join(process.cwd(), "DISCLOSURE.md"), "utf8");
+  const rungNegative = (disclosure.match(/Nothing here writes to a mainnet[^.]*\./) ?? [])[0] ?? "";
+  check(rungNegative.length > 0, `253b · DISCLOSURE states the mainnet claim (negative control for the read, ${rungNegative || "none"})`);
   // Read over the footer alone. The first version tested the whole file, which the
   // rung's own copy of the sentence satisfies, so it stayed green with the footer
   // reverted: it could not tell the two places apart, which is the one thing it
   // exists to do.
   const footerAt = flatUi.indexOf("Payments settle on Base Sepolia");
   const footer = footerAt === -1 ? "" : flatUi.slice(footerAt, footerAt + 200);
-  check(rungNegative.length > 0 && footer.includes(rungNegative), `253 · the footer states the mainnet claim the rung states (${rungNegative})`);
+  // The length guard is not redundant with 253b. A sentence the document stops
+  // carrying reads as the empty string here, which every footer contains, so
+  // without it this check goes green on the document losing the claim entirely.
+  check(rungNegative.length > 0 && footer.includes(rungNegative),
+    `253 · the footer states the mainnet claim DISCLOSURE states, word for word (${rungNegative || "none"})`);
   check(!/Nothing touches mainnet/.test(ui), "253a · and not the categorical one it contradicted");
 
   /*
-   * The fold is three verbs and one sentence each.
+   * The ladder's five still-true pairs, where they went.
    *
-   * At rest the page used to open with a paragraph and five definitions, which is
-   * an explanation of the product before a reader has seen what it does. The tiles
-   * are what a person can do here; the definitions are kept, because they are
-   * merged text a judge may want, and folded away.
+   * They were a tab. Each is two present tense statements, one merged fact and
+   * one negative, and the negative is the device: the day it stops being true the
+   * absence sweep's own question, has this already happened, catches it. Read out
+   * of the section they were moved into, so moving them again without the section
+   * is a red rather than a silence.
    */
-  // Over a whitespace collapsed copy, because the heading now holds a mark above
-  // the word and JSX puts the two on separate lines.
-  const verbs = [...ui.replace(/\s+/g, " ").matchAll(/<h2 className="ag-verb-name"> <Mark\w+ \/> (\w+) <\/h2>/g)].map(m => m[1]);
-  check(verbs.join(",") === "Own,Manage,Check", `254 · the fold carries three verbs (${verbs.join(",") || "none"})`);
-  const verbLines = [...ui.matchAll(/className="ag-verb-line">\s*([^<]+?)\s*<\/p>/g)].map(m => m[1].replace(/\s+/g, " "));
-  check(verbLines.length === 3, `254a · one line under each (${verbLines.length})`);
-  const twoSentences = verbLines.filter(l => l.split(/(?<=\.)\s+/).filter(x => x.length > 0).length === 2);
-  check(twoSentences.length === 3, `254b · each of them two sentences, as the rungs are (${twoSentences.length})`);
-  const withFigure = verbLines.filter(l => /\b\d+\b/.test(l));
-  check(withFigure.length === 0, `254c · and none carries a figure (${withFigure.length})`);
+  const designedAt = disclosure.indexOf("### Designed and not running");
+  const designed = designedAt === -1 ? "" : disclosure.slice(designedAt, disclosure.indexOf("### The surface this opens", designedAt));
+  check(designed.length > 0 && designed.length < disclosure.length, `253c · the section is found and is a section (${designed.length} characters)`);
+  /*
+   * Whole pairs, not the negative halves.
+   *
+   * Bound as fragments, the merged fact each negative qualifies was held by
+   * nothing: "Receipts land in a ledger" could become any sentence at all and the
+   * check would pass on "No rule routes any of it onward" alone. The array the
+   * page carried is gone, so these are pinned here, the way the anchor's seven
+   * values are: a copy that is the check rather than a second source that has to
+   * be kept in agreement with a third.
+   */
+  const moved = [
+    "Every payment here settles on Base Sepolia. Nothing here writes to a mainnet; one read is on one.",
+    "Receipts land in a ledger. No rule routes any of it onward.",
+    "A human confirms or rejects every proposal and signs the decision. No institution has paid for one.",
+    "The anchor joins the confirmation. No key but Zenbit's has queried it.",
+    "One colony produces every record. No second producer exists.",
+  ];
+  const notMoved = moved.filter(x => !designed.includes(x));
+  check(notMoved.length === 0, `253d · and carries every pair the ladder carried but one, whole (${notMoved.join(" | ") || "none"})`);
+  /*
+   * And the shape survives the move, which is what 236a and 236b measured on the
+   * array: two present tense sentences, the second a negative. Read off the
+   * bullets rather than off the list above, so a sixth pair added to the document
+   * is held to the same rule without being named here.
+   */
+  const bullets = [...designed.matchAll(/^- \*\*[^*]+\.\*\* (.+)$/gm)].map(m => m[1]);
+  check(bullets.length === moved.length, `253d2 · the section's pairs are found and are as many as were moved (${bullets.length})`);
+  const misshapen = bullets.filter(b => {
+    const parts = b.split(/(?<=\.)\s+/).filter(x => x.length > 0);
+    return parts.length !== 2 || !/^(No|Nothing)\b/.test(parts[1]);
+  });
+  check(misshapen.length === 0, `253d3 · each two sentences with the negative second (${misshapen.join(" | ") || "none"})`);
+  /*
+   * The sixth is the gateway key's, and it is not a thing that has not happened:
+   * it is a property of a deployment that is running, falsified by a key on a
+   * server rather than by an issuance, so it is beside the gateway it is about.
+   */
+  const running = disclosure.slice(disclosure.indexOf("### Built and running"), designedAt);
+  check(/the gateway key signs answers and nothing else/.test(running) && /No key on a server owns `xovi\.eth` or can move it/.test(running),
+    "253e · while the gateway key negative is kept in the section about what runs");
 
   /*
-   * The command line says nothing a tile already said.
+   * What the page loads at rest, and what DISCLOSURE says it loads.
    *
-   * It read "One signature. The agent reads what it paid for, proposes once, and
-   * stops", which is the Manage tile's second sentence verbatim, about forty words
-   * below it, in the rest state that had just been cut for being text heavy.
+   * The sentence named the livestream, whose embed draws a dead player whenever
+   * the museum is not broadcasting. The home has drawn the newest recording on
+   * offer since it was built, so the document described a page that had stopped
+   * existing, and a reader following its falsification instruction would have
+   * found something else. Bound to the home rather than stated alone, so the day
+   * one of the two moves the other is what goes red.
    */
-  const commandLine = (ui.match(/className="ag-command">\s*([^<]+?)\s*<\/p>/) ?? [])[1] ?? "";
-  check(commandLine.length > 0, `256 · the fold carries a command line (${commandLine})`);
-  const echoes = (lines: string[], command: string) =>
-    lines.filter(l => l.split(/(?<=\.)\s+/).some(sentence => sentence.length > 12 && command.includes(sentence)));
-  check(echoes(verbLines, commandLine).length === 0, `256a · and it repeats no sentence a tile already carries (${echoes(verbLines, commandLine).length})`);
-  // Self contained, over a synthetic pair. The first version compared against the
-  // live tiles, so it went red the day the tile it named was reworded: a control
-  // that depends on the copy it is controlling for stops being a control.
-  check(
-    echoes(["A tile sentence long enough to count. And a second."], "Before it. A tile sentence long enough to count.").length === 1,
-    "256b · the echo check can see a repeated sentence (negative control)",
-  );
+  const restSentence = (disclosure.match(/At rest it loads one: [^.]*\./) ?? [])[0] ?? "";
+  check(restSentence.length > 0, `253f · DISCLOSURE says what the page loads at rest (${restSentence || "none"})`);
+  check(!/livestream|live channel|live_stream/.test(restSentence) && /recording/.test(restSentence),
+    `253g · naming a recording rather than the live channel (${restSentence})`);
+  const homeBlock = ui.slice(ui.indexOf("function Home("), ui.indexOf("function Enrol("));
+  const restFrames = (homeBlock.match(/<iframe/g) ?? []).length;
+  check(homeBlock.length > 0 && restFrames === 1, `253h · and the home embeds exactly the one it names (${restFrames})`);
 
   /*
-   * A tile that says the agent proposes says under what condition.
+   * 254 to 257b are retired with the fold they held.
    *
-   * On the deployment the two ingest variables are not set, so a run there ends at
-   * not-submitted, which is the path `test/agent-run.ts` asserts and which
-   * `DISCLOSURE.md` states as a negative. An unconditional "proposes once" on the
-   * judged page would be the exact claim the sweep carries as false, and no check
-   * saw it because the sentence is true wherever a credential exists.
+   * They read three verb tiles, a command line, the condition under the verb
+   * "proposes" and five definitions behind a disclosure, all of which stood in
+   * the body's last arm. Nothing sets that state: `openRun` shows a dialog and
+   * the strip's other items set the four screens `HEADS` carries, so the arm was
+   * unreachable and the page it drew was read by nobody. The rest state is the
+   * board, which is the recording and the grid.
+   *
+   * What the condition became is check 327 over the home's fourth card, which is
+   * where a person now reads that the agent proposes; the tiles and the command
+   * line are gone rather than moved, and the definitions live in DISCLOSURE.md
+   * and the specs they were quoted from.
    */
-  const proposing = verbLines.filter(l => /\bproposes\b/.test(l));
-  const unconditional = proposing.filter(l => !/credential is configured/.test(l));
-  check(proposing.length > 0, `257 · a tile says the agent proposes (${proposing.length})`);
-  check(unconditional.length === 0, `257a · and none says it without the condition (${unconditional.length})`);
-  check(
-    ["The agent reads what it paid for, proposes once, and stops."].filter(l => !/credential is configured/.test(l)).length === 1,
-    "257b · the condition check can see a sentence without it (negative control)",
-  );
 
-  // The definitions are kept and folded, not deleted.  // The definitions are kept and folded, not deleted. A native disclosure, so they
-  // open with no script and are in the document for anything that reads it.
-  check(/<details className="ag-more">/.test(ui), "255 · the five facts sit behind a disclosure");
-  check(/<summary className="ag-more-summary">The facts<\/summary>/.test(ui), "255a · labelled for what it holds");
-  check(/<dl className="ag-facts">/.test(ui), "255b · and the definitions are still on the page");
-  check(!/You pay for one read from your own wallet and the agent does the rest/.test(ui),
-    "255c · while the paragraph that explained the page before showing it is gone");
 
   /*
    * Disconnect says which of two things it did.
@@ -651,13 +744,14 @@ export async function pageChecks(check: Check) {
    * edits it at the same time as the array.
    */
   /*
-   * Six destinations, and Run is not one of them until a cell is chosen.
+   * Four destinations, and Run is not one of them until there is a run.
    *
-   * A person arrives at Settings, chooses a cell on the Board, and only then has
-   * a Run to look at. Run present and inert would be a control that does nothing,
-   * which is the rule that keeps a drawn but unbuilt action off this page.
+   * Run present and inert would be a control that does nothing, which is the rule
+   * that keeps a drawn but unbuilt action off this page. Not yet was the fifth: a
+   * tab of what this repository does not do, drawn at a reader who had not yet
+   * seen the working surface it is about. It is in `DISCLOSURE.md` now.
    */
-  check(SCREENS.length === 5, `266 · five destinations in the array (${SCREENS.length})`);
+  check(SCREENS.length === 4, `266 · four destinations in the array (${SCREENS.length})`);
   check(SCREENS[0].id === "board", `266f · beginning with the board, since the onboarding is the way in and not a destination (${SCREENS[0].id})`);
   check(!screensFor(false).some(d => d.id === "run"), "266g · and Run is absent when no run is in progress");
   check(screensFor(true).some(d => d.id === "run"), "266h · and present while one is (negative control)");
@@ -696,16 +790,15 @@ export async function pageChecks(check: Check) {
   const proposed: RunStep[] = [...notSubmitted.slice(0, 4), { step: "proposing", windowId: "a1" }, { step: "done" }];
   check(planFrom(true, true, proposed)[3], "267d · while a run that did submit lights it (negative control)");
 
-  // The marks carry no word. A mark that spells its meaning is a label, and the
-  // tile already has one.
-  const markBodies = [...ui.matchAll(/function Mark(\w+)\(\) \{([\s\S]*?)\n\}/g)].map(m => ({ name: m[1], body: m[2] }));
-  check(markBodies.length === 3, `268 · three marks (${markBodies.map(m => m.name).join(", ")})`);
-  const withText = markBodies.filter(m => /<text|<tspan/.test(m.body));
-  check(withText.length === 0, `268a · and none of them spells a word (${withText.length})`);
-  const unsizedMarks = markBodies.filter(m => !/width="\d+"/.test(m.body) || !/height="\d+"/.test(m.body));
-  check(unsizedMarks.length === 0, `268b · each carries width and height (${unsizedMarks.length})`);
-  const literalHue = markBodies.filter(m => /#[0-9a-f]{3,6}/i.test(m.body));
-  check(literalHue.length === 0, `268c · and none writes a hue as a literal (${literalHue.length})`);
+  /*
+   * 268 to 268c are retired with the marks they counted.
+   *
+   * They read the three svgs above the fold's verb tiles. The tiles are gone and
+   * so are the marks, and a corpus of none makes the three filters below the
+   * count pass by having nothing to look at. What still holds the rules over the
+   * svgs the page does draw is check 216 for width and height and 212b for the
+   * agent hue being a token and never a literal.
+   */
 
   /*
    * The rolodex: the leaf being read is level and at full opacity, always.
@@ -733,7 +826,11 @@ export async function pageChecks(check: Check) {
   check(previous !== undefined && /transition-duration:\s*160ms/.test(previous.body), "281d · with the exit faster than the entrance");
   const faded = (body: string | undefined) => /opacity:\s*0?\.3[0-9]/.test(body ?? "");
   check(faded(previous?.body) && faded(next?.body), "281e · both neighbours are drawn faded rather than hidden");
-  check(away !== undefined && /opacity:\s*0\b/.test(away.body), "281f · while every other state is drawn nowhere (negative control)");
+  // Drawn nowhere is `display: none` now rather than a transparent card: a
+  // neighbour is a title in its own row, and a fourth card in that row would take
+  // the space whether or not anybody could see it.
+  const awayRule = rollRules.find(r => /\.ag-roll-card\[data-position="away"\]/.test(r.selector));
+  check(awayRule !== undefined && /display:\s*none/.test(awayRule.body), "281f · while every other state is drawn nowhere (negative control)");
 
   // The projected box is wider than the card, so the region clips rather than
   // hides: hidden would make it a scroll container.
@@ -752,28 +849,36 @@ export async function pageChecks(check: Check) {
   // last anchor was a function that got renamed and the slice silently became the
   // rest of the file.
   const rolodexStart = ui.indexOf("function Rolodex(");
-  const rolodexEnd = ui.indexOf("function Onboarding(");
+  const rolodexEnd = ui.indexOf("function Enrol(");
   const rolodexBlock = rolodexStart >= 0 && rolodexEnd > rolodexStart ? ui.slice(rolodexStart, rolodexEnd) : "";
   check(rolodexBlock.length > 0 && rolodexBlock.length < ui.length / 2, `283c · the rolodex block is found and is a block (${rolodexBlock.length})`);
-  check(/lines\.map\(\(line, i\) => \(/.test(rolodexBlock) && /data-position=/.test(rolodexBlock),
-    "283 · every line the log holds is a card");
-  check(!/lines\.slice/.test(rolodexBlock), "283b · and none of them is dropped before the stack is built");
-  check(/onStep\(at - 1\)/.test(ui) && /onStep\(at \+ 1\)/.test(ui), "283a · and every one of them is reachable by stepping");
+  const maps = (rolodexBlock.match(/lines\.map\(\(line, i\) =>/g) ?? []).length;
+  check(maps === 2 && /data-position=/.test(rolodexBlock), `283 · every line the log holds is a card and a node on the rail (${maps} maps over the lines)`);
+  check(!/lines\.slice/.test(rolodexBlock), "283b · and none of them is dropped before either is built");
+  /*
+   * Reachable by the rail rather than by a pager.
+   *
+   * This asserted a Back and a Forward, which said where a person was in a number
+   * and gave them no way to see what the run had done. Each state has its own node
+   * now and the node steps to its own index, which is a stronger claim than two
+   * arrows: a pager reaches every line by walking, a rail reaches each one at once.
+   */
+  check(/onClick=\{\(\) => onStep\(i\)\}/.test(rolodexBlock), "283a · and every one of them is reachable from its own node");
+  check(!/onStep\(at - 1\)|onStep\(at \+ 1\)/.test(ui), "283d · with no pager left to walk them one at a time");
 
   /*
-   * The ladder: each rung two present tense sentences, one merged fact and one
-   * negative, and the unlock written as the negative rather than a condition.
+   * 236 to 236d are retired with the ladder they measured.
+   *
+   * They held six rungs to two present tense sentences each, a negative second,
+   * no figure and no conditional future. The tab is gone: it was drawn at a
+   * reader who had not yet seen the working surface it is about, and the page
+   * now states what it does while `DISCLOSURE.md` states what it does not. The
+   * five still-true pairs are under "Designed and not running" there, word for
+   * word, and the gateway key negative is kept in "Built and running" beside the
+   * gateway it is about. What still binds the page to one of them is check 253,
+   * which reads the mainnet sentence out of that document and requires the
+   * footer to state the same one.
    */
-  check(RUNGS.length === 6, `236 · six rungs (${RUNGS.length})`);
-  const sentencesOf = (t: string) => t.split(/(?<=\.)\s+/).filter(x => x.length > 0);
-  const wrongCount = RUNGS.filter(r => sentencesOf(r.sentences).length !== 2);
-  check(wrongCount.length === 0, `236a · each is exactly two sentences (${wrongCount.length} were not)`);
-  const notNegative = RUNGS.filter(r => !/^(No|Nothing)\b/.test(sentencesOf(r.sentences)[1] ?? ""));
-  check(notNegative.length === 0, `236b · and the second of each is a negative (${notNegative.length} were not)`);
-  const figured = RUNGS.filter(r => /\b\d+\b/.test(r.sentences));
-  check(figured.length === 0, `236c · no rung carries a figure (${figured.length} did)`);
-  const promised = RUNGS.filter(r => /\b(will|soon|coming|unlocks?|when)\b/i.test(r.sentences));
-  check(promised.length === 0, `236d · and none states a conditional future (${promised.length} did)`);
   check(/\b\d+\b/.test("a look costs 3"), "236e · the figure check can see one (negative control)");
   check(/\b(will|soon|coming|unlocks?|when)\b/i.test("Unlocks when the founder accepts"), "236f · and the promise check can see one (negative control)");
   // A digit inside a name is not a figure, which is why the test is on a word
