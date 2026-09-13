@@ -30,6 +30,12 @@ export class EndpointUnresolvable extends Error {}
  *  not having the path. */
 export type TextResolver = (name: string, key: string, env: EnvLike) => Promise<string | null>;
 
+/** CCIP Read is on by default in the installed viem, 2.56.3: `call` follows an
+ *  `OffchainLookup` revert unless the client is created with `ccipRead: false`, and
+ *  `getEnsText` reads through the universal resolver's `resolveWithGateways`, which
+ *  hands each inner lookup to viem's own fetch. So once the parent's resolver is the
+ *  offchain one under `contracts/`, this same client reads the record from the
+ *  gateway and verifies its signature on chain, with nothing set here. */
 const viemResolver: TextResolver = (name, key, env) =>
   createPublicClient({ chain: sepolia, transport: http(env.AGENT_ENS_RPC_URL || undefined) }).getEnsText({
     name,
@@ -128,6 +134,9 @@ export type AddressResolver = (name: string, env: EnvLike) => Promise<string | n
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
+/** The same client as the text lookup, and the same note: CCIP Read is on unless
+ *  switched off, so the address of an issued label comes from the gateway once the
+ *  resolver is switched, verified on chain before it is returned here. */
 const viemAddressResolver: AddressResolver = (name, env) =>
   createPublicClient({ chain: sepolia, transport: http(env.AGENT_ENS_RPC_URL || undefined) }).getEnsAddress({ name });
 

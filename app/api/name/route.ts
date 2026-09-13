@@ -3,6 +3,7 @@ import { http, createPublicClient, getAddress, isAddress } from "viem";
 import { sepolia } from "viem/chains";
 import { ZERO_ADDRESS, matchesPayer, nameResolver } from "~~/lib/agent/name";
 import { PARENT, storeFrom } from "~~/lib/agent/names-store";
+import { addrForLabel } from "~~/lib/ens/gateway";
 
 export const dynamic = "force-dynamic";
 
@@ -75,20 +76,30 @@ export async function GET(request: Request) {
   // typo. Both are reported as no name issued rather than as an error.
   const issued = address !== null && address !== ZERO_ADDRESS;
   const matches = matchesPayer(address, payer);
+
   /*
-   * THE STATE COMES FROM THE CHAIN AND NEVER FROM THE ROW.
+   * ISSUED HAS TWO SOURCES, AND THE ANSWER SAYS WHICH.
    *
-   * `issued` is drawn only when the address record equals the wallet asking. A row
-   * carrying a transaction hash is evidence that an issuance was attempted, not that
-   * the chain holds the record: the hash could belong to a reverted transaction, or
-   * the record could have been changed since. Drawing issued from the table alone is
-   * the mutation the checks are shaped to catch.
+   * The chain is the first: the address record equals the wallet asking. Once the
+   * parent's resolver is the offchain one, that read itself goes through the
+   * gateway, since viem follows the `OffchainLookup` by default, so after the switch
+   * the two sources agree and the chain is the one reported.
    *
-   * So a row without a match reads `requested`, which is exactly right while the
-   * founder has not run the issuer yet, and it is what the card shows a person who
-   * has clicked and is waiting.
+   * The gateway is the second: a row in the `names` table IS the issuance, because
+   * the gateway answers the row's payer for its label the moment the row exists.
+   * "Would the gateway answer this label with this wallet" is asked of the gateway's
+   * own function rather than of the row, so this route cannot say issued for a label
+   * the gateway would answer with zero. The request route admits only wallets with a
+   * person behind them, so the gate is at the request and there is no separate mark.
+   *
+   * `requested` therefore survives only for a row whose label the gateway would not
+   * answer, which the sequence never produces; it stays because the card draws it
+   * and because a state that cannot occur is cheaper than a state that lies.
    */
-  const state = matches ? "issued" : row ? "requested" : "none";
+  const served = row ? await addrForLabel(row.label, store) : ZERO_ADDRESS;
+  const servedMatches = matchesPayer(served, payer);
+  const source: "chain" | "gateway" | null = matches ? "chain" : servedMatches ? "gateway" : null;
+  const state = source !== null ? "issued" : row ? "requested" : "none";
 
   /*
    * A NAME THIS WALLET HAS NO CLAIM ON IS NOT SERVED TO IT.
@@ -111,11 +122,14 @@ export async function GET(request: Request) {
       label: row ? row.label : null,
       requestedAt: row ? row.requestedAt : null,
       name: ownsTheName ? name : null,
-      address: ownsTheName && issued ? getAddress(address as string) : null,
+      address: ownsTheName && issued ? getAddress(address as string) : servedMatches ? getAddress(served) : null,
       // Issued and issued to this payer are two questions, and only the second may
       // draw the positive. Replacing this with `issued` is the mutation the checks
       // are shaped to catch, because under a wildcard parent every name is issued.
+      // `matches` stays the chain's answer alone; `source` says which of the two
+      // sources drew `issued`.
       matches,
+      source,
     },
     { headers: NO_STORE },
   );

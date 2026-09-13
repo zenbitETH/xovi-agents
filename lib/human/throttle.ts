@@ -51,3 +51,11 @@ export const ENROLLMENT_WINDOW_MS = 60_000;
 /** One instance for both routes, so a caller cannot spend the request route's
  *  allowance and the verify route's allowance separately. */
 export const enrollmentThrottle = throttleFrom(ENROLLMENT_CALLS_PER_MINUTE, ENROLLMENT_WINDOW_MS);
+
+/** Per client per minute on the ENS gateway. A record lookup is one GET per record
+ *  through the universal resolver's batch, and a page asks for two or three, so
+ *  sixty covers a reader and not a loop. Keyed on the client, since the sender in
+ *  the url is the resolver and the same for everyone. */
+export const ENS_GATEWAY_CALLS_PER_MINUTE = 60;
+export const ENS_GATEWAY_WINDOW_MS = 60_000;
+export const ensGatewayThrottle = throttleFrom(ENS_GATEWAY_CALLS_PER_MINUTE, ENS_GATEWAY_WINDOW_MS);

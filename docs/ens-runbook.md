@@ -83,3 +83,40 @@ Five have been seen. Four of them exit inside the verifier's own diagnostics and
 | record resolves | the url, and that the variable may be set | 0 | expected, at step 5 |
 
 The one that goes through the module was read against `ens.eth` and again against `chijesus99.eth`, a v2 name, so both versions have been driven into the module. A name that is registered and carries a resolver is what the probe needs, because anything short of that returns at the resolver check above and the module is never entered. It is the positive control again, used to drive a path rather than to validate a null.
+
+## Switching the resolver
+
+Written 2026-09-13, when the offchain resolver under `contracts/` landed. It changes what a name under `xovi.eth` is: a row in the `names` table becomes the issuance, answered by the gateway at `/api/ens/{sender}/{data}.json` and verified on chain by the resolver's signer set, with no transaction per name and no key on any server that owns `xovi.eth` or can move it. The gateway key signs answers and nothing else. **Nothing is deployed until the founder runs the script**, and the name's resolver stays the per account one until the founder switches it in the app.
+
+**The order is the whole hazard, so it is stated once here and once more in the script's own output.** After the switch, `agent1.xovi.eth`, every other label and the parent's own `x402:windows` record resolve only through the gateway. So the deployment that serves the windows route is the same one that answers names, and a gateway that is not yet live at the moment of the switch takes every subname and the parent's record down at once. The switch is therefore the last step, after the public deployment answers a probe.
+
+**1. Set the three gateway variables in the hosting environment and redeploy.** `ENS_PARENT_ADDRESS` and `ENS_TEXT_X402_WINDOWS` carry the values the parent answers today, documented in `.env.example` as read from the chain on 2026-09-12; `ENS_GATEWAY_SIGNER_KEY` is thirty two fresh bytes, generated for this and held nowhere else. Its address is the only thing about it that leaves the server, and it is the next step's input.
+
+**2. Probe the deployed gateway before anything on chain changes.** The url is the reference template with the deployment's origin, and the cheapest request is the parent's own address, which needs no table. The calldata is `resolve(bytes,bytes)` over the DNS encoded name and the inner `addr(bytes32)`; `cast` builds it:
+
+```
+INNER=$(cast calldata "addr(bytes32)" $(cast namehash xovi.eth))
+DATA=$(cast calldata "resolve(bytes,bytes)" 0x04786f76690365746800 $INNER)
+curl -s "https://xovi-agents.vercel.app/api/ens/0x0000000000000000000000000000000000000000/$DATA.json"
+```
+
+`0x04786f76690365746800` is `xovi.eth` DNS encoded, one length byte before each label and a zero at the end. Expect `{"data":"0x…"}` and a 200. A `503` naming `ENS_PARENT_ADDRESS`, `ENS_TEXT_X402_WINDOWS` or the signing key is step 1 unfinished. The suite drives the same route with the same calldata in process; what the curl adds is the deployment, which is the thing the switch depends on.
+
+**3. Deploy the resolver, dry first.** On the founder's machine, with the deployer key in a file and never in the environment:
+
+```
+ENS_RESOLVER_DEPLOYER_KEY_FILE=/absolute/path/to/deployer.key \
+ENS_GATEWAY_URL='https://xovi-agents.vercel.app/api/ens/{sender}/{data}.json' \
+ENS_GATEWAY_SIGNER_ADDRESS=<the address of the key set in step 1> \
+forge script script/Deploy.s.sol --root contracts --rpc-url <a Sepolia rpc>
+```
+
+It prints the chain, the deployer, the url and the signer, simulates, and sends nothing. Add `--broadcast` to send. It refuses any chain but 11155111, an `http` url, a template without both parameters, and a key pasted into `ENS_RESOLVER_DEPLOYER_KEY`. The deployer becomes the contract's owner, the one address that can later move the url or rotate the signer; it need not be, and should not be, the key that owns `xovi.eth`.
+
+**4. Switch, once, in `app.ens.dev`.** Set `xovi.eth`'s resolver to the address the script printed. This is the owner's transaction and the only one the switch needs. From this block on, the per account resolver's records, `agent1`'s address and the parent's `x402:windows` among them, are no longer read by anyone; the gateway answers them from `SEEDED`, the table and the two variables.
+
+**5. Verify through the agent's own path.** `AGENT_ENS_NAME=xovi.eth npm run ens:verify` reads `x402:windows` through the universal resolver, which now follows the `OffchainLookup` to the gateway and verifies the signature on chain. Expect the same url as before the switch and a zero exit. Then `AGENT_IDENTITY_NAME=agent1.xovi.eth` on the same tool: expect the recording wallet, from the seed.
+
+**If it goes wrong.** The one variable recovery is the ENS app: set the resolver back to `0xAe2084CB…`, whose records were never touched, and every name reads as it did before. Nothing in the table is lost by that; the rows wait for the next switch.
+
+**Rotating the signer.** A new `ENS_GATEWAY_SIGNER_KEY` in the hosting environment, then one owner transaction on the resolver, `setSigners([new], [old])`. Answers signed by the old key stop verifying at that block, so redeploy first and rotate second, or the gateway signs with a key the contract has not yet admitted.

@@ -44,9 +44,12 @@ export function postgresNamesStore(connectionString: string): NamesStore {
      * answer to change between them.
      */
     requestLabel: async payer => {
+      // `issued_at` is written with the row. Under the gateway a row is the
+      // issuance: the resolver answers this payer for this label the moment the
+      // statement commits, so the time it was written is the time it was issued.
       const rows = await sql`
-        INSERT INTO names (payer, label)
-        VALUES (${payer}, 'agent' || nextval('names_label_seq')::text)
+        INSERT INTO names (payer, label, issued_at)
+        VALUES (${payer}, 'agent' || nextval('names_label_seq')::text, now())
         ON CONFLICT (payer) DO UPDATE SET payer = names.payer
         RETURNING payer, label, requested_at, issued_at, tx_hash`;
       return row(rows[0] as Record<string, unknown>);
@@ -60,6 +63,12 @@ export function postgresNamesStore(connectionString: string): NamesStore {
     byPayer: async payer => {
       const rows = await sql`
         SELECT payer, label, requested_at, issued_at, tx_hash FROM names WHERE payer = ${payer}`;
+      return rows.length ? row(rows[0] as Record<string, unknown>) : null;
+    },
+
+    byLabel: async label => {
+      const rows = await sql`
+        SELECT payer, label, requested_at, issued_at, tx_hash FROM names WHERE label = ${label}`;
       return rows.length ? row(rows[0] as Record<string, unknown>) : null;
     },
 
@@ -78,8 +87,11 @@ export function postgresNamesStore(connectionString: string): NamesStore {
      * transaction that actually did the work.
      */
     markIssued: async (label, txHash, at) => {
+      // The pre switch on chain path. `issued_at` is kept where the row already
+      // carries it, since the row was the issuance; it is filled only for a row
+      // written before that ruling.
       const rows = await sql`
-        UPDATE names SET tx_hash = ${txHash}, issued_at = ${at.toISOString()}
+        UPDATE names SET tx_hash = ${txHash}, issued_at = COALESCE(issued_at, ${at.toISOString()})
         WHERE label = ${label} AND tx_hash IS NULL
         RETURNING label`;
       return rows.length > 0;
