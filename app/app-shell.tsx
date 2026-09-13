@@ -812,6 +812,59 @@ function NotYet() {
 }
 
 /**
+ * The run as a rolodex, ported from the Zenbit site's stack.
+ *
+ * One card at a time, centred, with the previous leaf tipping away as the new one
+ * rolls in. The site drives the same keyframes from a view timeline as a reader
+ * scrolls; this is event driven, so the ramp's three frames become three
+ * positions set as steps arrive, and the change between them is a transition.
+ *
+ * The cards are the same `Line` objects the log holds, so nothing here is a
+ * second account of the run that could disagree with the first, and every line
+ * stays reachable by stepping back.
+ *
+ * **The card being read is level and at full opacity, always.** That is the
+ * site's own rule at its narrow breakpoint, for the reason it gives: partial
+ * opacity on text being read is a contrast loss and not a flourish.
+ */
+function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to: number) => void }) {
+  if (lines.length === 0) return null;
+  return (
+    <div className="ag-roll">
+      <div className="ag-roll-stage">
+        {lines.map((line, i) => (
+          <article
+            key={i}
+            className={`ag-roll-card ag-tone-${line.tone} ag-actor-${line.actor}`}
+            data-position={i === at ? "current" : i < at ? "behind" : "next"}
+            aria-hidden={i === at ? undefined : "true"}
+          >
+            <header className="ag-roll-head">
+              <span className="ag-roll-dot" aria-hidden="true" />
+              <span className="ag-chip ag-roll-pill">{line.tone}</span>
+            </header>
+            <p className="ag-roll-name">{line.text}</p>
+            {line.detail !== undefined && <p className="ag-roll-line">{line.detail}</p>}
+            {line.object !== undefined && <Drawing object={line.object} />}
+          </article>
+        ))}
+      </div>
+      <div className="ag-roll-controls">
+        <button type="button" className="ag-rail-item" onClick={() => onStep(at - 1)} disabled={at === 0}>
+          Back
+        </button>
+        <span className="ag-sub">
+          {at + 1} of {lines.length}
+        </span>
+        <button type="button" className="ag-rail-item" onClick={() => onStep(at + 1)} disabled={at >= lines.length - 1}>
+          Forward
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Settings: what has to be true before a run means anything.
  *
  * The wallet, what AgentBook says about it, and whether a name is issued to it.
@@ -1351,6 +1404,7 @@ export function AppShell() {
   const [lines, setLines] = useState<Line[]>([]);
   const [steps, setSteps] = useState<RunStep[]>([]);
   const [challengeRead, setChallengeRead] = useState(false);
+  const [at, setAt] = useState(0);
   const [signed, setSigned] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>("settings");
@@ -1368,7 +1422,12 @@ export function AppShell() {
   const feedEnd = useRef<HTMLLIElement | null>(null);
 
   const say = useCallback((line: Line) => {
-    setLines(prev => [...prev, line]);
+    setLines(prev => {
+      // The newest card is the one being read. A person who has stepped back
+      // keeps their place rather than being yanked forward by the next step.
+      setAt(current => (current === prev.length - 1 || prev.length === 0 ? prev.length : current));
+      return [...prev, line];
+    });
     // The newest line is the one being watched, and the body is the only region
     // that scrolls, so it follows the run rather than making a reader chase it.
     queueMicrotask(() => feedEnd.current?.scrollIntoView({ block: "end", behavior: "smooth" }));
@@ -1576,6 +1635,7 @@ export function AppShell() {
     setError(null);
     setLines([]);
     setSteps([]);
+    setAt(0);
     setChallengeRead(false);
     setSigned(false);
     setPhase("signing");
@@ -1800,6 +1860,7 @@ export function AppShell() {
                       </li>
                     ))}
                   </ol>
+                  {lines.length > 0 && <Rolodex lines={lines} at={at} onStep={to => setAt(Math.max(0, Math.min(lines.length - 1, to)))} />}
                   {lines.length === 0 ? (
                 <div className="ag-intro">
                   {/* The fold. Three verbs, one sentence each, and each sentence restates

@@ -964,6 +964,138 @@ body::after {
 }
 
 /* ---------------------------------------------------------------------------
+   The rolodex, ported from the Zenbit site's stack, stack.css:447-471.
+
+   The site runs those keyframes off a view timeline as a reader scrolls. Here
+   the run is the timeline: the three frames become three positions set as steps
+   arrive, and the change between them is a transition rather than a ramp. The
+   angles, the translate and the scale are the site's, unchanged.
+
+   `overflow-x: clip` on the stage, and not `hidden`, is the site's containment
+   note at stack.css:66-78: `perspective() rotateX()` puts a card's near edge
+   closer to the viewer and therefore wider, so the projected box is wider than
+   the card and would scroll the page sideways; `hidden` would make this a scroll
+   container instead.
+--------------------------------------------------------------------------- */
+.ag-roll {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.25rem;
+}
+
+.ag-roll-stage {
+  position: relative;
+  display: grid;
+  min-height: 11rem;
+  place-items: center;
+  overflow-x: clip;
+}
+
+/* Every card occupies the same cell, so the stack is one place rather than a
+   column that grows. */
+.ag-roll-card {
+  grid-area: 1 / 1;
+  width: 100%;
+  max-width: 26rem;
+  padding: 1.125rem 1.25rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  border-radius: 0.875rem;
+  background-color: color-mix(in srgb, var(--color-base-content) 5%, transparent);
+  transform-origin: center center;
+  transition: transform 220ms var(--xv-ease-out), opacity 220ms var(--xv-ease-out);
+}
+
+/* The leaf being read: level, full opacity, always. */
+.ag-roll-card[data-position="current"] {
+  opacity: 1;
+  transform: perspective(60rem) rotateX(0deg) translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* Tipped away, above. Exits are faster than entrances. */
+.ag-roll-card[data-position="behind"] {
+  opacity: 0;
+  transform: perspective(60rem) rotateX(-42deg) translateY(-18%) scale(0.94);
+  pointer-events: none;
+  transition-duration: 160ms;
+}
+
+/* Waiting below, near edge toward the viewer. */
+.ag-roll-card[data-position="next"] {
+  opacity: 0;
+  transform: perspective(60rem) rotateX(42deg) translateY(18%) scale(0.94);
+  pointer-events: none;
+}
+
+.ag-roll-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Fixed size, so the head does not resize between cards. */
+.ag-roll-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--color-base-content) 30%, transparent);
+}
+
+.ag-actor-human .ag-roll-dot {
+  background-color: var(--color-primary);
+}
+
+.ag-actor-agent .ag-roll-dot {
+  background-color: var(--color-xv-agent);
+}
+
+/* A filled pill that reads as a label rather than as part of the sentence. */
+.ag-roll-pill {
+  background-color: color-mix(in srgb, var(--color-base-content) 8%, transparent);
+}
+
+.ag-roll-name {
+  margin: 0;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 1.0625rem;
+  line-height: 1.25;
+}
+
+.ag-roll-line {
+  margin: 0.375rem 0 0;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  opacity: 0.75;
+}
+
+.ag-roll-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+/* The site's own rule at its narrow breakpoint, stack.css:517-530, and the
+   reviewer's: the tip goes entirely, rather than being shortened. A card being
+   read must not be mid-ramp. */
+@media (prefers-reduced-motion: reduce), (max-width: 30rem) {
+  .ag-roll-card {
+    transition: opacity 160ms var(--xv-ease-out);
+    transform: none;
+  }
+
+  .ag-roll-card[data-position="current"],
+  .ag-roll-card[data-position="behind"],
+  .ag-roll-card[data-position="next"] {
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
    The board: days across, the three species down.
 
    A grid rather than a list, because what a person is choosing is one of a set of

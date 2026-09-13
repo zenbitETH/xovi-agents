@@ -671,6 +671,41 @@ export async function pageChecks(check: Check) {
   check(literalHue.length === 0, `268c · and none writes a hue as a literal (${literalHue.length})`);
 
   /*
+   * The rolodex: the leaf being read is level and at full opacity, always.
+   *
+   * The site's own rule at its narrow breakpoint and the reviewer's: partial
+   * opacity on text being read is a contrast loss, not a flourish. Read off the
+   * rules rather than the markup, because the three positions are what carry it.
+   */
+  // Its own parse, because the shared one is declared further down this file.
+  const rollLive = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const rollRules = [...rollLive.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(m => ({ selector: m[1], body: m[2] }));
+  const positionRule = (name: string) =>
+    rollRules.find(r => new RegExp(`\\.ag-roll-card\\[data-position="${name}"\\]`).test(r.selector) && /transform:/.test(r.body));
+  const current = positionRule("current");
+  check(current !== undefined && /opacity:\s*1/.test(current.body), "281 · the card being read is at full opacity");
+  check(current !== undefined && /rotateX\(0deg\)/.test(current.body), "281a · and level");
+  const behind = positionRule("behind");
+  const next = positionRule("next");
+  check(behind !== undefined && /rotateX\(-42deg\)/.test(behind.body), "281b · the leaf that tipped away carries the site's own angle");
+  check(next !== undefined && /rotateX\(42deg\)/.test(next.body), "281c · and the one waiting carries its opposite");
+  check(behind !== undefined && /transition-duration:\s*160ms/.test(behind.body), "281d · with the exit faster than the entrance");
+
+  // The projected box is wider than the card, so the region clips rather than
+  // hides: hidden would make it a scroll container.
+  const stage = rollRules.find(r => /\.ag-roll-stage/.test(r.selector));
+  check(stage !== undefined && /overflow-x:\s*clip/.test(stage.body), "282 · the stage clips the projection");
+  check(stage !== undefined && !/overflow-x:\s*hidden/.test(stage.body), "282a · and never hides it");
+
+  // Reduced motion drops the tip entirely rather than shortening it.
+  const reduced = rollLive.slice(rollLive.indexOf("@media (prefers-reduced-motion: reduce), (max-width: 30rem)"));
+  check(/transform:\s*none/.test(reduced.slice(0, 600)), "282b · reduced motion and a narrow screen drop the tip");
+
+  // Every line is a card, so the log and the stack cannot disagree.
+  check(/lines\.map\(\(line, i\) => \(/.test(ui) && /data-position=/.test(ui), "283 · every line the log holds is a card");
+  check(/onStep\(at - 1\)/.test(ui) && /onStep\(at \+ 1\)/.test(ui), "283a · and every one of them is reachable by stepping");
+
+  /*
    * The ladder: each rung two present tense sentences, one merged fact and one
    * negative, and the unlock written as the negative rather than a condition.
    */
