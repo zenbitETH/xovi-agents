@@ -1107,12 +1107,15 @@ export const PROCESS: { title: string; line: string }[] = [
   // card says what registering opens rather than what it hands over.
   { title: "Verify with World ID", line: "Optional. It earns the free reads of the day and lets a person ask for a name under xovi.eth." },
   { title: "Choose a day and a species", line: "A board of what is on offer, cut from recordings of the museum's own stream." },
-  // The condition the fold used to carry. On this deployment the two ingest
-  // variables are not set, so a run here ends at not-submitted, which is the path
-  // `test/agent-run.ts` asserts and which `DISCLOSURE.md` states as a negative.
-  // "Proposes one clip" without the condition is the exact claim the sweep
-  // carries as false, and it would stand on the first surface a visitor reads.
-  { title: "Pay and run", line: "The agent reads the windows it was paid for and stops. Where a credential is configured, it proposes one clip." },
+  // The condition the fold used to carry, and it is the wallet's rather than the
+  // deployment's. The deployment holds an ingest target and mints a credential for
+  // a wallet when it enrols, which `DISCLOSURE.md` has stated since `d614a37`, so
+  // "where a credential is configured" named a condition that is met here and read
+  // as though it were not. What is still true of a particular run is that the
+  // credential belongs to a wallet somebody stands behind. The remaining stop, a
+  // wallet whose mint did not answer, is the run's own sentence at the moment it
+  // happens rather than a third clause on a card nobody has acted on yet.
+  { title: "Pay and run", line: "The agent reads the windows it was paid for and stops. For a wallet somebody stands behind, it proposes one clip." },
   { title: "A person decides", line: "Somebody confirms or rejects the proposal, signs it, and the record follows." },
 ];
 

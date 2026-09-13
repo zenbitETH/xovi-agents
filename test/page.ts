@@ -480,15 +480,38 @@ export async function pageChecks(check: Check) {
   const designedAt = disclosure.indexOf("### Designed and not running");
   const designed = designedAt === -1 ? "" : disclosure.slice(designedAt, disclosure.indexOf("### The surface this opens", designedAt));
   check(designed.length > 0 && designed.length < disclosure.length, `253c · the section is found and is a section (${designed.length} characters)`);
+  /*
+   * Whole pairs, not the negative halves.
+   *
+   * Bound as fragments, the merged fact each negative qualifies was held by
+   * nothing: "Receipts land in a ledger" could become any sentence at all and the
+   * check would pass on "No rule routes any of it onward" alone. The array the
+   * page carried is gone, so these are pinned here, the way the anchor's seven
+   * values are: a copy that is the check rather than a second source that has to
+   * be kept in agreement with a third.
+   */
   const moved = [
-    "Nothing here writes to a mainnet",
-    "No rule routes any of it onward",
-    "No institution has paid for one",
-    "No key but Zenbit's has queried it",
-    "No second producer exists",
+    "Every payment here settles on Base Sepolia. Nothing here writes to a mainnet; one read is on one.",
+    "Receipts land in a ledger. No rule routes any of it onward.",
+    "A human confirms or rejects every proposal and signs the decision. No institution has paid for one.",
+    "The anchor joins the confirmation. No key but Zenbit's has queried it.",
+    "One colony produces every record. No second producer exists.",
   ];
   const notMoved = moved.filter(x => !designed.includes(x));
-  check(notMoved.length === 0, `253d · and carries every negative the ladder carried but one (${notMoved.join("; ") || "none"})`);
+  check(notMoved.length === 0, `253d · and carries every pair the ladder carried but one, whole (${notMoved.join(" | ") || "none"})`);
+  /*
+   * And the shape survives the move, which is what 236a and 236b measured on the
+   * array: two present tense sentences, the second a negative. Read off the
+   * bullets rather than off the list above, so a sixth pair added to the document
+   * is held to the same rule without being named here.
+   */
+  const bullets = [...designed.matchAll(/^- \*\*[^*]+\.\*\* (.+)$/gm)].map(m => m[1]);
+  check(bullets.length === moved.length, `253d2 · the section's pairs are found and are as many as were moved (${bullets.length})`);
+  const misshapen = bullets.filter(b => {
+    const parts = b.split(/(?<=\.)\s+/).filter(x => x.length > 0);
+    return parts.length !== 2 || !/^(No|Nothing)\b/.test(parts[1]);
+  });
+  check(misshapen.length === 0, `253d3 · each two sentences with the negative second (${misshapen.join(" | ") || "none"})`);
   /*
    * The sixth is the gateway key's, and it is not a thing that has not happened:
    * it is a property of a deployment that is running, falsified by a key on a

@@ -1038,10 +1038,13 @@ export async function boardChecks(check: Check) {
    * The fold stood in the body's last arm, and nothing sets that state, so its
    * three tiles and the one condition under them were drawn for nobody while the
    * first surface a visitor does read said the agent proposes one clip flatly.
-   * Here the two ingest variables are unset and a run ends at not-submitted,
-   * which is what `test/agent-run.ts` asserts and what `DISCLOSURE.md` states as
-   * a negative, so the unconditional sentence was the sweep's own false claim
-   * standing on the page the repository is judged from.
+   *
+   * The condition is the wallet's, not the deployment's. It first read "where a
+   * credential is configured", which was true of a deployment that held no ingest
+   * target and stopped being the live condition at `d614a37`, where DISCLOSURE
+   * began stating that the deployment holds one and mints a credential for a
+   * wallet when it enrols. What a particular run still turns on is whether
+   * somebody stands behind the wallet paying for it.
    *
    * Read off the array rather than off the file, because the reason the
    * condition exists is written above the card in a comment using the same
@@ -1049,10 +1052,15 @@ export async function boardChecks(check: Check) {
    */
   const proposingCards = PROCESS.filter(c => /\bproposes\b/.test(c.line));
   check(proposingCards.length > 0, `327 · a home card says the agent proposes (${proposingCards.length})`);
-  const unconditioned = proposingCards.filter(c => !/credential is configured/.test(c.line));
+  const unconditioned = proposingCards.filter(c => !/for a wallet somebody stands behind/i.test(c.line));
   check(unconditioned.length === 0, `327a · and none says it without the condition (${unconditioned.map(c => c.title).join(", ") || "none"})`);
-  check(["The agent reads the windows it was paid for and proposes one clip."].filter(l => !/credential is configured/.test(l)).length === 1,
+  check(["The agent reads the windows it was paid for and proposes one clip."].filter(l => !/for a wallet somebody stands behind/i.test(l)).length === 1,
     "327b · the condition check can see a sentence without it (negative control)");
+  // And not the condition it replaced, which names a deployment variable that is
+  // set here: a card saying "where a credential is configured" describes a stop
+  // this deployment does not have and would read as one it does.
+  const stale = proposingCards.filter(c => /credential is configured/i.test(c.line));
+  check(stale.length === 0, `327b2 · nor the deployment condition that stopped being the live one (${stale.map(c => c.title).join(", ") || "none"})`);
   /*
    * A name is issued by Zenbit on a request, not conferred by registering, so
    * the card that offers one says which of the two it is. Sentence by sentence,
