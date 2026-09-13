@@ -1005,8 +1005,23 @@ export async function boardChecks(check: Check) {
   // Comments stripped first, because a comment is not the interface and the note
   // explaining this rule contains the words the rule is about.
   const rendered = page.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-  const connectControls = (rendered.match(/"Connect wallet"/g) ?? []).length;
-  check(connectControls === 1, `279e · and Connect wallet exists once on the page (${connectControls})`);
+  /*
+   * Counted as a label a person reads, not as a quoted string.
+   *
+   * This matched `"Connect wallet"` with its quotes, so a second control writing
+   * the same words as JSX text between its tags was invisible: one of them would
+   * have been counted and the other read as prose. Both forms are counted now,
+   * the string literal and the text node, which is what a person sees either way.
+   */
+  const connectLiterals = (rendered.match(/"Connect wallet"/g) ?? []).length;
+  const connectText = (rendered.match(/>\s*Connect wallet\s*</g) ?? []).length;
+  const connectControls = connectLiterals + connectText;
+  check(connectControls === 1, `279e · and Connect wallet exists once on the page, however it is written (${connectControls}: ${connectLiterals} quoted, ${connectText} as text)`);
+  check((">  Connect wallet  <".match(/>\s*Connect wallet\s*</g) ?? []).length === 1,
+    "279e2 · the text form is seen at all (negative control)");
+  check(('<button>Connect wallet</button>'.match(/>\s*Connect wallet\s*</g) ?? []).length +
+    ('{"Connect wallet"}'.match(/"Connect wallet"/g) ?? []).length === 2,
+    "279e3 · and a page carrying one of each would be counted as two (negative control)");
 
   // The board never says how many, and the chosen cell travels as day and species.
   const boardBlock = page.slice(page.indexOf("function Board("), page.indexOf("function Records("));
