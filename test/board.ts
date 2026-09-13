@@ -241,7 +241,7 @@ export async function boardChecks(check: Check) {
   // a person who closes it mid run loses nothing.
   const dialogBlock = page.slice(page.indexOf('<dialog ref={runDialog}'), page.indexOf("</dialog>"));
   check(/<form method="dialog">/.test(dialogBlock), "284c · closing it is a dialog form and aborts nothing");
-  check(!/abort|reader\.cancel|controller/.test(dialogBlock), "284d · and nothing in it stops the stream");
+  check(!/\babort\b|reader\.cancel|AbortController/.test(page), "284d · and nothing on the page aborts the stream");
   // The action lives beside the cell it will read and nowhere else.
   const boardRun = page.slice(page.indexOf("ag-board-run"), page.indexOf("ag-board-run") + 500);
   check(/Pay and run/.test(boardRun), "284e · the action is on the board beside the chosen cell");
@@ -252,11 +252,22 @@ export async function boardChecks(check: Check) {
   check(payControls === 1, `284f · and exists exactly once on the page (${payControls})`);
   // The blur is on the page. The stylesheet's rule against backdrop-filter and
   // the check that holds it are untouched.
-  check(/body:has\(\.ag-run-dialog\[open\]\) \.ag-surface/.test(css) && /filter: blur/.test(css),
-    "284g · the page behind is blurred rather than the backdrop");
+  check(/body:has\(\.ag-run-dialog\[open\]\)\s+\.ag-surface\s*\{[^}]*filter:\s*blur\([^)]+\)[^}]*\}/.test(css),
+    "284g · the page behind is blurred rather than the backdrop, in one rule");
+  check(!/backdrop-filter\s*:/.test(css), "284h · and no backdrop-filter is declared anywhere");
+  // To the dialog, not to the end of main: the dialog lives inside main and its
+  // Close button is not the bottom bar's.
+  const actions = page.slice(page.indexOf('<div className="ag-actions">'), page.indexOf("<dialog ref={runDialog}"));
+  check(!/<button/.test(actions), "284i · and the bottom bar carries nothing pressable");
+  // 39: the thesis renders where the run happens, and nothing holds a run screen.
+  check(/id="ag-run-thesis"/.test(dialogBlock) && /No credential in existence may confirm/.test(dialogBlock),
+    "285a · the run's thesis is the dialog's heading");
+  check(/aria-labelledby="ag-run-thesis"/.test(page), "285b · which names the dialog");
+  check(/tabIndex=\{-1\}/.test(page) && /dialog\.focus\(\)/.test(page), "285c · and the dialog takes focus rather than its Close button");
+  check(/aria-haspopup=\{s\.id === "run" \? "dialog"/.test(page), "285d · the strip's run item says it opens one");
   const heads = page.slice(page.indexOf("const HEADS"), page.indexOf("const HEADS") + 900);
   check(/settings:/.test(heads) && /board:/.test(heads), "285 · every screen but the run carries its own head line");
-  check(/screen === "run" \? \(/.test(page), "285a · and the run's title block belongs to the run");
+
 
   /*
    * The onboarding, and the strip that does not exist until it is done.

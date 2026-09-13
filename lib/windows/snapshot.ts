@@ -60,6 +60,27 @@ function readDaySidecar(file: string): string | null {
  * beside them is not parsed as windows and does not turn a good snapshot into a
  * refusal.
  */
+/**
+ * Invented data, which must never reach a board.
+ *
+ * The synthetic fixture exists so the paid path can be exercised with no real
+ * footage, and it declares itself: its detector is `synthetic`, its channel and
+ * its videos are placeholders. Pointing `WINDOWS_SNAPSHOT` at the fixtures
+ * directory would sweep it up with the real files and put an invented day on the
+ * board beside measured ones, which is the worst thing this page could publish.
+ *
+ * A directory read skips such a file whole. A path that names one explicitly is
+ * served, because that is what the checks and the local demonstration do on
+ * purpose, and naming it is a choice rather than an accident.
+ */
+export function isSynthetic(window: CandidateWindow): boolean {
+  return (
+    String(window.detector ?? "").startsWith("synthetic") ||
+    String(window.channelId ?? "").includes("synthetic") ||
+    String(window.videoId ?? "").startsWith("synth")
+  );
+}
+
 function filesFrom(configured: string): string[] {
   const parts = configured
     .split(",")
@@ -81,13 +102,28 @@ function filesFrom(configured: string): string[] {
     const inside = readdirSync(path)
       .filter(name => name.endsWith(".jsonl"))
       .sort()
-      .map(name => join(path, name));
+      .map(name => join(path, name))
+      // Skipped rather than refused: a directory holding the fixture beside real
+      // files is the normal state of this repository, not a misconfiguration.
+      .filter(file => !fileIsSynthetic(file));
     // An empty directory is a misconfiguration wearing the shape of a quiet day,
     // which is the distinction this function's caller exists to keep.
     if (inside.length === 0) throw new SnapshotUnavailable(`no .jsonl files in ${part}`);
     files.push(...inside);
   }
   return files;
+}
+
+/** Reads the first line only. A file is synthetic or it is not; the fixture does
+ *  not mix invented windows with measured ones and neither should anything else. */
+function fileIsSynthetic(file: string): boolean {
+  try {
+    const first = readFileSync(file, "utf8").split("\n").find(line => line.trim().length > 0);
+    if (first === undefined) return false;
+    return isSynthetic(JSON.parse(first) as CandidateWindow);
+  } catch {
+    return false;
+  }
 }
 
 export function loadSnapshot(env: EnvLike = process.env): BoardWindow[] {

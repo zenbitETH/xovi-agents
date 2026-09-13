@@ -1002,6 +1002,19 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   animation: xvDialogIn 200ms var(--xv-ease-out) both;
 }
 
+/* The thesis, at the head of the run it is about. */
+.ag-run-thesis {
+  margin: 0.125rem 0 0.625rem;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 1.0625rem;
+  line-height: 1.25;
+}
+
+.ag-run-dialog:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-base-content) 45%, transparent);
+  outline-offset: 2px;
+}
+
 /* A modal is anchored to nothing, so it grows from its own centre rather than
    from the control that opened it. Never from scale 0: a thing that appears from
    nothing reads as a glitch. */

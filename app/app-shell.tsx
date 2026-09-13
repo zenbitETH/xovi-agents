@@ -1029,7 +1029,11 @@ function Onboarding({
         />
         <p className="ag-sub">
           A window is a span of this stream that a machine thinks a person should look at. It is not a claim that an
-          animal was identified or that a behaviour occurred.
+          animal was identified or that a behaviour occurred. The clips a person has confirmed are public:{" "}
+          <a className="ag-link" href="https://xovi.axolodao.org/galeria">
+            the gallery
+          </a>
+          .
         </p>
       </div>
 
@@ -1783,7 +1787,11 @@ export function AppShell() {
    *  inert and gives Escape for nothing, none of which is worth rebuilding. */
   const openRun = useCallback(() => {
     const dialog = runDialog.current;
-    if (dialog !== null && !dialog.open) dialog.showModal();
+    if (dialog === null || dialog.open) return;
+    dialog.showModal();
+    // Otherwise the first focusable is Close, so a keyboard lands on the way out
+    // of the run rather than at the top of it.
+    dialog.focus();
   }, []);
 
   const onDisconnect = useCallback(async () => {
@@ -1958,25 +1966,9 @@ export function AppShell() {
       <main className="ag-app">
         <div className="ag-surface">
           <div className="ag-app-top">
-            {screen === "run" ? (
-              <>
-                <p className="ag-eyebrow">Delegated run · Base Sepolia</p>
-                <h1 className="ag-app-title">An agent may propose. No credential in existence may confirm.</h1>
-              </>
-            ) : (
-              <>
-                <h1 className="ag-shead-title">{HEADS[screen]?.title}</h1>
+            <h1 className="ag-shead-title">{HEADS[screen]?.title}</h1>
                 <p className="ag-sub">{HEADS[screen]?.sub}</p>
-              </>
-            )}
-            {screen === "run" && (
-              <p className="ag-sub">
-                {address === null
-                  ? "Connect a wallet, pay for one read, and the agent does the rest."
-                  : "Pay for one read, and the agent does the rest."}
-              </p>
-            )}
-            {onboarded && (
+                        {onboarded && (
             <nav className="ag-rail" aria-label="Sections" style={{ "--xv-strip-n": screensFor(chosen !== null).length } as React.CSSProperties}>
               {/* The indicator is one element moved with `transform`, so the state
                   travels between items rather than being switched off one and on
@@ -1993,6 +1985,7 @@ export function AppShell() {
                   type="button"
                   className={s.id === screen ? "ag-rail-item ag-rail-on" : "ag-rail-item"}
                   aria-current={s.id === screen ? "true" : undefined}
+                  aria-haspopup={s.id === "run" ? "dialog" : undefined}
                   onClick={() => (s.id === "run" ? openRun() : setScreen(s.id))}
                 >
                   {s.label}
@@ -2274,9 +2267,16 @@ export function AppShell() {
         {/* The run, over the page rather than instead of it. Closing it never
             stops the stream: the status chip keeps moving and the strip's Run
             item reopens it on whatever card the run has reached. */}
-        <dialog ref={runDialog} className="ag-run-dialog" aria-label="The run">
+        <dialog ref={runDialog} className="ag-run-dialog" tabIndex={-1} aria-labelledby="ag-run-thesis">
           <div className="ag-run-dialog-head">
-            <ol className="ag-plan">
+            <div>
+              {/* The thesis, where the run happens. It stood over every screen and
+                  then over none, because nothing sets a run screen any more. */}
+              <p className="ag-eyebrow">Delegated run · Base Sepolia</p>
+              <h2 id="ag-run-thesis" className="ag-run-thesis">
+                An agent may propose. No credential in existence may confirm.
+              </h2>
+              <ol className="ag-plan">
               {PLAN.map((node, i) => (
                 <li
                   key={node.label}
@@ -2285,8 +2285,9 @@ export function AppShell() {
                   <span className="ag-plan-dot" aria-hidden="true" />
                   <span className="ag-plan-label">{node.label}</span>
                 </li>
-              ))}
-            </ol>
+                ))}
+              </ol>
+            </div>
             <form method="dialog">
               <button className="ag-rail-item">Close</button>
             </form>
