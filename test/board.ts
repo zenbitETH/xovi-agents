@@ -365,6 +365,26 @@ export async function boardChecks(check: Check) {
   const uiRendered = ui.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   check(!/\bnullifier\b/i.test(uiRendered), "296b · with the value itself named nowhere the interface renders");
   check(/\bnullifier\b/i.test("the nullifier"), "296d · the value check can see the word (negative control)");
+  /*
+   * WHAT THE ALLOWANCE IS COUNTED AGAINST, SAID AS THE COUNTER KEYS IT.
+   *
+   * `takeFreeRead` keys on the digest of the identifier, which is the person, and
+   * the card said the reads counted against the wallet. Those differ in the one
+   * direction that matters: the whole feature exists because a limit on an address
+   * is defeated by making addresses, so a sentence promising a per wallet count
+   * describes the thing this was built to prevent.
+   */
+  const registeredLine = /"Registered by World ID\.([^"]*)"/.exec(worldCard)?.[1] ?? "";
+  check(registeredLine.length > 0, "296e · the card's registered sentence is found (negative control for the read)");
+  // The refusal is on the affirmative form only. A first version banned the phrase
+  // "against the wallet" outright and turned red on the corrected sentence, which
+  // says the reads are NOT counted against it: a negative and a claim share their
+  // words and only the verb tells them apart.
+  const countsWallet = /counts? against (this|the) wallet/;
+  check(/counts? against the person/.test(registeredLine) && !countsWallet.test(registeredLine),
+    `296f · and it counts the free reads against the person rather than the wallet (${registeredLine.trim() || "nothing read"})`);
+  check(countsWallet.test("Free reads count against this wallet from now."),
+    "296g · the wallet claim the card used to make is one this check refuses (negative control)");
 
   /*
    * The two components mount in slots, and the slots take the wallet.

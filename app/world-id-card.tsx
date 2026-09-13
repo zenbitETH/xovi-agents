@@ -135,7 +135,7 @@ export function WorldIdCard({ payer, onRegistered }: { payer: `0x${string}` | nu
             : state === "verifying"
               ? "Checking the result with World's verifier."
               : state === "registered"
-                ? "Registered by World ID. Free reads count against this wallet from now."
+                ? "Registered by World ID. Free reads count against the person behind it, not against the wallet, so a second wallet does not get a second allowance."
                 : (why ?? "Refused.");
 
   return (

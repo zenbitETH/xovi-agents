@@ -782,9 +782,22 @@ async function main() {
 
   await pageChecks(check);
 
-  const shared = [...idsSeen.entries()].filter(([, times]) => times > 1).map(([id]) => id);
+  const shared = [...idsSeen.entries()].filter(([, times]) => times > 1).map(([id, times]) => `${id} ${times} times`);
   check(shared.length === 0, `354 · no two checks in this run share an id (${shared.join(", ") || "none shared"})`);
-  check(idsSeen.size > 100 && (idsSeen.get("354") ?? 0) === 1, `354a · and the ids were counted (${idsSeen.size} distinct, this one seen ${idsSeen.get("354") ?? 0})`);
+  /*
+   * And every check carried one, which is the half 354 cannot see.
+   *
+   * 354 reads the ids it could parse, so a label with no id at its front escapes
+   * the count and the comparison both, and the run would look clean because the
+   * thing that could collide was never counted. Reconciling the total against the
+   * number of checks closes that, and it is reported as a sum rather than as a
+   * bare count of distinct ids: the first version printed `740 distinct` beside
+   * 741 checks, which is the map read one check before its own id lands in it,
+   * and a number nobody can reconcile invites the reading that two ids repeat
+   * when none does.
+   */
+  const counted = [...idsSeen.values()].reduce((total, times) => total + times, 0);
+  check(counted === n, `354a · and every check carried one (${counted} ids over ${n} checks)`);
 
   console.log(`\n  ${n - bad}/${n} passed\n`);
   process.exitCode = bad ? 1 : 0;
