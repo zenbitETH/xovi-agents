@@ -1005,8 +1005,23 @@ export async function boardChecks(check: Check) {
   // Comments stripped first, because a comment is not the interface and the note
   // explaining this rule contains the words the rule is about.
   const rendered = page.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-  const connectControls = (rendered.match(/"Connect wallet"/g) ?? []).length;
-  check(connectControls === 1, `279e · and Connect wallet exists once on the page (${connectControls})`);
+  /*
+   * Counted as a label a person reads, not as a quoted string.
+   *
+   * This matched `"Connect wallet"` with its quotes, so a second control writing
+   * the same words as JSX text between its tags was invisible: one of them would
+   * have been counted and the other read as prose. Both forms are counted now,
+   * the string literal and the text node, which is what a person sees either way.
+   */
+  const connectLiterals = (rendered.match(/"Connect wallet"/g) ?? []).length;
+  const connectText = (rendered.match(/>\s*Connect wallet\s*</g) ?? []).length;
+  const connectControls = connectLiterals + connectText;
+  check(connectControls === 1, `279e · and Connect wallet exists once on the page, however it is written (${connectControls}: ${connectLiterals} quoted, ${connectText} as text)`);
+  check((">  Connect wallet  <".match(/>\s*Connect wallet\s*</g) ?? []).length === 1,
+    "279e2 · the text form is seen at all (negative control)");
+  check(('<button>Connect wallet</button>'.match(/>\s*Connect wallet\s*</g) ?? []).length +
+    ('{"Connect wallet"}'.match(/"Connect wallet"/g) ?? []).length === 2,
+    "279e3 · and a page carrying one of each would be counted as two (negative control)");
 
   // The board never says how many, and the chosen cell travels as day and species.
   const boardBlock = page.slice(page.indexOf("function Board("), page.indexOf("function Records("));
@@ -2474,10 +2489,54 @@ export async function boardChecks(check: Check) {
   const cornerRule = /\n\.ag-step-corners\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
   check(/position:\s*absolute/.test(cornerRule) && /bottom:/.test(cornerRule) && /justify-content:\s*space-between/.test(cornerRule),
     `421m · the two quiet controls sit in the step's bottom corners (${cornerRule.replace(/\s+/g, " ").trim().slice(0, 70)})`);
-  const detailsOrder = stepBody.indexOf("See details") < stepBody.indexOf("Check again");
-  check(detailsOrder, "421n · the reading on the left and the re-read on the right");
+  /*
+   * THE ORDER AS IT RENDERS, NOT AS IT IS WRITTEN.
+   *
+   * This read the markup alone, so a swap through `order`, a `row-reverse` on the
+   * row, or an auto margin moved onto the first control each left it green while
+   * the corners changed places on the screen. Markup is one of three inputs to
+   * where a flex child lands, and the other two are read here.
+   */
+  const inMarkup = stepBody.indexOf("See details") < stepBody.indexOf("Check again");
+  const cornersRule = /\n\.ag-step-corners\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  const detailsRule = /\n\.ag-step-details\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  const againRule = /\n\.ag-step-again\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(cornersRule.length > 0 && detailsRule.length > 0 && againRule.length > 0,
+    `421n0 · the row and its two controls have rules to read (negative control, ${cornersRule.length}/${detailsRule.length}/${againRule.length})`);
+  const reversed = /flex-direction:\s*(row-reverse|column-reverse)/.test(cornersRule);
+  const ordered = [detailsRule, againRule].filter(r => /(^|;)\s*order\s*:/.test(r));
+  // An auto margin on the FIRST child pushes it off the edge it is meant to hold;
+  // on the second it only pins it to the far edge, which is what is wanted.
+  const pushedOff = /margin(-left|-inline-start)?:[^;]*\bauto\b/.test(detailsRule);
+  check(inMarkup, "421n · the reading is written before the re-read");
+  check(!reversed && ordered.length === 0 && !pushedOff,
+    `421n2 · and nothing reorders them, so it renders that way: the reading holds the left corner and the re-read the right (reversed ${reversed}, ordered ${ordered.length}, pushed ${pushedOff})`);
+  check(/(^|;)\s*order\s*:/.test("order: 2;") && /margin(-left|-inline-start)?:[^;]*\bauto\b/.test("margin-left: auto;"),
+    "421n3 · the reorder checks can see an order and an auto margin (negative control)");
   check(/className="ag-chip ag-chip-idle ag-chip-do ag-step-again"/.test(stepBody),
     "421o · and the re-read is a pill rather than one of the two choices");
+  /*
+   * AND THE READING'S WAY OUT DOES NOT BREATHE.
+   *
+   * `ag-run-close-ready` is the run dialog's way out arriving into its active
+   * state and then breathing, so an eye that has been watching a run finds it when
+   * the run ends. This one is active from the moment the reading opens, so wearing
+   * that class made it breathe for as long as the modal stood there, reporting a
+   * change that had already happened. Read over the modal alone, because the run
+   * dialog's own button carries it correctly and a file-wide count would pass on
+   * the wrong one.
+   */
+  // Over the markup with the comments stripped: the comment above that button says
+  // which class it must not carry, and counting the raw text found the sentence
+  // explaining the rule and read it as the rule being broken.
+  const spokenMarkup = (block: string) => block.replace(/\{\/\*[\s\S]*?\*\/\}/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ");
+  const readyInModal = (spokenMarkup(stepModal).match(/ag-run-close-ready/g) ?? []).length;
+  check(readyInModal === 0, `421p · the reading's way out carries no activation class, so it does not breathe (${readyInModal})`);
+  check((spokenMarkup('{/* no ag-run-close-ready here */}\n<button className="ag-run-close">').match(/ag-run-close-ready/g) ?? []).length === 0,
+    "421p0 · the read strips the comment that names the class (negative control)");
+  check(/ag-run-close\b/.test(stepModal), "421p2 · while it is still the dialog's own way out (negative control)");
+  const readyInRun = (spokenMarkup(page.slice(page.indexOf("<dialog ref={runDialog}"))).match(/ag-run-close-ready/g) ?? []).length;
+  check(readyInRun === 1, `421p3 · and the run's way out, which the class was written for, still carries it (${readyInRun})`);
 
   check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
   check(/const enrolment = enrolmentState\(\{ address, registration, skipped \}\);/.test(page) &&

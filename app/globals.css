@@ -766,8 +766,11 @@ body::after {
   opacity: 1;
 }
 
+/* `space-between` on the row already puts these two at the two corners, so the
+   auto margin that used to be here changed nothing and no check could hold it.
+   What this does need is to keep its size when the row is narrow. */
 .ag-step-again {
-  margin-left: auto;
+  flex: 0 0 auto;
 }
 
 /* The reading itself, in the run dialog's frame: one dialog shape on this page,
