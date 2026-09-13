@@ -54,12 +54,12 @@ This repository was created on 2026-09-06 and is being built across the event wi
 
 | Leg | State |
 |---|---|
-| Agent identity over ENS | resolving: `xovi.eth` is registered on Ethereum Sepolia and its `x402:windows` record resolves to the windows endpoint, read 2026-09-12 through `resolveWindowsEndpoint` with no injected lookup, which is the function `bin/agent.ts` calls. Checkable in one command, `AGENT_ENS_NAME=xovi.eth npm run ens:verify`. The four refusal branches are proven against an injected resolver, and the protocol guard is proven against the real record: an `http` value stood on it for eighteen blocks on 2026-09-12 and was refused |
-| Paid read over x402 | built, and settled repeatedly on Base Sepolia through the public testnet facilitator, most recently `0x4d609e7b…aa39`. The suite exercises the refusal against a fake; the settlements are real |
+| Agent identity over ENS, ENSIP-10 and EIP-3668, its answers signed under EIP-191 | resolving: `xovi.eth` is registered on Ethereum Sepolia and its `x402:windows` record resolves to the windows endpoint, read 2026-09-12 through `resolveWindowsEndpoint` with no injected lookup, which is the function `bin/agent.ts` calls. Checkable in one command, `AGENT_ENS_NAME=xovi.eth npm run ens:verify`. The four refusal branches are proven against an injected resolver, and the protocol guard is proven against the real record: an `http` value stood on it for eighteen blocks on 2026-09-12 and was refused |
+| Paid read over x402 version 2, settled with EIP-3009 | built, and settled repeatedly on Base Sepolia through the public testnet facilitator, most recently `0x4d609e7b…aa39`. The suite exercises the refusal against a fake; the settlements are real |
 | Agent proposes a clip | built, and exercised twice over: against a fake of the ingest route in the suite, and live against the real route, which is where clip 259 came from |
-| Proof of human, per person caps | built: registry lookup, a keyed digest of the identifier kept for 30 days, and a per person daily allowance |
-| Attestation and onchain anchor | **registered and anchored.** The schema is `0x8d4a9a6e…8c6d` on Ethereum Sepolia, registered in block 11680348; clip 259's confirmation is attested at `0xd86c2902…5538` and its offchain identifier timestamped at `0x236b7c7a…dfb3` |
-| Subgraph and paid query | **indexing the deployed anchor.** The subgraph returns clip 259's observation filtered on the schema identifier as `topic3`, and a paid query over MCP returns it after settling |
+| Proof of human over World ID version 4, per person caps | built: registry lookup, a keyed digest of the identifier kept for 30 days, and a per person daily allowance |
+| Attestation and onchain anchor over EAS | **registered and anchored.** The schema is `0x8d4a9a6e…8c6d` on Ethereum Sepolia, registered in block 11680348; clip 259's confirmation is attested in transaction `0xd86c2902…5538` and its offchain identifier timestamped in transaction `0x236b7c7a…dfb3` |
+| Subgraph on The Graph, and a paid query | **indexing the deployed anchor.** The subgraph returns clip 259's observation filtered on the schema identifier as `topic3`, and a paid query over MCP returns it after settling |
 | A person's own surface | built: an onboarding that asks for a wallet on Base Sepolia, what AgentBook says about it and whether a name resolves to it, before anything else is reachable; a board of what is on offer per day and per species; the run drawn one card at a time; and the account's receipts, proposals and names. Every number on it comes from a served field or a merged document |
 | Windows on offer | built from screened recordings of the museum's own livestream, each file carrying the day its footage belongs to. The board says on offer or none per day and per species and never how many, because the files are public and a count is the withheld set by subtraction |
 | Receipts ledger and fee sink | receipts built and written by real settlements, recorded against the payer. **The fee sink is not started** |
@@ -83,6 +83,8 @@ The human operator confirms; the confirmation is attested. The attestation asser
 ## Privacy
 
 ZENBIT S.A.S. de C.V. (Santiago de Querétaro, Mexico) is the data controller. For agents, the World ID identifier of the person who registered them is read to administer a free daily quota and to show operators, as true or false, whether a proposing agent was registered by a verified person; a keyed digest of it is kept for 30 days for the quota only. You may limit the use of your data, exercise your access, rectification, cancellation and objection rights, and revoke your consent at hola@zenbit.mx. Full privacy notice: https://zenbit.mx/en/privacy. Clip confirmations are collected in the Xovi confirmation interface, which carries its own notice.
+
+Zenbit adds, outside that paragraph because it is Zenbit's own statement and not the controller's text: that identifier reaches Zenbit two ways, read from AgentBook for an agent registered there, or from a World ID proof the person submits in this page; the digest, the thirty days and the quota are the same either way.
 
 ## Licence
 

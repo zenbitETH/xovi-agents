@@ -8,7 +8,7 @@ Nothing. A limit tied to an address is defeated by generating addresses, and gen
 
 ## The shape, and why the degraded path needs no code
 
-A verified human's agents get a number of free reads per day. Past that number, and for anyone the registry does not know, every read settles exactly as it does today. So the cap is an allowance laid on top of a rail that already works, and the fallback is not a branch somebody has to remember to write: it is the behaviour that existed before this document. A free read returns the same response as the no-payment-required arm, because that is what it is: served, with nothing owed and nothing settled.
+A registered person's agents get a number of free reads per day. Past that number, and for anyone the registry does not know, every read settles exactly as it does today. So the cap is an allowance laid on top of a rail that already works, and the fallback is not a branch somebody has to remember to write: it is the behaviour that existed before this document. A free read returns the same response as the no-payment-required arm, because that is what it is: served, with nothing owed and nothing settled.
 
 The knobs are `HUMAN_FREE_READS_PER_DAY`, default 20, counted per UTC day, and the registry's address and rpc in `AGENTBOOK_ADDRESS` and `AGENTBOOK_RPC_URL`. The demo sets the free count to 3, so exhausting one agent's share and watching the second settle takes about a minute on camera.
 
@@ -88,7 +88,7 @@ So the explorer evidence is produced first, either before the payer is registere
 
 The identifier is a World ID nullifier. It names no person, and it is the same value across every registration one human makes under this action, which is what makes it useful for a per person cap and what makes it **personal data rather than anonymous data**: a stable link is still a link. An audit ruled it pseudonymised personal data under Mexican federal law, and the rest of this section is what that ruling requires.
 
-**The declared purpose is one thing: administering a daily free quota per verified person.** Any other use needs its own basis. Nothing is stored about which window was served, at what time within the day, or from which address.
+**The declared purpose is one thing: administering a daily free quota per registered person.** Any other use needs its own basis. Nothing is stored about which window was served, at what time within the day, or from which address.
 
 **What is stored is never the identifier.** It is an HMAC-SHA256 derivation under a server secret that lives outside this repository, written as fixed width lowercase hex so its length says nothing either. That the underlying value is readable by anyone on chain does not make storing it in the clear harmless: what the derivation reduces is the linkability of **this** database, not of the contract, so a copy of the usage table on its own says only that some person took some free reads on some day. With no key there is no derivation, so there is no allowance and every read settles, which is the direction everything else here fails in.
 
