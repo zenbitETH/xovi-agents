@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ACCOUNT_TABS,
+  CHAIN,
   PLAN,
   planFrom,
   screensFor,
@@ -182,11 +183,17 @@ export async function pageChecks(check: Check) {
    * number is opaque and belongs to neither list and to no surface.
    */
   const SEVEN = ["clipId", "clipHash", "decision", "verifier", "verifierSignature", "verifierNonce", "verifierChainId"];
-  const recordBlock = ui.slice(ui.indexOf("const RECORD = {"), ui.indexOf("const ASSERTED = {"));
+  // Each object delimited by its own closing brace rather than by whatever is
+  // declared next: the end anchor used to be the comment above the four links,
+  // and rewording that comment ran the slice to the end of the file, which swept
+  // seven component props into the list of fields Zenbit asserts.
+  const recordAt = ui.indexOf("const RECORD = {");
+  const recordBlock = ui.slice(recordAt, ui.indexOf("};", recordAt));
   const shown = [...recordBlock.matchAll(/^\s{2}(\w+):/gm)].map(m => m[1]);
   check(shown.sort().join(",") === [...SEVEN].sort().join(","), `231 · the record shows spec 05's seven checkable fields and no others (${shown.length})`);
 
-  const assertedBlock = ui.slice(ui.indexOf("const ASSERTED = {"), ui.indexOf("/** The four links"));
+  const assertedAt = ui.indexOf("const ASSERTED = {");
+  const assertedBlock = ui.slice(assertedAt, ui.indexOf("};", assertedAt));
   const asserted = [...assertedBlock.matchAll(/^\s{2}(\w+):/gm)].map(m => m[1]);
   check(asserted.sort().join(",") === "submitter,verifiedAt", `231a · and names the two the operator asserts (${asserted.join(",")})`);
   check(!recordBlock.includes("confidence") && !assertedBlock.includes("confidence"), "231b · the model's number is on neither list");
@@ -318,7 +325,7 @@ export async function pageChecks(check: Check) {
    */
   check(/anchored on Ethereum Sepolia/.test(flatRecord), "238 · the page states that this confirmation is anchored");
   check(!/not anchored/i.test(ui), "238a · and never the opposite, which is the copy this replaced");
-  check(/\{ANCHOR_259\.onchainUid\}/.test(ui), "238b · rendering the onchain identifier from the constant");
+  check(/"onchain identifier": ANCHOR_259\.onchainUid/.test(ui), "238b · rendering the onchain identifier from the constant");
   /*
    * Pinned literally, all of them. A check that pins the time alone lets an
    * identifier, an attester or a transaction hash drift by a digit and stay
@@ -350,12 +357,68 @@ export async function pageChecks(check: Check) {
       ANCHOR_259.timestampTx === CHAIN_READ_2026_09_12.timestampTx,
     "238d · and the offchain identifier, its getTimestamp time and its transaction likewise",
   );
-  check(/\{ANCHOR_259\.offchainUid\}/.test(ui) && /\{ANCHOR_259\.timestampedAt\}/.test(ui),
+  check(/"offchain identifier": ANCHOR_259\.offchainUid/.test(ui) && /"timestamped at": ANCHOR_259\.timestampedAt/.test(ui),
     "238f · and the offchain identifier with the time getTimestamp returns");
+  // Structural, so the four above cannot be satisfied by a value typed in beside
+  // the constant they name. Every hexadecimal on this surface is interpolated.
+  const literals = records.match(/0x[0-9a-f]{20,}/gi) ?? [];
+  check(literals.length === 0, `238i · and no value the record draws is written as a literal (${literals.join(", ") || "none"})`);
+  check((/0x[0-9a-f]{20,}/gi.test("0x3252123f3ac9e0521296847836c61f757c939e54")), "238j · the literal check can see one (negative control)");
   check(String(ANCHOR_259.offchainUid) !== String(ANCHOR_259.onchainUid) && ANCHOR_259.timestampedAt === 1789110504,
     "238g · the two identifiers share nothing, which is why each has its own call");
   check(/sepolia\.etherscan\.io\/tx\/\$\{ANCHOR_259\.attestTx\}/.test(ui), "238c · and linking the transaction that carries it");
   check(/sepolia\.etherscan\.io\/tx\/\$\{ANCHOR_259\.timestampTx\}/.test(ui), "238h · and the timestamp's own transaction beside the offchain identifier, never the attestation's");
+
+  /*
+   * The record is four tabs, one object each.
+   *
+   * It was a stack: a paragraph, four links as a list, seven fields, two more, a
+   * check, five anchor values, one column. A reader asking what the attestation
+   * is read everything above and below it to find out, and the anchor section was
+   * nested inside the check's, which is not where it belongs.
+   *
+   * The tabs are the links, so the four sentences that say what each object is
+   * cannot drift from the four panels, and the arm no tab takes is uninhabitable
+   * by its parameter: a fifth link without a panel stops compiling rather than
+   * drawing nothing.
+   */
+  const recordsBody = records;
+  const panelless = CHAIN.filter(l => !new RegExp(`tab === "${l.id}"`).test(recordsBody));
+  check(CHAIN.length === 4, `321 · the record is four links (${CHAIN.length})`);
+  check(panelless.length === 0, `321a · and each of them has a panel of its own (${panelless.map(l => l.id).join(", ") || "none"})`);
+  check(/\) : \(\s*exhausted\(tab\)\s*\)\}/.test(recordsBody),
+    "321b · with the arm no tab takes uninhabitable, so a fifth link without a panel stops compiling");
+  check(/<p className="ag-sub">\{link\.says\}<\/p>/.test(recordsBody),
+    "321c · and a panel's first line is its link's own sentence, read off the array rather than written twice");
+
+  /*
+   * Each panel carries its own object and no other's. The hazard this is against
+   * is the one 232e names: an identifier under the call that does not answer for
+   * it, which is a badge with nothing behind it.
+   */
+  const panelOf = (id: string): string => {
+    const from = recordsBody.indexOf(`tab === "${id}"`);
+    if (from === -1) return "";
+    const rest = recordsBody.slice(from + 1);
+    const nexts = CHAIN.map(l => rest.indexOf(`tab === "${l.id}"`)).filter(i => i > 0);
+    const end = nexts.length > 0 ? Math.min(...nexts) : rest.indexOf("exhausted(tab)");
+    return end > 0 ? rest.slice(0, end) : rest;
+  };
+  const panels = CHAIN.map(l => ({ id: l.id, body: panelOf(l.id) }));
+  const empty = panels.filter(p => p.body.length < 80);
+  check(empty.length === 0, `321d · the four panels are found (negative control for the slices, ${empty.map(p => p.id).join(", ") || "none"})`);
+  const [clipPanel, confirmationPanel, attestationPanel, anchorPanel] = panels.map(p => p.body);
+  check(/Seven fields/.test(confirmationPanel) && /Zenbit asserts/.test(confirmationPanel) &&
+    />The check</.test(confirmationPanel) && /Recover the signer/.test(confirmationPanel),
+    "321e · the seven, the two Zenbit asserts and the check are under the confirmation");
+  const strays = panels.filter(p => p.id !== "confirmation" && /Seven fields|Zenbit asserts|>The check<|Recover the signer/.test(p.body));
+  check(strays.length === 0, `321f · and under nothing else (${strays.map(p => p.id).join(", ") || "none"})`);
+  check(/offchainUid/.test(attestationPanel) && !/onchainUid/.test(attestationPanel),
+    "322 · the attestation panel carries the offchain identifier and not the onchain one");
+  check(/onchainUid/.test(anchorPanel) && !/offchainUid/.test(anchorPanel),
+    "322a · and the anchor panel the onchain one and not the offchain, since the two share nothing");
+  check(/RECORD\.clipHash/.test(clipPanel) && !/ANCHOR_259/.test(clipPanel),
+    "322b · while the clip panel carries the clip and no identifier from the chain");
 
   /*
    * An empty proposals section must not read as "you proposed nothing".

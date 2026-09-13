@@ -1467,20 +1467,62 @@ export const RECORD = {
   verifierChainId: CONFIRMATION_259.verifierChainId,
 };
 
+/** Which object of the record a reader is looking at. */
+type RecordTab = "clip" | "confirmation" | "attestation" | "anchor";
+
 const ASSERTED = {
   verifiedAt: CONFIRMATION_259.verifiedAt,
   submitter: CONFIRMATION_259.submitter,
 };
 
-/** The four links, from the moment to the thing anybody can look up. */
-const CHAIN = [
-  { name: "the clip", says: "a span of public footage, proposed by an agent and given an identifier" },
-  { name: "the confirmation", says: "a person decided, and signed the decision with their own key" },
-  { name: "the offchain attestation", says: "the decision and the seven fields, under one identifier, emitting no event" },
-  { name: "the onchain anchor", says: "a time fixed for that identifier, and an attestation of the same schema an indexer can find" },
+/**
+ * The four links, from the moment to the thing anybody can look up, and the
+ * record's four tabs.
+ *
+ * One object at a time. The record was a stack: a paragraph, the four links as a
+ * list, seven fields, two more, a check and five anchor values, in one column, so
+ * a reader asking what the attestation is read everything before and after it to
+ * find out. Each link is now a tab and its sentence is that tab's first line, so
+ * the four cannot drift apart from the four panels and no panel can appear
+ * without saying what its object is.
+ *
+ * The seven and the two keep their own headings under the confirmation, because
+ * the difference between what a stranger can check and what Zenbit asserts is the
+ * whole point of listing them at all.
+ */
+export const CHAIN: { id: RecordTab; label: string; name: string; says: string }[] = [
+  { id: "clip", label: "Clip", name: "the clip", says: "A span of public footage, proposed by an agent and given an identifier." },
+  { id: "confirmation", label: "Confirmation", name: "the confirmation", says: "A person decided, and signed the decision with their own key." },
+  {
+    id: "attestation",
+    label: "Attestation",
+    name: "the offchain attestation",
+    says: "The decision and the seven fields, under one identifier, emitting no event.",
+  },
+  {
+    id: "anchor",
+    label: "Anchor",
+    name: "the onchain anchor",
+    says: "A time fixed for that identifier, and an attestation of the same schema an indexer can find.",
+  },
 ];
 
+/** A list of values, drawn the same way wherever the record shows one. */
+function Fields({ of }: { of: Record<string, string | number> }) {
+  return (
+    <dl className="ag-facts">
+      {Object.entries(of).map(([key, value]) => (
+        <div key={key}>
+          <dt>{key}</dt>
+          <dd className="ag-ticket-hash">{String(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function Records() {
+  const [tab, setTab] = useState<RecordTab>("clip");
   const [recovered, setRecovered] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -1502,104 +1544,112 @@ function Records() {
   }, []);
 
   const matches = recovered !== null && recovered.toLowerCase() === RECORD.verifier.toLowerCase();
+  const link = CHAIN.find(l => l.id === tab) ?? CHAIN[0];
 
   return (
     <div className="ag-records">
+      {/* Above the tabs, because it is true of all four and a reader who opens
+          the record on any of them has to read it once. */}
       <p className="xv-desc ag-empty">
-        <strong>This confirmation is anchored on Ethereum Sepolia.</strong> It is the confirmation this repository
-        carries for clip {RECORD.clipId}, and it asserts existence and time and who confirmed. It is not a claim about
-        whether the clip shows what anyone says it shows.
+        <strong>This confirmation is anchored on Ethereum Sepolia.</strong> It is the one this repository carries for
+        clip {RECORD.clipId}, and it asserts existence and time and who confirmed. It is not a claim about whether the
+        clip shows what anyone says it shows.
       </p>
 
-      <ol className="ag-chain">
-        {CHAIN.map(link => (
-          <li key={link.name} className="ag-chain-link">
-            <span className="ag-card-value">{link.name}</span>
-            <span className="ag-sub">{link.says}</span>
-          </li>
+      <nav className="ag-tabs" aria-label="The record" style={{ "--xv-strip-n": CHAIN.length } as React.CSSProperties}>
+        <span
+          className="ag-tabs-indicator"
+          aria-hidden="true"
+          style={{ transform: `translateX(${CHAIN.findIndex(l => l.id === tab) * 100}%)` }}
+        />
+        {CHAIN.map(l => (
+          <button
+            key={l.id}
+            type="button"
+            className={l.id === tab ? "ag-tab ag-tab-on" : "ag-tab"}
+            aria-current={l.id === tab ? "true" : undefined}
+            onClick={() => setTab(l.id)}
+          >
+            {l.label}
+          </button>
         ))}
-      </ol>
+      </nav>
 
-      <section className="ag-month">
-        <h3 className="ag-panel-title">Seven fields, checkable without the operator</h3>
-        <dl className="ag-facts">
-          {Object.entries(RECORD).map(([key, value]) => (
-            <div key={key}>
-              <dt>{key}</dt>
-              <dd className="ag-ticket-hash">{String(value)}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
+      {/* The link's own sentence, which is what the tab is about. */}
+      <p className="ag-sub">{link.says}</p>
 
-      <section className="ag-month">
-        <h3 className="ag-panel-title">Two fields Zenbit asserts, which no reviewer signed</h3>
-        <dl className="ag-facts">
-          {Object.entries(ASSERTED).map(([key, value]) => (
-            <div key={key}>
-              <dt>{key}</dt>
-              <dd className="ag-ticket-hash">{String(value)}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      <section className="ag-month">
-        <h3 className="ag-panel-title">The check</h3>
-        <p className="xv-desc ag-empty">
-          Rebuild the nine line message from the seven fields, recover the address that signed it, and compare it for
-          equality with the verifier the record names. Recovery on its own establishes nothing: a wrong message
-          recovers a different, perfectly well formed address rather than failing, so the comparison is the check.
-        </p>
-        <button className="btn xv-action" onClick={runCheck} disabled={checking}>
-          {checking ? "Recovering" : "Recover the signer"}
-        </button>
-        {failed && <p className="xv-desc ag-error">The signature would not parse, so no address was recovered.</p>}
-        {recovered !== null && (
-          <div className="ag-ticket ag-ticket-row">
-            <span className="ag-ticket-hash">{recovered}</span>
-            <span className="ag-sub">{matches ? "equal to the verifier the record names" : "not the verifier the record names"}</span>
-          </div>
-        )}
+      {tab === "clip" ? (
         <section className="ag-month">
-          <h3 className="ag-panel-title">The anchor</h3>
-          <dl className="ag-facts">
-            <div>
-              <dt>onchain identifier</dt>
-              <dd className="ag-ticket-hash">{ANCHOR_259.onchainUid}</dd>
-            </div>
-            <div>
-              <dt>attester</dt>
-              <dd className="ag-ticket-hash">{ANCHOR_259.attester}</dd>
-            </div>
-            <div>
-              <dt>attested at</dt>
-              <dd className="ag-ticket-hash">{ANCHOR_259.attestedAt}</dd>
-            </div>
-            <div>
-              <dt>offchain identifier</dt>
-              <dd className="ag-ticket-hash">{ANCHOR_259.offchainUid}</dd>
-            </div>
-            <div>
-              <dt>timestamped at</dt>
-              <dd className="ag-ticket-hash">{ANCHOR_259.timestampedAt}</dd>
-            </div>
-          </dl>
-          <a className="ag-link ag-ticket-link" href={`https://sepolia.etherscan.io/tx/${ANCHOR_259.attestTx}`}>
-            Read the attestation transaction
-          </a>
+          <Fields of={{ clipId: RECORD.clipId, clipHash: RECORD.clipHash }} />
+          <p className="ag-sub">
+            The identifier and the digest of the span. Both are among the seven the confirmation signs, which is how a
+            decision is bound to one clip and not to another.
+          </p>
+        </section>
+      ) : tab === "confirmation" ? (
+        <>
+          <section className="ag-month">
+            <h3 className="ag-panel-title">Seven fields, checkable without the operator</h3>
+            <Fields of={RECORD} />
+          </section>
+
+          <section className="ag-month">
+            <h3 className="ag-panel-title">Two fields Zenbit asserts, which no reviewer signed</h3>
+            <Fields of={ASSERTED} />
+          </section>
+
+          <section className="ag-month">
+            <h3 className="ag-panel-title">The check</h3>
+            <p className="ag-sub">
+              Rebuild the nine line message from the seven fields, recover the address that signed it, and compare it
+              for equality with the verifier the record names. Recovery on its own establishes nothing: a wrong message
+              recovers a different, perfectly well formed address rather than failing, so the comparison is the check.
+            </p>
+            <button className="btn xv-action" onClick={runCheck} disabled={checking}>
+              {checking ? "Recovering" : "Recover the signer"}
+            </button>
+            {failed && <p className="xv-desc ag-error">The signature would not parse, so no address was recovered.</p>}
+            {recovered !== null && (
+              <div className="ag-ticket ag-ticket-row">
+                <span className="ag-ticket-hash">{recovered}</span>
+                <span className="ag-sub">{matches ? "equal to the verifier the record names" : "not the verifier the record names"}</span>
+              </div>
+            )}
+          </section>
+        </>
+      ) : tab === "attestation" ? (
+        <section className="ag-month">
+          <Fields of={{ "offchain identifier": ANCHOR_259.offchainUid, "timestamped at": ANCHOR_259.timestampedAt }} />
           <a className="ag-link ag-ticket-link" href={`https://sepolia.etherscan.io/tx/${ANCHOR_259.timestampTx}`}>
             Read the timestamp transaction
           </a>
           <p className="ag-sub">
-            An anchored confirmation carries two identifiers that share nothing. This is the onchain one, which a query
-            returns and which getAttestation answers with the schema, the attester and the encoded fields. The offchain
-            one keys the payload endpoint and its time is read with getTimestamp, which answers with a time and no
-            fields; getAttestation asked for an offchain identifier returns an empty struct, which is a badge with no
-            check behind it. Both are named above, each linked to the transaction that carries it.
+            The offchain identifier keys the payload endpoint, and its time is read with getTimestamp, which answers
+            with a time and no fields.
           </p>
         </section>
-      </section>
+      ) : tab === "anchor" ? (
+        <section className="ag-month">
+          <Fields
+            of={{
+              "onchain identifier": ANCHOR_259.onchainUid,
+              attester: ANCHOR_259.attester,
+              "attested at": ANCHOR_259.attestedAt,
+            }}
+          />
+          <a className="ag-link ag-ticket-link" href={`https://sepolia.etherscan.io/tx/${ANCHOR_259.attestTx}`}>
+            Read the attestation transaction
+          </a>
+          <p className="ag-sub">
+            An anchored confirmation carries two identifiers that share nothing. This is the onchain one, which a query
+            returns and which getAttestation answers with the schema, the attester and the encoded fields.
+            getAttestation asked for an offchain identifier returns an empty struct, which is a badge with no check
+            behind it.
+          </p>
+        </section>
+      ) : (
+        exhausted(tab)
+      )}
     </div>
   );
 }
