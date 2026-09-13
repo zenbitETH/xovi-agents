@@ -499,6 +499,24 @@ export async function pageChecks(check: Check) {
     "253e · while the gateway key negative is kept in the section about what runs");
 
   /*
+   * What the page loads at rest, and what DISCLOSURE says it loads.
+   *
+   * The sentence named the livestream, whose embed draws a dead player whenever
+   * the museum is not broadcasting. The home has drawn the newest recording on
+   * offer since it was built, so the document described a page that had stopped
+   * existing, and a reader following its falsification instruction would have
+   * found something else. Bound to the home rather than stated alone, so the day
+   * one of the two moves the other is what goes red.
+   */
+  const restSentence = (disclosure.match(/At rest it loads one: [^.]*\./) ?? [])[0] ?? "";
+  check(restSentence.length > 0, `253f · DISCLOSURE says what the page loads at rest (${restSentence || "none"})`);
+  check(!/livestream|live channel|live_stream/.test(restSentence) && /recording/.test(restSentence),
+    `253g · naming a recording rather than the live channel (${restSentence})`);
+  const homeBlock = ui.slice(ui.indexOf("function Home("), ui.indexOf("function Enrol("));
+  const restFrames = (homeBlock.match(/<iframe/g) ?? []).length;
+  check(homeBlock.length > 0 && restFrames === 1, `253h · and the home embeds exactly the one it names (${restFrames})`);
+
+  /*
    * 254 to 257b are retired with the fold they held.
    *
    * They read three verb tiles, a command line, the condition under the verb
