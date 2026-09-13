@@ -5,7 +5,7 @@ import { GET as boardGET } from "../app/api/agent/board/route";
 import { GET as windowsGET } from "../app/api/agent/windows/route";
 import { GET as registrationGET } from "../app/api/agent/registration/route";
 import { POST as runPOST } from "../app/api/agent/run/route";
-import { type RunMark, type RunRow, runsStoreFrom, setRunsStoreForTest } from "../lib/agent/runs-store";
+import { type RunMark, type RunRow, recordRun, runsStoreFrom, setRunsStoreForTest } from "../lib/agent/runs-store";
 import { type RunOutcome, type RunStep, runOutcome } from "../lib/agent/run";
 import { POST as namePOST } from "../app/api/agent/name/route";
 import { setClockForTest } from "../lib/human/clock";
@@ -868,7 +868,29 @@ export async function boardChecks(check: Check) {
   };
   await record(MINE, "2026-09-03", "mexicanum", { free: true, txHash: null, outcome: "proposed", clipId: 261 }, "2026-09-13T05:12:00Z");
   await record(THEIRS, "2026-09-03", "dumerilii", { free: true, txHash: null, outcome: "proposed", clipId: 999 }, "2026-09-13T05:20:00Z");
-  check(rows.length === 2, `321e · each served run writes one row (${rows.length})`);
+  check(rows.length === 2, `321e · two runs recorded leave two rows (${rows.length})`);
+  /*
+   * ONE SERVED RUN WRITES ONE ROW, COUNTED.
+   *
+   * Counting rows after two calls proves that two calls made two rows and nothing
+   * about how many a run makes: a second write in the finalizer would have left it
+   * green. The write is its own function for that reason, since a route handler is
+   * somewhere a check cannot reach, and here the calls are counted.
+   */
+  const servedRun: RunStep[] = [{ step: "paid", free: true }, { step: "proposed", id: 262, clipHash: "0xh", status: "proposed" }];
+  const writesBefore = rows.length;
+  await recordRun({ outcome: runOutcome(servedRun), payer: MINE, day: "2026-09-05", species: "mexicanum", store: runsStoreFrom(), at: new Date("2026-09-13T06:00:00Z") });
+  check(rows.length === writesBefore + 1, `321f · one served run writes exactly one row (${rows.length - writesBefore})`);
+  await recordRun({ outcome: runOutcome([{ step: "presenting" }]), payer: MINE, day: "2026-09-05", species: "mexicanum", store: runsStoreFrom(), at: new Date() });
+  check(rows.length === writesBefore + 1, "321g · a run the route never served writes none (negative control)");
+  await recordRun({ outcome: runOutcome(servedRun), payer: null, day: "2026-09-05", species: "mexicanum", store: runsStoreFrom(), at: new Date() });
+  check(rows.length === writesBefore + 1, "321h · nor one whose header named no payer");
+  await recordRun({ outcome: runOutcome(servedRun), payer: MINE, day: "2026-09-05", species: "mexicanum", store: null, at: new Date() });
+  check(rows.length === writesBefore + 1, "321i · and no store configured writes nothing and throws nothing");
+  const finalizer = readFileSync("app/api/agent/run/route.ts", "utf8");
+  const calls = (finalizer.match(/recordRun\(/g) ?? []).length;
+  check(calls === 1, `321j · the route calls it once (${calls})`);
+  rows.length = writesBefore;
 
   const mineBoard = (await (await boardGET(new Request(`http://127.0.0.1/api/agent/board?payer=${MINE}`))).json()) as { cells: Record<string, unknown>[] };
   const myMarks = mineBoard.cells.filter(c => c.read !== undefined);

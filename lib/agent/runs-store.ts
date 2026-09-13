@@ -31,6 +31,33 @@ export type RunsStore = {
   marksFor(payer: string): Promise<RunMark[]>;
 };
 
+/**
+ * Write the one row a served run leaves, or write nothing.
+ *
+ * It lives here rather than inside the route's finalizer because a route handler
+ * is somewhere a check cannot reach: the property is that one served run writes
+ * exactly one row, and counting rows in a fake proves only that two calls made two
+ * rows. Driven here, a second call is a number that changes.
+ *
+ * Every reason to write nothing is the same answer to the caller, which is that the
+ * run was served either way: a run the route never served, a request with no payer
+ * the header could name, and no store configured.
+ */
+export async function recordRun(input: {
+  outcome: { free: boolean; txHash: string | null; outcome: string; clipId: number | null } | null;
+  payer: string | null;
+  day: string;
+  species: string;
+  store: RunsStore | null;
+  at: Date;
+}): Promise<void> {
+  const { outcome, payer, store } = input;
+  if (outcome === null || payer === null || store === null) return;
+  await store
+    .record({ payer, day: input.day, species: input.species, ...outcome, ranAt: input.at })
+    .catch(err => console.error(`[run] the run was served and not recorded: ${err instanceof Error ? err.message : "unknown"}`));
+}
+
 let injected: RunsStore | null | undefined;
 
 export function setRunsStoreForTest(store: RunsStore | null | undefined): void {

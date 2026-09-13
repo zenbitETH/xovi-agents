@@ -2,7 +2,7 @@ import { GET as windowsRoute } from "../windows/route";
 import type { RunStep } from "~~/lib/agent/run";
 import { credentialFor, credentialStoreFrom } from "~~/lib/agent/credentials";
 import { DECLINE_SENTENCE, namesACell, payerFromHeader, runOnce, runOutcome, windowsUrlFor } from "~~/lib/agent/run";
-import { runsStoreFrom } from "~~/lib/agent/runs-store";
+import { recordRun, runsStoreFrom } from "~~/lib/agent/runs-store";
 
 export const dynamic = "force-dynamic";
 
@@ -116,14 +116,14 @@ export async function POST(request: Request) {
          * because the mark on the board says this cell was read by your agent and
          * a refused payment read nothing.
          */
-        const outcome = runOutcome(walked);
-        const payer = payerFromHeader(paymentHeader);
-        const store = runsStoreFrom();
-        if (outcome !== null && payer !== null && store !== null) {
-          await store
-            .record({ payer, day: cell.day, species: cell.species, ...outcome, ranAt: new Date() })
-            .catch(err => console.error(`[run] the run was served and not recorded: ${err instanceof Error ? err.message : "unknown"}`));
-        }
+        await recordRun({
+          outcome: runOutcome(walked),
+          payer: payerFromHeader(paymentHeader),
+          day: cell.day,
+          species: cell.species,
+          store: runsStoreFrom(),
+          at: new Date(),
+        });
       }
     },
   });
