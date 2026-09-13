@@ -399,8 +399,12 @@ export type Registration = "registered" | "not-registered" | "unread" | "reading
 const REGISTRATION_LINE: Record<Registration, string> = {
   idle: "Connect a wallet and this reads AgentBook for it.",
   reading: "Reading AgentBook.",
-  registered: "AgentBook holds a person behind this agent, registered by a verified person.",
-  "not-registered": "AgentBook holds no person behind this agent. Registering is done on World App and not here.",
+  // The page's own words. The English badge sentences belong to the legal lead
+  // and are not hers to have quoted here before her word; and no merged text
+  // says how a registration is made, so the negative stands alone rather than
+  // naming somebody else's product as the place to go.
+  registered: "AgentBook holds a registration behind this agent.",
+  "not-registered": "AgentBook holds no registration behind this agent. Registering is not done here.",
   unread: "AgentBook did not answer, so this says nothing about whether a person is behind this agent.",
 };
 
@@ -881,14 +885,12 @@ function Settings({
   chain,
   registration,
   name,
-  onConnect,
   onBoard,
 }: {
   address: `0x${string}` | null;
   chain: string | null;
   registration: Registration;
   name: string | null;
-  onConnect: () => void;
   onBoard: () => void;
 }) {
   return (
@@ -896,12 +898,10 @@ function Settings({
       <div className="ag-panel">
         <h3 className="ag-panel-title">The wallet</h3>
         {address === null ? (
-          <>
-            <p className="ag-sub">Nothing is connected, so nothing below can be read.</p>
-            <button className="btn xv-action ag-primary" onClick={onConnect}>
-              Connect wallet
-            </button>
-          </>
+          // One act, one control. Connect wallet lives in the header, where it
+          // stays reachable from every destination; a second button here would be
+          // the same act twice and the page would have two primary actions.
+          <p className="ag-sub">Nothing is connected, so nothing below can be read. Connect a wallet in the header.</p>
         ) : (
           <>
             <p className="ag-ticket-hash">{address}</p>
@@ -913,10 +913,6 @@ function Settings({
       <div className="ag-panel">
         <h3 className="ag-panel-title">The person behind the agent</h3>
         <p className="ag-sub">{REGISTRATION_LINE[registration]}</p>
-        {/* The badge wording belongs to the legal lead and is not strengthened
-            here. Nothing on this card identifies anybody: the registry answers
-            with an anonymous identifier and the route answers with a word. */}
-        <p className="ag-sub">The badge identifies nobody and validates no clip.</p>
       </div>
 
       <div className="ag-panel">
@@ -970,8 +966,8 @@ function Board({
   return (
     <div className="ag-board">
       <p className="xv-desc ag-empty">
-        Choose a day and a species to read. The agent chooses the window and forms the proposal; no choice here reaches
-        the clip.
+        Choose a day and a species to read. The agent chooses the window and forms the proposal; no word and no choice
+        of window from here reaches the clip.
       </p>
       <div className="ag-board-grid" style={{ "--xv-board-n": days.length } as React.CSSProperties}>
         <span className="ag-board-corner" aria-hidden="true" />
@@ -1795,7 +1791,6 @@ export function AppShell() {
                   chain={chain}
                   registration={registration}
                   name={issuedName}
-                  onConnect={() => void onConnect()}
                   onBoard={() => setScreen("board")}
                 />
               ) : screen === "board" ? (

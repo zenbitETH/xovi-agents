@@ -5,6 +5,7 @@ import { GET as boardGET } from "../app/api/agent/board/route";
 import { GET as windowsGET } from "../app/api/agent/windows/route";
 import { GET as registrationGET } from "../app/api/agent/registration/route";
 import { readFileSync } from "node:fs";
+import { setRegistryForTest } from "../lib/human/registry";
 import { BOARD_SPECIES, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
 
@@ -167,21 +168,45 @@ export async function boardChecks(check: Check) {
   const unreadBody = (await unread.json()) as Record<string, unknown>;
   check(Object.keys(unreadBody).join(",") === "state", `278a · and answers with one field (${Object.keys(unreadBody).join(",")})`);
   check(["registered", "not-registered", "unread"].includes(String(unreadBody.state)), `278b · which is one of the three states (${unreadBody.state})`);
-  // Driven rather than grepped: the route names the nullifier because it compares
-  // it, and a source scan called that a leak. What matters is the body, and a
-  // nullifier is a bigint, so a body with no digit in it carries no nullifier.
-  check(!/\d/.test(JSON.stringify(unreadBody)), `278c · and no digit reaches the body, so no nullifier does (${JSON.stringify(unreadBody)})`);
-  check(/\d/.test(JSON.stringify({ state: 12345n.toString() })), "278d · the digit check can see one (negative control)");
+  /*
+   * The branch that actually holds a nullifier.
+   *
+   * With no registry configured every request took the unread branch, so the one
+   * answer that has a nullifier in hand was never exercised and the check that
+   * says none reaches the wire was reading the branch where none exists. A seam
+   * drives a real one.
+   */
+  setRegistryForTest(async () => 88888888888888888888n);
+  const registered = await registrationGET(new Request("http://127.0.0.1/api/agent/registration?payer=0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe"));
+  const registeredBody = JSON.stringify(await registered.json());
+  check(registeredBody.includes("registered"), `278c · a registered agent is answered as registered (${registeredBody})`);
+  check(!/\d/.test(registeredBody), "278d · and the nullifier it held reaches no part of the body");
+  setRegistryForTest(async () => 0n);
+  const none = JSON.stringify(await (await registrationGET(new Request("http://127.0.0.1/api/agent/registration?payer=0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe"))).json());
+  check(none.includes("not-registered"), `278e · and an unregistered one as not registered (negative control, ${none})`);
+  setRegistryForTest(undefined);
+  check(/\d/.test(JSON.stringify({ state: 12345n.toString() })), "278f · the digit check can see one (negative control)");
 
   const page = readFileSync("app/app-shell.tsx", "utf8");
   check(/REGISTRATION_LINE/.test(page), "279 · the gate draws AgentBook's answer as a sentence per state");
-  check(/did not answer, so this says nothing/.test(page), "279a · with unread saying nothing about the agent");
+  // Read off the line the gate actually shows for unread. The substring was also
+  // the Names section's sentence, so a wrong line here left it green.
+  check(/unread: "AgentBook did not answer, so this says nothing about whether a person is behind this agent\."/.test(page),
+    "279a · with unread saying nothing about the agent");
+  check(!/identifies nobody|verified person|World App/.test(page),
+    "279d · and the gate carries no sentence that is the legal lead's or names a third party's product");
   check(/No path issues one from this page/.test(page), "279b · and the issue action written as a negative rather than drawn as a control");
   // A rung and not a button: the settings screen has the connect and the board
   // actions and no third that would do nothing.
   const settingsBlock = page.slice(page.indexOf("function Settings("), page.indexOf("function Board("));
   const buttons = (settingsBlock.match(/<button/g) ?? []).length;
-  check(buttons === 2, `279c · settings carries two controls, both of which act (${buttons})`);
+  check(buttons === 1, `279c · settings carries one control and it acts (${buttons})`);
+  // One act, one control: Connect wallet is the header's and is not repeated.
+  // Comments stripped first, because a comment is not the interface and the note
+  // explaining this rule contains the words the rule is about.
+  const rendered = page.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const connectControls = (rendered.match(/"Connect wallet"/g) ?? []).length;
+  check(connectControls === 1, `279e · and Connect wallet exists once on the page (${connectControls})`);
 
   // The board never says how many, and the chosen cell travels as day and species.
   const boardBlock = page.slice(page.indexOf("function Board("), page.indexOf("function Records("));

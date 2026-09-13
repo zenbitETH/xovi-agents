@@ -499,13 +499,8 @@ export async function pageChecks(check: Check) {
    * them is the finding; the checks hold the grouping and hold every item to
    * opening on something.
    */
-  const destinations = [...ui.matchAll(/\{ id: "(run|account|record|notyet)", label: "([^"]+)" \}/g)].map(m => m[1]);
-  check(destinations.length === 4, `260 · four destinations (${destinations.join(", ")})`);
-  const tabs = [...ui.matchAll(/\{ id: "(overview|receipts|proposals|names)", label: "([^"]+)" \}/g)].map(m => m[1]);
-  check(tabs.length === 4, `260a · and the account holds four tabs (${tabs.join(", ")})`);
-  for (const d of destinations) {
-    check(new RegExp(`screen === "${d}"`).test(ui) || d === "run", `260b · ${d} opens on something`);
-  }
+  // 260 enumerated four ids by name and asserted four, which stayed green after
+  // the flow made six; it is folded into 266, which reads the array itself.
   check(/translateX\(\$\{Math\.max\(0, screensFor/.test(ui), "261 · the rail indicator is moved with transform");
   check(/translateX\(\$\{ACCOUNT_TABS\.findIndex/.test(ui), "261a · and so is the account's");
 
