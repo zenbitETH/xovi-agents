@@ -956,8 +956,16 @@ body:has(.ag-run-dialog[open]) .ag-surface {
    it once the thing above is over. */
 .ag-run-dialog-foot {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
   padding-top: 0.875rem;
+}
+
+/* Said beside the button as well as in its name, because a disabled button takes
+   no focus and the name alone reached almost nobody. */
+.ag-run-close-when {
+  text-align: center;
 }
 
 /* Inactive while the run is, and it says so rather than looking pressable. Its

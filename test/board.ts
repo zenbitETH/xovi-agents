@@ -18,7 +18,12 @@ import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
 import { CREDENTIAL_REFUSED, PROCESS, clearSkipped, readSkipped, writeSkipped, newestRecording, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellRecording, cellState, loadSnapshot, servedCell } from "../lib/windows/snapshot";
+import { UNKNOWN_REFUSAL } from "../lib/agent/refusal";
 import { NOT_SUBMITTED_SENTENCE, environmentCredentialCovers, namesACell, windowsUrlFor as runWindowsUrlFor } from "../lib/agent/run";
+import { AUTHORIZATION_TYPES, PAYMENT_TOKEN, ruledValue } from "../lib/human/free-read";
+import { setNonceStoreForTest } from "../lib/human/nonces";
+import { getAddress, hashDomain } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { AGENTBOOK_ON_WORLD_CHAIN, ENS_APP, LIFECYCLE, NEXT_STEP, failedAt, stepState, NOT_SEEN_REASON, WORLDSCAN_ADDRESS, WORLD_ID_PAGE, reasonForStage, registrationHref, registrationHrefTitle, type BoardCellView, cellMetaLine, lifecycleLine, lifecycleOf, readableLength, stopReason, windowsUrlFor } from "../app/app-shell";
 import { type AnchorRow, nextAction, setStoreForTest } from "../lib/anchor/store";
 import { resetServerForTest } from "../lib/x402";
@@ -628,8 +633,13 @@ export async function boardChecks(check: Check) {
   const refusedLine = lineFor({ step: "payment-refused", status: 402, detail: "insufficient_funds" });
   check(refusedLine.detail === "this wallet holds no USDC on Base Sepolia",
     `324p · a refused payment names the facilitator's reason as a sentence (${refusedLine.detail})`);
-  check(lineFor({ step: "payment-refused", status: 402, detail: "some_code_nobody_has_seen" }).detail === "some_code_nobody_has_seen",
-    "324p2 · while a code this deployment has not met keeps the route's own words rather than a guess");
+  const unmet = lineFor({ step: "payment-refused", status: 402, detail: "some_code_nobody_has_seen" });
+  check(unmet.detail === UNKNOWN_REFUSAL,
+    `324p2 · while a code this deployment has not met becomes one sentence of Zenbit's own (${unmet.detail})`);
+  check(!/some_code_nobody_has_seen/.test(unmet.detail ?? ""),
+    "324p3 · and never the code itself, which is text a third party wrote on Zenbit's surface");
+  check(/not accepted/.test(UNKNOWN_REFUSAL) && !/\bwill\b|\bsoon\b/i.test(UNKNOWN_REFUSAL),
+    `324p4 · saying the payment was not accepted and promising nothing (${UNKNOWN_REFUSAL})`);
   check(refusedLine.next !== undefined && /Fund this wallet/.test(refusedLine.next),
     `324q · and the card says what would change it (${refusedLine.next})`);
   const nexts = Object.values(NEXT_STEP);
@@ -966,8 +976,39 @@ export async function boardChecks(check: Check) {
   const chipAnchors = [...page.matchAll(/<a className="ag-chip[^"]*" href=\{([^}]*)\}/g)].map(m => m[1]);
   check(chipAnchors.length === 2, `413m · the two chips are anchors and the third is not (${chipAnchors.join(" | ") || "none"})`);
   check(!/ag-chip[^>]*target=/.test(page), "413n · opening in the same tab, as the explorer links on this surface do");
-  const fetched = [WORLDSCAN_ADDRESS, WORLD_ID_PAGE, ENS_APP].filter(host => new RegExp(`fetch\\([^)]*${host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(page));
-  check(fetched.length === 0, `413o · and nothing on the page fetches from any of the three (${fetched.join(", ") || "none"})`);
+  /*
+   * AND NOTHING LOADS FROM THEM, WHICH IS MORE WAYS THAN A FETCH.
+   *
+   * This searched the shell for a `fetch` naming one of the three, so a preconnect
+   * in the layout and an image from the registry host on the chip both stayed
+   * green: a link element and an `src` load an origin exactly as a fetch does, and
+   * a preconnect reaches the host before anybody clicks anything. Read over every
+   * file under `app`, since the layout is where a link tag would live and this
+   * check only ever looked at the shell.
+   */
+  const HOSTS = ["worldscan.org", "world.org", "app.ens.dev"];
+  const appFiles = (function walk(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap(entry =>
+      entry.isDirectory() ? walk(join(dir, entry.name)) : /\.(tsx?|css)$/.test(entry.name) ? [join(dir, entry.name)] : [],
+    );
+  })("app");
+  check(appFiles.length > 3, `413o0 · the app's own files are walked (negative control, ${appFiles.length})`);
+  const LOADERS = /(?:\bsrc\s*=|<iframe|rel=["'](?:preconnect|dns-prefetch|prefetch|preload)["']|@import|url\()/;
+  const loading: string[] = [];
+  for (const file of appFiles) {
+    for (const raw of readFileSync(file, "utf8").split("\n")) {
+      const line = raw.trim();
+      if (!HOSTS.some(h => line.includes(h))) continue;
+      // An href on an anchor is a destination a person chooses. Anything that
+      // makes the browser reach the host on its own is a load.
+      if (LOADERS.test(line) || /rel=\{?["']?(?:preconnect|dns-prefetch|prefetch|preload)/.test(line)) loading.push(`${file}: ${line.slice(0, 60)}`);
+    }
+  }
+  check(loading.length === 0, `413o · and nothing under app loads any of the three, by any tag (${loading.join(" | ") || "none"})`);
+  check(LOADERS.test('<link rel="preconnect" href="https://worldscan.org" />') && LOADERS.test('<img src="https://worldscan.org/x.png" />'),
+    "413o2 · the loader check can see a preconnect and an image (negative control)");
+  check(!LOADERS.test('<a href="https://worldscan.org/address/0x00">chip</a>'),
+    "413o3 · while an anchor a person chooses to follow is not a load (negative control)");
   // A rung and not a button: the settings screen has the connect and the board
   // actions and no third that would do nothing.
   const settingsBlock = page.slice(page.indexOf("function Enrol("), page.indexOf("function Board("));
@@ -1958,15 +1999,24 @@ export async function boardChecks(check: Check) {
   const foot = footAt === -1 ? "" : page.slice(footAt, page.indexOf("</div>", footAt) + 6);
   check(foot.length > 0, `414 · the dialog's foot is found (negative control for the read, ${foot.length})`);
   check(/disabled=\{runInProgress\}/.test(foot), "414a · the way out is inactive while the run is");
-  check(/aria-label=\{runInProgress \? "Close, available when the run ends" : undefined\}/.test(foot),
+  check(/aria-label=\{runInProgress \? CLOSE_WHEN : undefined\}/.test(foot),
     "414b · and says when it will be available rather than only refusing to be pressed");
+  /*
+   * Visibly, and not only in its name. A disabled button takes no focus, so the
+   * accessible name reached a screen reader already on the button and nobody else;
+   * a keyboard could not Tab to it to hear it at all.
+   */
+  check(/\{runInProgress && <p className="ag-sub ag-run-close-when">\{CLOSE_WHEN\}<\/p>\}/.test(foot),
+    "414b2 · and a line beside it says the same thing to everybody else");
+  const closeWhenCopies = (page.match(/Close, available when the run ends/g) ?? []).length;
+  check(closeWhenCopies === 1, `414b3 · from one constant, not two sentences that can drift (${closeWhenCopies})`);
   check(/className=\{runInProgress \? "btn xv-action ag-run-close" : "btn xv-action ag-run-close ag-run-close-ready"\}/.test(foot),
     "414c · taking its active class from the same value, so the look and the state cannot disagree");
   check(/addEventListener\("cancel", hold\)/.test(page) && /if \(runInProgress\) event\.preventDefault\(\);/.test(page),
     "414d · and Escape is held for that same window, since a modal closes on it without asking");
   check(/removeEventListener\("cancel", hold\)/.test(page), "414d2 · released when the run ends rather than for the page's life");
   const footRule = /\.ag-run-dialog-foot\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
-  check(/justify-content:\s*center/.test(footRule), `414e · drawn at the centre of the foot (${footRule.replace(/\s+/g, " ").trim()})`);
+  check(/align-items:\s*center/.test(footRule), `414e · drawn at the centre of the foot (${footRule.replace(/\s+/g, " ").trim()})`);
   const readyRule = /\.ag-run-close-ready\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
   check(/xvCloseReady\s+220ms/.test(readyRule), `414f · arriving into its active state in one pass under 300ms (${readyRule.replace(/\s+/g, " ").trim().slice(0, 70)})`);
   check(/xvClosePulse/.test(readyRule), "414g · and breathing after it, so the eye finds it");
@@ -1994,6 +2044,214 @@ export async function boardChecks(check: Check) {
   // rule is written above it and a bare match read that one's `opacity: 1`.
   const labelRule = /\n\.ag-steps-label\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
   check(/opacity:\s*0\.[1-9]/.test(labelRule), `414o · every node carries its title rather than one at a time (${/opacity:[^;]*/.exec(labelRule)?.[0] ?? "none"})`);
+
+  /*
+   * THE FREE READ IS PROVED LOCALLY AND ASKS THE FACILITATOR NOTHING.
+   *
+   * The defect: the route verified every payment with the facilitator before it
+   * consulted the allowance, and the facilitator refuses an authorization the
+   * wallet cannot fund. A registered person with an empty wallet was answered 402
+   * on every read, never reached the free reads their allowance grants, and left
+   * no row behind, so the board's marks looked hardcoded because nothing had ever
+   * persisted.
+   *
+   * Driven through the real route with a real signature, and the facilitator is a
+   * counter: what is being held is that a free read does not touch it.
+   */
+  const freeAt = new Date("2026-09-13T12:00:00Z");
+  const FREE_KEY = `0x${"a7".repeat(32)}` as const;
+  const freeAccount = privateKeyToAccount(FREE_KEY);
+  const PAY_TO = "0x1111111111111111111111111111111111111111";
+  let facilitatorCalls = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    facilitatorCalls += 1;
+    return new Response(JSON.stringify({ isValid: false, invalidReason: "insufficient_funds" }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+
+  const signAuthorization = async (over: { to: string; value: string; validAfter: string; validBefore: string; nonce: string }, account = freeAccount) =>
+    account.signTypedData({
+      domain: {
+        name: PAYMENT_TOKEN.name,
+        version: PAYMENT_TOKEN.version,
+        chainId: PAYMENT_TOKEN.chainId,
+        verifyingContract: getAddress(PAYMENT_TOKEN.address),
+      },
+      types: AUTHORIZATION_TYPES,
+      primaryType: "TransferWithAuthorization",
+      message: {
+        from: getAddress(freeAccount.address),
+        to: getAddress(over.to),
+        value: BigInt(over.value),
+        validAfter: BigInt(over.validAfter),
+        validBefore: BigInt(over.validBefore),
+        nonce: over.nonce as `0x${string}`,
+      },
+    });
+
+  const headerFor = async (over: Partial<{ to: string; value: string; validAfter: string; validBefore: string; nonce: string }> = {}, signer = freeAccount) => {
+    // The fixture clock, the same one the route reads, so a validity window is
+    // driven rather than raced against the wall clock.
+    const at = Math.floor(freeAt.getTime() / 1000);
+    const a = {
+      to: over.to ?? PAY_TO,
+      value: over.value ?? ruledValue("$0.01"),
+      validAfter: over.validAfter ?? String(at - 60),
+      validBefore: over.validBefore ?? String(at + 600),
+      nonce: over.nonce ?? `0x${"b".repeat(64)}`,
+    };
+    const signature = await signAuthorization(a, signer);
+    const body = { x402Version: 2, scheme: "exact", network: "eip155:84532", payload: { signature, authorization: { from: freeAccount.address, ...a } } };
+    return Buffer.from(JSON.stringify(body), "utf8").toString("base64");
+  };
+
+  const freeStore = fakeStore();
+  const freeTable = fakeVerifications();
+  freeTable.rows.set(freeAccount.address.toLowerCase(), {
+    payer: freeAccount.address.toLowerCase(),
+    action: "enrol-agent",
+    nullifierDigest: "f".repeat(64),
+    credential: "proof_of_human",
+    verifiedAt: freeAt,
+    expiresAt: new Date(freeAt.getTime() + 86_400_000),
+  });
+  const spent = new Map<string, string>();
+  setNonceStoreForTest({
+    take: async (nonce, signer) => (spent.has(nonce) ? false : (spent.set(nonce, signer), true)),
+    forgetOlderThan: async () => undefined,
+  });
+  setClockForTest(() => freeAt);
+  setRegistryForTest(async () => 0n);
+  setCapForTest({ registry: async () => 0n, store: freeStore, verifications: freeTable, freePerDay: 1 });
+  const priceBefore = process.env.X402_PRICE;
+  const payToBefore2 = process.env.X402_PAY_TO;
+  process.env.X402_PRICE = "$0.01";
+  process.env.X402_PAY_TO = PAY_TO;
+  process.env.HUMAN_ID_KEY = "k".repeat(40);
+  resetServerForTest();
+
+  const askFree = async (header: string) =>
+    windowsGET(new Request("http://127.0.0.1/api/agent/windows", { headers: { "PAYMENT-SIGNATURE": header } }));
+
+  const callsBefore = facilitatorCalls;
+  const firstFree = await askFree(await headerFor());
+  check(firstFree.status === 200, `416 · an unfunded wallet its allowance covers is served (${firstFree.status})`);
+  check(facilitatorCalls === callsBefore, `416a · with no facilitator call at all (${facilitatorCalls - callsBefore})`);
+  check(spent.size === 1 && [...spent.values()][0] === freeAccount.address,
+    `416b · and the nonce recorded against the recovered signer (${[...spent.values()].join(", ") || "none"})`);
+
+  // The same header again: the authorization is unspent on chain, so without this
+  // whoever captured one could take a person's whole allowance with it.
+  const replayed = await askFree(await headerFor());
+  check(replayed.status !== 200, `416c · the same header served free twice is refused the second time (${replayed.status})`);
+
+  // The allowance is spent now, so the same wallet with a fresh nonce goes to the
+  // facilitator like any other read, and the facilitator is what refuses it.
+  const callsBeforeSettle = facilitatorCalls;
+  const afterAllowance = await askFree(await headerFor({ nonce: `0x${"c".repeat(64)}` }));
+  check(afterAllowance.status !== 200, `416d · a wallet whose allowance is spent is answered through the facilitator (${afterAllowance.status})`);
+  check(facilitatorCalls > callsBeforeSettle, `416e · which is asked, unlike on the free path (${facilitatorCalls - callsBeforeSettle} calls)`);
+
+  /*
+   * An authorization signed by another key is refused before the allowance and
+   * before any call. Recovery over the wrong key does not raise: it answers with a
+   * different valid address, so this is a comparison and never a catch.
+   */
+  const otherKey = privateKeyToAccount(`0x${"c3".repeat(32)}`);
+  const strangerHeader = await headerFor({ nonce: `0x${"d".repeat(64)}` }, otherKey);
+  const forged = await askFree(strangerHeader);
+  check(forged.status !== 200, `416f · an authorization another key signed is refused (${forged.status})`);
+  check(!spent.has(`0x${"d".repeat(64)}`), "416g · its nonce is never taken, so the allowance is never reached");
+
+  /*
+   * EVERY REQUIREMENT DRIVEN WITH A HEADER THAT BREAKS IT, ONE AT A TIME.
+   *
+   * A fixture that only ever sends a correct authorization cannot tell a route
+   * that checks the price from one that does not: removing each of these checks
+   * left the suite green, which is how these cases came to exist. The allowance is
+   * refilled before each so that a refusal is the check refusing and not the
+   * allowance being spent, and each is given its own nonce so a refusal is never
+   * the replay guard answering instead.
+   */
+  const refuses = async (what: string, over: Partial<{ to: string; value: string; validAfter: string; validBefore: string; nonce: string }>) => {
+    setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: freeTable, freePerDay: 1 });
+    const before = facilitatorCalls;
+    const answer = await askFree(await headerFor(over));
+    return { status: answer.status, asked: facilitatorCalls - before, what };
+  };
+  const wrongPayee = await refuses("payee", { to: "0x2222222222222222222222222222222222222222", nonce: `0x${"1e".repeat(32)}` });
+  check(wrongPayee.status !== 200, `416h · an authorization payable to somebody else is not served free (${wrongPayee.status})`);
+  const wrongPrice = await refuses("price", { value: "1", nonce: `0x${"2e".repeat(32)}` });
+  check(wrongPrice.status !== 200, `416i · nor one signed for a cent against the ruled price (${wrongPrice.status})`);
+  const expiredAt = Math.floor(freeAt.getTime() / 1000);
+  const expired = await refuses("expired", { validBefore: String(expiredAt - 1), validAfter: String(expiredAt - 600), nonce: `0x${"3e".repeat(32)}` });
+  check(expired.status !== 200, `416j · nor one whose validity window has closed (${expired.status})`);
+  const early = await refuses("early", { validAfter: String(expiredAt + 600), validBefore: String(expiredAt + 1200), nonce: `0x${"4e".repeat(32)}` });
+  check(early.status !== 200, `416k · nor one that is not valid yet (${early.status})`);
+  // And the control: with the allowance refilled and nothing else changed, the
+  // same shape of request is served, so the four refusals above are the four
+  // checks and not the fixture having run out of something.
+  setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: freeTable, freePerDay: 1 });
+  const good = await askFree(await headerFor({ nonce: `0x${"5e".repeat(32)}` }));
+  check(good.status === 200, `416l · while the same request with none of those faults is served (negative control, ${good.status})`);
+
+  /*
+   * THE PINNED DOMAIN IS THE TOKEN'S OWN, AND THE WRONG ONE IS NOT.
+   *
+   * A wrong domain does not raise: it recovers a different, perfectly well formed
+   * address, so the pin is what makes the recovery mean anything. The separator
+   * below was read from the token on Base Sepolia on 2026-09-13 with
+   * `DOMAIN_SEPARATOR()`, and version "1" computes a different one, which is why
+   * the version is pinned rather than assumed.
+   */
+  const SEPARATOR_ON_CHAIN_2026_09_13 = "0x71f17a3b2ff373b803d70a5a07c046c1a2bc8e89c09ef722fcb047abe94c9818";
+  const EIP712_DOMAIN = [
+    { name: "name", type: "string" },
+    { name: "version", type: "string" },
+    { name: "chainId", type: "uint256" },
+    { name: "verifyingContract", type: "address" },
+  ] as const;
+  const separatorFor = (version: string) =>
+    hashDomain({
+      domain: { name: PAYMENT_TOKEN.name, version, chainId: BigInt(PAYMENT_TOKEN.chainId), verifyingContract: getAddress(PAYMENT_TOKEN.address) },
+      types: { EIP712Domain: [...EIP712_DOMAIN] },
+    });
+  check(separatorFor(PAYMENT_TOKEN.version) === SEPARATOR_ON_CHAIN_2026_09_13,
+    `416m · the pinned domain computes the separator the token answers with (${separatorFor(PAYMENT_TOKEN.version)})`);
+  check(separatorFor("1") !== SEPARATOR_ON_CHAIN_2026_09_13,
+    "416n · while another version computes a different one, which is why it is pinned (negative control)");
+  check(PAYMENT_TOKEN.chainId === 84532 && /^0x[0-9a-fA-F]{40}$/.test(PAYMENT_TOKEN.address),
+    `416o · on the chain the payments settle on (${PAYMENT_TOKEN.chainId})`);
+  /*
+   * And a deployment configured for another chain gets no free reads at all.
+   *
+   * The domain is one token's on one chain. Recovered against it, a payment signed
+   * for another chain answers with a valid address that signed nothing here, so
+   * the signature would prove nothing and the read would be given to whoever
+   * asked. The first version of this guard compared the pinned address with
+   * itself, which no fixture could ever break.
+   */
+  setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: freeTable, freePerDay: 1 });
+  process.env.X402_NETWORK = "eip155:11155111";
+  resetServerForTest();
+  const otherChain = await askFree(await headerFor({ nonce: `0x${"6e".repeat(32)}` }));
+  check(otherChain.status !== 200, `416p · a deployment settling on another chain serves no free read (${otherChain.status})`);
+  delete process.env.X402_NETWORK;
+  resetServerForTest();
+  setCapForTest({ registry: async () => 0n, store: fakeStore(), verifications: freeTable, freePerDay: 1 });
+  const backOnBase = await askFree(await headerFor({ nonce: `0x${"7e".repeat(32)}` }));
+  check(backOnBase.status === 200, `416q · while the chain it is pinned for does (negative control, ${backOnBase.status})`);
+
+  process.env.X402_PRICE = priceBefore === undefined ? "" : priceBefore;
+  if (priceBefore === undefined) delete process.env.X402_PRICE;
+  if (payToBefore2 === undefined) delete process.env.X402_PAY_TO;
+  else process.env.X402_PAY_TO = payToBefore2;
+  globalThis.fetch = realFetch;
+  setNonceStoreForTest(undefined);
+  setCapForTest(null);
+  setClockForTest(undefined);
+  setRegistryForTest(undefined);
+  resetServerForTest();
 
   check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
   check(/const enrolment = enrolmentState\(\{ address, registration, skipped \}\);/.test(page) &&

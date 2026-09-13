@@ -16,6 +16,16 @@ export const REFUSAL_SENTENCE: Record<string, string> = {
   insufficient_funds: "this wallet holds no USDC on Base Sepolia",
 };
 
+/**
+ * What an unmet code becomes, and why it is not the code.
+ *
+ * A reason this deployment has never been answered with is text a third party
+ * wrote, and putting it on the card verbatim would let the facilitator write a
+ * sentence on Zenbit's surface. One sentence for all of them, which says the
+ * truthful thing: the payment did not go through and this page cannot say more.
+ */
+export const UNKNOWN_REFUSAL = "the payment was not accepted, and this deployment has no sentence for the reason given";
+
 export function refusalSentence(detail: string): string {
-  return REFUSAL_SENTENCE[detail.trim()] ?? detail;
+  return REFUSAL_SENTENCE[detail.trim()] ?? UNKNOWN_REFUSAL;
 }

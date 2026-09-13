@@ -182,6 +182,16 @@ export function stepState(index: number, at: number, failed: number | null): "do
   return index < at ? "done" : "ahead";
 }
 
+/**
+ * When the way out becomes available, said once and in two places.
+ *
+ * It was an aria label alone, which a Tab key never reaches: a disabled button is
+ * not focusable, so the only person told why it could not be pressed was one
+ * already reading the button with a screen reader. The line beside it and the
+ * label are this same constant.
+ */
+export const CLOSE_WHEN = "Close, available when the run ends";
+
 /** The status Xovi answers when the credential does not cover the submitter. */
 export const CREDENTIAL_REFUSED = 403;
 
@@ -3021,11 +3031,15 @@ export function AppShell() {
                 type="submit"
                 className={runInProgress ? "btn xv-action ag-run-close" : "btn xv-action ag-run-close ag-run-close-ready"}
                 disabled={runInProgress}
-                aria-label={runInProgress ? "Close, available when the run ends" : undefined}
+                aria-label={runInProgress ? CLOSE_WHEN : undefined}
               >
                 Close
               </button>
             </form>
+            {/* Beside it and not only in its name: a disabled button takes no
+                focus, so the label was reachable by a screen reader already on it
+                and by nobody else. */}
+            {runInProgress && <p className="ag-sub ag-run-close-when">{CLOSE_WHEN}</p>}
           </div>
         </dialog>
       </main>
