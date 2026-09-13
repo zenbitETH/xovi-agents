@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   ACCOUNT_TABS,
@@ -695,18 +695,32 @@ export async function pageChecks(check: Check) {
   /*
    * Animations are held by name rather than by duration.
    *
-   * Four run long and all four are inherited: the app card's 320ms entrance and
-   * the ambient layers Xovi drifts behind everything. There was briefly a fifth,
-   * this repository's own, on the board cell whose proposal was waiting; it is
-   * gone, and the list is back to what it inherited. Naming them keeps the bound
-   * live, because a new animation past 300ms carries a new name and fails.
+   * Four are inherited, the app card's entrance and the ambient layers Xovi drifts
+   * behind everything, and one is this repository's own decision: the way out of
+   * the run dialog breathes once the run is over, slowly, so the eye finds it on a
+   * dialog a person has been watching rather than reading. Naming them keeps the
+   * bound live, because a new animation past 300ms carries a new name and fails
+   * until somebody writes down why it is there.
+   *
+   * Every animation in a declaration, not the first.
+   *
+   * This read one name per `animation:`, so a shorthand naming two put its second
+   * past the check entirely: the button's 2600ms breath was declared beside a
+   * 220ms entrance and the whole rule passed as a 220ms one. Split on the commas a
+   * shorthand is split on.
    */
   const INHERITED_LONG = ["xvFadeUp", "xvAurora", "xvRays", "xvPulse"];
-  const longAnimations = [...cssLive.matchAll(/animation:\s*([a-zA-Z][\w-]*)\s+([\d.]+)(m?s)/g)]
+  const DECIDED_LONG = ["xvClosePulse"];
+  const longAnimations = [...cssLive.matchAll(/animation:\s*([^;}]+)/g)]
+    .flatMap(m => m[1].split(","))
+    .map(part => /([a-zA-Z][\w-]*)\s+([\d.]+)(m?s)/.exec(part.trim()))
+    .filter((m): m is RegExpExecArray => m !== null)
     .map(m => ({ name: m[1], ms: m[3] === "s" ? Number(m[2]) * 1000 : Number(m[2]) }))
     .filter(a => a.ms > 300);
-  const unnamed = longAnimations.filter(a => !INHERITED_LONG.includes(a.name));
-  check(unnamed.length === 0, `263d · every animation past 300ms is one of the inherited ones (${unnamed.map(a => a.name).join(", ") || "none"})`);
+  const unnamed = longAnimations.filter(a => ![...INHERITED_LONG, ...DECIDED_LONG].includes(a.name));
+  check(unnamed.length === 0, `263d · every animation past 300ms is inherited or named as a decision (${unnamed.map(a => a.name).join(", ") || "none"})`);
+  check(longAnimations.some(a => a.name === "xvClosePulse"),
+    `263d2 · including one declared second in a shorthand, which this check used to read past (${longAnimations.map(a => a.name).join(", ")})`);
   /*
    * And the border that used to carry it declares its own visibility. It was
    * written that way so the reduced motion clamp would leave something behind when
@@ -832,42 +846,67 @@ export async function pageChecks(check: Check) {
    */
 
   /*
-   * The rolodex: the leaf being read is level and at full opacity, always.
+   * 281 to 281f are retired with the wheel's two neighbours.
    *
-   * The site's own rule at its narrow breakpoint and the reviewer's: partial
-   * opacity on text being read is a contrast loss, not a flourish. Read off the
-   * rules rather than the markup, because the three positions are what carry it.
+   * They held the card being read level and opaque and its neighbours tipped and
+   * faded, which was the site's own rule against partial opacity on text somebody
+   * is reading. The founder could read neither neighbour, so the card area holds
+   * one card and there are no positions left to measure: `data-position` is gone
+   * from the markup and from the stylesheet, which 312k and 312l hold. The rule
+   * those checks protected survives where it can still be broken, on the one card
+   * that is drawn, which carries `opacity: 1` in `.ag-roll-card` itself.
    */
-  // Its own parse, because the shared one is declared further down this file.
   const rollLive = css.replace(/\/\*[\s\S]*?\*\//g, "");
-  const rollRules = [...rollLive.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(m => ({ selector: m[1], body: m[2] }));
-  const positionRule = (name: string) =>
-    rollRules.find(r => new RegExp(`\\.ag-roll-card\\[data-position="${name}"\\]`).test(r.selector) && /transform:/.test(r.body));
-  const current = positionRule("current");
-  check(current !== undefined && /opacity:\s*1/.test(current.body), "281 · the card being read is at full opacity");
-  check(current !== undefined && /rotateX\(0deg\)/.test(current.body), "281a · and level");
-  // The slot the leaf tips into is named `previous` now, because it is drawn
-  // rather than hidden: a wheel shows its neighbours, so the card just read stays
-  // on screen faded above and the next waits faded below.
-  const previous = positionRule("previous");
-  const next = positionRule("next");
-  const away = positionRule("away");
-  check(previous !== undefined && /rotateX\(-42deg\)/.test(previous.body), "281b · the leaf that tipped away carries the site's own angle");
-  check(next !== undefined && /rotateX\(42deg\)/.test(next.body), "281c · and the one waiting carries its opposite");
-  check(previous !== undefined && /transition-duration:\s*160ms/.test(previous.body), "281d · with the exit faster than the entrance");
-  const faded = (body: string | undefined) => /opacity:\s*0?\.3[0-9]/.test(body ?? "");
-  check(faded(previous?.body) && faded(next?.body), "281e · both neighbours are drawn faded rather than hidden");
-  // Drawn nowhere is `display: none` now rather than a transparent card: a
-  // neighbour is a title in its own row, and a fourth card in that row would take
-  // the space whether or not anybody could see it.
-  const awayRule = rollRules.find(r => /\.ag-roll-card\[data-position="away"\]/.test(r.selector));
-  check(awayRule !== undefined && /display:\s*none/.test(awayRule.body), "281f · while every other state is drawn nowhere (negative control)");
+  const cardRule = /\.ag-roll-card\s*\{([^}]*)\}/.exec(rollLive)?.[1] ?? "";
+  check(cardRule.length > 0, `281g · the card's own rule is found (negative control for the read, ${cardRule.length})`);
+  check(/opacity:\s*1\b/.test(cardRule), `281h · and the card being read is at full opacity (${/opacity:[^;]*/.exec(cardRule)?.[0] ?? "none"})`);
+
+  /*
+   * EVERY FILE THIS REPOSITORY SHIPS HAS A ROW IN AI-USAGE.md.
+   *
+   * "Kept current. Files appear here as they land" was a promise kept by whoever
+   * remembered. A module added in this commit landed with no row and nothing saw
+   * it, which is how the gap was found; the table happened to be complete
+   * otherwise, so this costs nothing to hold and catches the next one.
+   *
+   * A path counts when the table names it exactly or names a directory it is
+   * under, written with a trailing slash. A bare wildcard covers nothing: an
+   * earlier version of this rule took `*` for a path and reported full coverage on
+   * a tree with ten uncovered files.
+   */
+  const usage = readFileSync(join(process.cwd(), "AI-USAGE.md"), "utf8");
+  const listed = new Set([...usage.matchAll(/`([^`]+)`/g)].map(m => m[1]));
+  check(listed.size > 20, `415 · the attribution table is read (negative control, ${listed.size} paths named)`);
+  const SHIPPED = /\.(ts|tsx|sql|sol|graphql)$/;
+  const SKIP = new Set(["node_modules", ".next", "out", "cache", "artifacts", "typechain-types"]);
+  const walk = (dir: string): string[] => {
+    const here = join(process.cwd(), dir);
+    if (!existsSync(here)) return [];
+    return readdirSync(here, { withFileTypes: true }).flatMap(entry =>
+      entry.isDirectory()
+        ? SKIP.has(entry.name)
+          ? []
+          : walk(`${dir}/${entry.name}`)
+        : SHIPPED.test(entry.name)
+          ? [`${dir}/${entry.name}`]
+          : [],
+    );
+  };
+  const shipped = ["lib", "app", "bin", "test", "sql", "scripts"].flatMap(walk);
+  const covered = (path: string) => listed.has(path) || [...listed].some(e => e.endsWith("/") && path.startsWith(e));
+  const unnamedFiles = shipped.filter(path => !covered(path));
+  check(shipped.length > 40, `415a · over the files it ships (negative control, ${shipped.length} walked)`);
+  check(unnamedFiles.length === 0, `415b · and each of them is named there (${unnamedFiles.slice(0, 6).join(", ") || "none"})`);
+  check(!covered("lib/agent/a-module-nobody-wrote-a-row-for.ts"),
+    "415c · while a file with no row is not covered by anything (negative control)");
+
 
   // The projected box is wider than the card, so the region clips rather than
   // hides: hidden would make it a scroll container.
-  const stage = rollRules.find(r => /\.ag-roll-stage/.test(r.selector));
-  check(stage !== undefined && /overflow-x:\s*clip/.test(stage.body), "282 · the stage clips the projection");
-  check(stage !== undefined && !/overflow-x:\s*hidden/.test(stage.body), "282a · and never hides it");
+  const stageBody = /\.ag-roll-stage\s*\{([^}]*)\}/.exec(rollLive)?.[1] ?? "";
+  check(stageBody.length > 0, `282c · the stage's rule is found (negative control for the read, ${stageBody.length})`);
+  check(/overflow-x:\s*clip/.test(stageBody), "282 · the stage clips the projection");
+  check(!/overflow-x:\s*hidden/.test(stageBody), "282a · and never hides it");
 
   // Reduced motion drops the tip entirely rather than shortening it.
   const reduced = rollLive.slice(rollLive.indexOf("@media (prefers-reduced-motion: reduce), (max-width: 30rem)"));
@@ -884,7 +923,8 @@ export async function pageChecks(check: Check) {
   const rolodexBlock = rolodexStart >= 0 && rolodexEnd > rolodexStart ? ui.slice(rolodexStart, rolodexEnd) : "";
   check(rolodexBlock.length > 0 && rolodexBlock.length < ui.length / 2, `283c · the rolodex block is found and is a block (${rolodexBlock.length})`);
   const maps = (rolodexBlock.match(/lines\.map\(\(line, i\) =>/g) ?? []).length;
-  check(maps === 2 && /data-position=/.test(rolodexBlock), `283 · every line the log holds is a card and a node on the rail (${maps} maps over the lines)`);
+  check(maps === 2 && /i !== at \? null : \(/.test(rolodexBlock),
+    `283 · every line the log holds is a node on the rail, and the card area draws the one being read (${maps} maps over the lines)`);
   check(!/lines\.slice/.test(rolodexBlock), "283b · and none of them is dropped before either is built");
   /*
    * Reachable by the rail rather than by a pager.

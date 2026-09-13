@@ -11,15 +11,15 @@ import { POST as namePOST } from "../app/api/agent/name/route";
 import { setClockForTest } from "../lib/human/clock";
 import { ENROLLMENT_CALLS_PER_MINUTE, ENROLLMENT_WINDOW_MS, enrollmentThrottle } from "../lib/human/throttle";
 import { readFileSync } from "node:fs";
-import { setRegistryForTest } from "../lib/human/registry";
+import { AGENTBOOK_ADDRESS_WORLDCHAIN, setRegistryForTest } from "../lib/human/registry";
 import { capFrom, setCapForTest, standingBehind, takeFreeRead } from "../lib/human/cap";
 import { ensureCredential } from "../lib/agent/credentials";
 import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
-import { CREDENTIAL_REFUSED, PROCESS, clearSkipped, readSkipped, writeSkipped, newestRecording, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, rollPosition, screensFor } from "../app/app-shell";
+import { CREDENTIAL_REFUSED, PROCESS, clearSkipped, readSkipped, writeSkipped, newestRecording, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellRecording, cellState, loadSnapshot, servedCell } from "../lib/windows/snapshot";
 import { NOT_SUBMITTED_SENTENCE, environmentCredentialCovers, namesACell, windowsUrlFor as runWindowsUrlFor } from "../lib/agent/run";
-import { LIFECYCLE, NOT_SEEN_REASON, type BoardCellView, cellMetaLine, lifecycleLine, lifecycleOf, readableLength, stopReason, windowsUrlFor } from "../app/app-shell";
+import { AGENTBOOK_ON_WORLD_CHAIN, ENS_APP, LIFECYCLE, NEXT_STEP, failedAt, stepState, NOT_SEEN_REASON, WORLDSCAN_ADDRESS, WORLD_ID_PAGE, reasonForStage, registrationHref, registrationHrefTitle, type BoardCellView, cellMetaLine, lifecycleLine, lifecycleOf, readableLength, stopReason, windowsUrlFor } from "../app/app-shell";
 import { type AnchorRow, nextAction, setStoreForTest } from "../lib/anchor/store";
 import { resetServerForTest } from "../lib/x402";
 
@@ -545,29 +545,31 @@ export async function boardChecks(check: Check) {
    * them one at a time; what this counts is that a burst of ten leaves ten cards
    * with exactly one in the middle and one neighbour on each side.
    */
-  const burst = 10;
-  const slotsAt = (at: number) => Array.from({ length: burst }, (_, i) => rollPosition(i, at));
-  const middle = slotsAt(3);
-  check(middle.length === burst, `312 · a burst of ten states leaves ten cards (${middle.length})`);
-  check(middle.filter(p => p === "current").length === 1, "312a · with exactly one of them in the middle");
-  check(middle.filter(p => p === "previous").length === 1 && middle.filter(p => p === "next").length === 1,
-    "312b · and one neighbour above and one below");
-  check(middle.filter(p => p === "away").length === burst - 3, `312c · every other state drawn nowhere (${middle.filter(p => p === "away").length})`);
-  check(slotsAt(0).filter(p => p === "previous").length === 0 && slotsAt(0).filter(p => p === "next").length === 1,
-    "312d · at the first state nothing is above it");
-  check(slotsAt(burst - 1).filter(p => p === "next").length === 0 && slotsAt(burst - 1).filter(p => p === "previous").length === 1,
-    "312e · and at the last nothing is below it");
+  /*
+   * 312 to 312e are retired with the window of three they measured.
+   *
+   * They drove `rollPosition`, which put the state being read in the middle with
+   * one faded neighbour above and one below. The founder could not read either
+   * neighbour, and the sequence they were there to show is on the line beside the
+   * card, where every node now carries its own title. The card area holds one
+   * card, `rollPosition` is gone with the three slots it named, and what the
+   * stage draws is held by 312j below.
+   */
   check(ROLL_DWELL_MS >= 600 && ROLL_DWELL_MS <= 1500, `312f · each state holds the middle long enough to read (${ROLL_DWELL_MS}ms)`);
   // The pager still moves it, and the dwell stops while a person is holding one.
   check(/if \(pinned !== null\) return;/.test(page) && /setCursor\(c => c \+ 1\), ROLL_DWELL_MS\)/.test(page),
     "312g · the wheel turns on that timer and stops while a card is pinned");
   const roll = page.slice(page.indexOf("function Rolodex("), page.indexOf("function Enrol("));
-  check(roll.length > 0 && /aria-hidden=\{current \? undefined : "true"\}/.test(roll) && /inert=\{!current\}/.test(roll),
-    "312h · the neighbours are scenery: read by no screen reader and reachable by no keyboard");
-  // And they carry a title and nothing else. Drawn whole they overlapped the state
-  // being read, which is what the three rows and this branch fix together.
-  check(/\{current \? \(/.test(roll) && /<p className="ag-roll-title">\{line\.text\}<\/p>/.test(roll),
-    "312i · a neighbour is the state's title alone, never its content");
+  /*
+   * 312h and 312i are retired with the neighbours they described: the two faded
+   * cards are gone, so there is nothing to hide from a screen reader or to hold to
+   * a title alone. What replaces them is the card area holding one card.
+   */
+  check(roll.length > 0, `312j0 · the wheel is found (negative control for the read, ${roll.length})`);
+  check(/i !== at \? null : \(/.test(roll), "312j · the card area draws the state being read and nothing else");
+  check(!/ag-roll-title/.test(page) && !/ag-roll-title/.test(css),
+    "312k · with no faded title left above or below it, and no rule for one");
+  check(!/data-position/.test(page), "312l · nor a position on a card that can only be in one place");
   /*
    * THE LINE OF STATES, AND WHAT EACH NODE SAYS.
    *
@@ -590,8 +592,59 @@ export async function boardChecks(check: Check) {
     `324a · a state already read is drawn as a mark, in two strokes rather than a glyph (${doneStrokes.length} rules, ${withContent} with content, ${rotated} rotated)`);
   check(/\.ag-steps-item\[data-state="at"\] \.ag-steps-dot\s*\{[^}]*transform:\s*scale\(1\.45\)/.test(sheetRoll),
     "324b · and the one being read is marked apart by the site's own scale");
-  check(/data-state=\{i < at \? "done" : i === at \? "at" : "ahead"\}/.test(roll),
-    "324c · the three states are the wheel's own arithmetic and not a second count");
+  check(/data-state=\{stepState\(i, at, failed\)\}/.test(roll),
+    "324c · a node's state is the wheel's own arithmetic and not a second count");
+  /*
+   * A FAILURE READS AS ONE, ON THE LINE AND NOT ONLY ON A PILL.
+   *
+   * The node the run stopped on keeps its mark whatever the wheel is showing, and
+   * what follows it has not happened: drawing those as ahead of a cursor would say
+   * the run is on its way to them. A duplicate is supply rather than a stop, which
+   * is the distinction the tone carries everywhere else on this page.
+   */
+  const failedLines = [lineFor({ step: "presenting" }), lineFor({ step: "payment-refused", status: 402, detail: "insufficient_funds" })];
+  check(failedAt(failedLines) === 1, `324h · the line the run stopped on is where the stop is (${failedAt(failedLines)})`);
+  check(failedAt([lineFor({ step: "presenting" }), lineFor({ step: "done" })]) === null,
+    "324h2 · and a run that did not stop has none (negative control)");
+  check(failedAt([lineFor({ step: "declined", kind: "duplicate", detail: "x" })]) === null,
+    "324h3 · nor does a duplicate, which is supply rather than a stop");
+  check(stepState(1, 1, 1) === "failed" && stepState(1, 0, 1) === "failed",
+    "324i · the node that failed keeps its mark whatever the wheel is showing");
+  check(stepState(2, 2, 1) === "ahead" && stepState(2, 3, 1) === "ahead",
+    "324j · and nothing after it is ever drawn as reached");
+  check(stepState(0, 1, 1) === "done" && stepState(0, 0, null) === "at" && stepState(2, 0, null) === "ahead",
+    "324k · while a run with no stop reads exactly as it did (negative control)");
+  const crossRules = [...sheetRoll.matchAll(/\.ag-steps-item\[data-state="failed"\][^{]*\{([^}]*)\}/g)].map(m => m[1]);
+  check(crossRules.length >= 3, `324l · the failed node has rules of its own (negative control for the read, ${crossRules.length})`);
+  const strokes = crossRules.filter(b => /rotate\((-?45)deg\)/.test(b));
+  check(strokes.length === 2, `324m · drawn as two strokes, the way the mark beside it is (${strokes.length})`);
+  const crossInk = crossRules.join(" ");
+  check(/var\(--color-error\)/.test(crossInk), "324n · in the semantic error hue");
+  const wrongInk = ["--color-xv-agent", "--color-xv-gold", "--color-primary", "--color-accent"].filter(t => crossInk.includes(t));
+  check(wrongInk.length === 0, `324o · and never the agent hue, the gold, the primary or the accent (${wrongInk.join(", ") || "none"})`);
+  /*
+   * And the card says what would change it, from one map, in the present tense.
+   */
+  const refusedLine = lineFor({ step: "payment-refused", status: 402, detail: "insufficient_funds" });
+  check(refusedLine.detail === "this wallet holds no USDC on Base Sepolia",
+    `324p · a refused payment names the facilitator's reason as a sentence (${refusedLine.detail})`);
+  check(lineFor({ step: "payment-refused", status: 402, detail: "some_code_nobody_has_seen" }).detail === "some_code_nobody_has_seen",
+    "324p2 · while a code this deployment has not met keeps the route's own words rather than a guess");
+  check(refusedLine.next !== undefined && /Fund this wallet/.test(refusedLine.next),
+    `324q · and the card says what would change it (${refusedLine.next})`);
+  const nexts = Object.values(NEXT_STEP);
+  const promised = nexts.filter(l => /\b(will|soon|coming|shortly|shall)\b/i.test(l));
+  check(promised.length === 0, `324r · with no conditional future in any of them (${promised.join(" | ") || "none"})`);
+  check(nexts.every(l => l.trim().length > 0), `324s · and every stop the map names has a sentence (${nexts.length})`);
+  check(lineFor({ step: "done" }).next === undefined, "324t · while a run that finished says nothing about what would change it");
+  // And the card draws it. 324q holds that the line carries the sentence, which a
+  // card that never renders it satisfies: removing the element left every check
+  // green, which is how this one came to exist.
+  check(/\{line\.next !== undefined && <p className="ag-roll-next">\{line\.next\}<\/p>\}/.test(roll),
+    "324t2 · and the card being read draws that sentence rather than only carrying it");
+  check(/\.ag-roll-next\s*\{[^}]*font-size/.test(sheetRoll), "324t3 · with a rule of its own, so it is drawn as a line and not as a paragraph like the reason");
+  const secondCopy = (page.match(/this wallet holds no USDC on Base Sepolia/g) ?? []).length;
+  check(secondCopy === 0, `324u · the reason is the run's own constant and is not typed again on the card (${secondCopy})`);
   check(/aria-current=\{i === at \? "step" : undefined\}/.test(roll), "324d · with the one being read named to a screen reader");
 
   /*
@@ -708,15 +761,11 @@ export async function boardChecks(check: Check) {
    * mechanism rather than the translate distances, which is why this reads the
    * template and the row each neighbour is placed in.
    */
-  const stageBody = /\.ag-roll-stage\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
-  const stageRows = /grid-template-rows:([^;]*);/.exec(stageBody)?.[1]?.trim() ?? "";
-  check(stageRows.split(/\s+(?![^(]*\))/).length === 3, `324f · the stage is three rows (${stageRows || "none read"})`);
-  const rowOf = (name: string) => {
-    const body = new RegExp(`\\.ag-roll-card\\[data-position="${name}"\\]\\s*\\{([^}]*)\\}`).exec(sheetRoll)?.[1] ?? "";
-    return /grid-row:\s*(\d)/.exec(body)?.[1] ?? null;
-  };
-  check(rowOf("previous") === "1" && rowOf("current") === "2" && rowOf("next") === "3",
-    `324g · with the state being read between its two neighbours (${rowOf("previous")}, ${rowOf("current")}, ${rowOf("next")})`);
+  /*
+   * 324f and 324g are retired with the three rows they counted. The stage held the
+   * state being read between its two neighbours; the neighbours are gone and the
+   * stage is one row, which 313a holds.
+   */
   const stepTransitions = [...sheetRoll.matchAll(/\.ag-steps[^{]*\{([^}]*)\}/g)].map(m => m[1]).filter(b => /transition:/.test(b));
   const badSteps = stepTransitions.filter(b => !/transition:\s*(transform|opacity)/.test(b) || /\ball\b/.test(b));
   check(stepTransitions.length >= 2 && badSteps.length === 0,
@@ -730,7 +779,18 @@ export async function boardChecks(check: Check) {
   const dialogRule = /\.ag-run-dialog\s*\{[^}]*\}/.exec(sheetLive)?.[0] ?? "";
   check(/min-height:/.test(dialogRule) && /max-height:/.test(dialogRule), `313 · the dialog declares one height for every state (${dialogRule ? "found" : "no rule read"})`);
   const stageRule = /\.ag-roll-stage\s*\{[^}]*\}/.exec(sheetLive)?.[0] ?? "";
-  check(/height:\s*[0-9]/.test(stageRule) && !/min-height/.test(stageRule), `313a · and the card area is a fixed height rather than a floor (${stageRule ? "found" : "no rule read"})`);
+  /*
+   * And the card area takes the room the dialog has rather than a height in rem.
+   *
+   * It was a fixed height because three cards had to sit in a frame that did not
+   * jump between states. One card, and the dialog's own min and max above still
+   * hold the frame still, so a number here would be a box drawn around nothing and
+   * would leave the rail beside it stopping short of the frame.
+   */
+  // `min-height: 0` contains the word, so the fixed height is matched at the start
+  // of its own declaration rather than anywhere the six letters appear.
+  check(!/(^|[;{]\s*)height:\s*[0-9]/.test(stageRule) && /grid-template-rows:\s*minmax\(0, 1fr\)/.test(stageRule),
+    `313a · and the card area takes the height the dialog gives it (${stageRule.replace(/\s+/g, " ").trim().slice(0, 70)})`);
 
   /*
    * Run is a destination only while there is a run.
@@ -848,8 +908,19 @@ export async function boardChecks(check: Check) {
   const headerEnd = page.indexOf("</header>", headerStart);
   const accountStart = page.indexOf('<div className="ag-account-body">');
   check(headerStart > 0 && headerEnd > headerStart && accountStart > 0, "311 · the header and the account body are found (negative control for the slices)");
-  check(/<IdentityChips chips=\{identity\} onName=/.test(page.slice(headerStart, headerEnd)), "311a · the header carries them on every destination");
-  check(/<IdentityChips chips=\{identity\} onName=/.test(page.slice(accountStart, accountStart + 400)), "311b · and the account body opens with the same two");
+  const headerChips = page.slice(headerStart, headerEnd);
+  const accountChips = page.slice(accountStart, accountStart + 500);
+  check(/<IdentityChips\b/.test(headerChips), "311a · the header carries them on every destination");
+  check(/<IdentityChips\b/.test(accountChips), "311b · and the account body opens with them too");
+  /*
+   * THE CREDENTIAL IS NOT ONE OF THE HEADER'S.
+   *
+   * Three chips over every destination was one thing too many, and the credential
+   * is the one a person acts on least: its state is unchanged and is on the
+   * enrolment card and in the account, which is where somebody goes to read it.
+   */
+  check(/credential=\{false\}/.test(headerChips), "311g · and the credential is not among them");
+  check(/\bcredential\b(?!=\{false\})/.test(accountChips), "311h · while the account draws it (negative control)");
   /*
    * Derived, not remembered, which was a claim in a comment and held by nothing.
    * Driven twice with one input changed, and the same call site read for the
@@ -869,6 +940,34 @@ export async function boardChecks(check: Check) {
   const memoed = /useMemo\([\s\S]{0,120}?identityChips/;
   check(!memoed.test(page), "311e · with no memo standing between the reads and the chips");
   check(memoed.test("const identity = useMemo(() => identityChips({}), []);"), "311f · and the memo check can see one (negative control)");
+
+  /*
+   * THE TWO CHIPS THAT MAKE A CLAIM CAN BE CHECKED, EACH WHERE ITS CLAIM LIVES.
+   *
+   * A registration answered by AgentBook is a row on World Chain; one made in this
+   * page is a verification against World's own credential, and World publishes no
+   * page about a particular wallet, so that link's title says which of the two it
+   * opens rather than letting a reader take it for their own record. The name goes
+   * to the app the runbook administers it in. Same tab, as every explorer link on
+   * this surface already is, and nothing is fetched: these are hrefs, so the page
+   * loads no origin it does not serve.
+   */
+  check(registrationHref("agentbook") === `${WORLDSCAN_ADDRESS}${AGENTBOOK_ON_WORLD_CHAIN}`,
+    `413g · a registration AgentBook answered links to that registry on World Chain (${registrationHref("agentbook")})`);
+  check(registrationHref("worldid") === WORLD_ID_PAGE,
+    `413h · one made in this page links to World's own page about the credential (${registrationHref("worldid")})`);
+  check(registrationHref(null) === null, "413i · and a wallet no source answered for links nowhere (negative control)");
+  check(/not a record of this wallet/.test(registrationHrefTitle("worldid") ?? ""),
+    `413j · with that link saying it is about World ID and not about this wallet (${registrationHrefTitle("worldid")})`);
+  check(/registry on World Chain/.test(registrationHrefTitle("agentbook") ?? ""),
+    `413k · while the registry link says it holds the registration (negative control, ${registrationHrefTitle("agentbook")})`);
+  check(AGENTBOOK_ON_WORLD_CHAIN === AGENTBOOK_ADDRESS_WORLDCHAIN,
+    `413l · the registry linked is the one the lookup reads (${AGENTBOOK_ON_WORLD_CHAIN} against ${AGENTBOOK_ADDRESS_WORLDCHAIN})`);
+  const chipAnchors = [...page.matchAll(/<a className="ag-chip[^"]*" href=\{([^}]*)\}/g)].map(m => m[1]);
+  check(chipAnchors.length === 2, `413m · the two chips are anchors and the third is not (${chipAnchors.join(" | ") || "none"})`);
+  check(!/ag-chip[^>]*target=/.test(page), "413n · opening in the same tab, as the explorer links on this surface do");
+  const fetched = [WORLDSCAN_ADDRESS, WORLD_ID_PAGE, ENS_APP].filter(host => new RegExp(`fetch\\([^)]*${host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(page));
+  check(fetched.length === 0, `413o · and nothing on the page fetches from any of the three (${fetched.join(", ") || "none"})`);
   // A rung and not a button: the settings screen has the connect and the board
   // actions and no third that would do nothing.
   const settingsBlock = page.slice(page.indexOf("function Enrol("), page.indexOf("function Board("));
@@ -1223,11 +1322,38 @@ export async function boardChecks(check: Check) {
    * that has not happened.
    */
   const stoppedYetAnchored = lifecycleOf({ outcome: "declined:duplicate", clipId: null, attested: true }, new Set([261]));
-  check(stoppedYetAnchored.join(",") === "done,stopped,not seen,not seen",
+  check(stoppedYetAnchored.join(",") === "done,stopped,not reached,not reached",
     `323b3d · a run that stopped reaches nothing past the stop, whatever the chain and the list carry (${stoppedYetAnchored.join(", ")})`);
   const readYetAnchored = lifecycleOf({ outcome: "read", clipId: null, attested: true }, new Set([261]));
-  check(readYetAnchored.join(",") === "done,not seen,not seen,not seen",
+  check(readYetAnchored.join(",") === "done,not seen,not reached,not reached",
     `323b3e · and nor does one that only read (negative control, ${readYetAnchored.join(", ")})`);
+  /*
+   * NOT REACHED IS NOT NOT SEEN, AND IT CARRIES NO REASON.
+   *
+   * A run that never proposed has no clip for the list to carry or the chain to
+   * anchor, so saying those two did not see it suggests they looked. The reason
+   * explains the list, and there is nothing about the list to explain here.
+   */
+  const stoppedStages = lifecycleOf({ outcome: "not-submitted", clipId: null }, new Set<number>());
+  check(stoppedStages.slice(2).every(x => x === "not reached"),
+    `319g · a stopped run's later stages are not reached rather than not seen (${stoppedStages.join(", ")})`);
+  check(stoppedStages.every((_, i) => reasonForStage(stoppedStages, i) === undefined),
+    "319h · and not one of them carries the list's reason");
+  /*
+   * And for a proposal the list does not carry, the reason is said once, on the
+   * only stage the list could have filled. The anchor stage being unseen is the
+   * anchor store's silence, not the list's.
+   */
+  const unconfirmedStages = lifecycleOf(proposedRead, new Set<number>());
+  const withReason = unconfirmedStages.map((_, i) => reasonForStage(unconfirmedStages, i)).filter(x => x !== undefined);
+  check(withReason.length === 1, `319i · a proposal the list does not carry says why once (${withReason.length} stages)`);
+  check(reasonForStage(unconfirmedStages, LIFECYCLE.indexOf("confirmed")) === NOT_SEEN_REASON,
+    "319j · on the confirmed stage, which is the one the list could have filled");
+  check(reasonForStage(unconfirmedStages, LIFECYCLE.indexOf("attested")) === undefined,
+    "319k · and not on the anchor's, whose silence is the anchor store's and not the list's");
+  const confirmedStages = lifecycleOf(proposedRead, new Set([261]));
+  check(confirmedStages.map((_, i) => reasonForStage(confirmedStages, i)).filter(x => x !== undefined).length === 0,
+    `319l · while a confirmed clip carries it nowhere (negative control, ${confirmedStages.join(", ")})`);
   const otherClip = lifecycleOf(proposedRead, new Set([260]));
   check(otherClip[2] === "not seen", `323b4 · and the list is matched on this clip rather than on carrying any (${otherClip.join(", ")})`);
 
@@ -1299,10 +1425,21 @@ export async function boardChecks(check: Check) {
     `405c · the reason says the list holds confirmed clips only and fifty of them (${NOT_SEEN_REASON})`);
   const reasonCopies = (page.match(/confirmed clips only, and the fifty most recent/g) ?? []).length;
   check(reasonCopies === 1, `405d · written once in the page and read from there twice (${reasonCopies})`);
-  check(/title=\{stages\[i\] === "not seen" \? NOT_SEEN_REASON : undefined\}/.test(boardJsx),
-    "405e · a pointer gets it as the stage's own title, and only on the stage that needs it");
-  check(/\$\{stage\}: \$\{NOT_SEEN_REASON\}/.test(boardJsx),
-    "405f · and a screen reader gets the same constant in the words the cell carries");
+  check(/title=\{reasonForStage\(stages, i\)\}/.test(boardJsx),
+    "405e · a pointer gets it as the stage's own title, from the one rule that decides which stage carries it");
+  check(/reasonForStage\(stages, i\) === undefined \? "" : `\. \$\{NOT_SEEN_REASON\}`/.test(boardJsx),
+    "405f · and a screen reader gets the same constant through the same rule, in the words the cell carries");
+  /*
+   * Counted over the words the cell would actually say, so the sentence is heard
+   * once rather than once per unseen stage.
+   */
+  const saidFor = (stages: ReturnType<typeof lifecycleOf>) =>
+    LIFECYCLE.map((stage, i) => `${stage}: ${stages[i]}${reasonForStage(stages, i) === undefined ? "" : `. ${NOT_SEEN_REASON}`}`).join(" ");
+  const unseenSaid = saidFor(lifecycleOf(proposedRead, new Set<number>()));
+  check((unseenSaid.match(/confirmed clips only, and the fifty most recent/g) ?? []).length === 1,
+    `405f2 · the cell says the reason once in its own name (${(unseenSaid.match(/confirmed clips only/g) ?? []).length})`);
+  const stoppedSaid = saidFor(lifecycleOf({ outcome: "not-submitted", clipId: null }, new Set<number>()));
+  check(!/confirmed clips only/.test(stoppedSaid), `405f3 · and a stopped run's name carries it nowhere (${stoppedSaid})`);
   const hiddenRule = /\.ag-said\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
   check(hiddenRule.length > 0 && /clip-path:\s*inset\(50%\)/.test(hiddenRule) && /position:\s*absolute/.test(hiddenRule),
     `405g · those words are clipped rather than hidden, so they are said and not drawn (${hiddenRule.replace(/\s+/g, " ").trim().slice(0, 60)})`);
@@ -1808,6 +1945,55 @@ export async function boardChecks(check: Check) {
   check(/fetch\(`\/api\/proposals\?submitter=/.test(page), "413e · while the page reads the public list for the third");
   check(/outcome: mark\.outcome/.test(boardRoute),
     "413f · and the outcome comes off the mark the runs table returned, which is why it is not a source beside it");
+
+  /*
+   * THE WAY OUT, AND THERE IS ONLY ONE OF IT.
+   *
+   * A modal dialog closes on Escape by itself, so a disabled button alone would
+   * have left one way out open while the page called the dialog held. The cancel
+   * event is prevented for exactly the window the button is disabled for, and both
+   * read the same value, so the two cannot disagree.
+   */
+  const footAt = page.indexOf('<div className="ag-run-dialog-foot">');
+  const foot = footAt === -1 ? "" : page.slice(footAt, page.indexOf("</div>", footAt) + 6);
+  check(foot.length > 0, `414 · the dialog's foot is found (negative control for the read, ${foot.length})`);
+  check(/disabled=\{runInProgress\}/.test(foot), "414a · the way out is inactive while the run is");
+  check(/aria-label=\{runInProgress \? "Close, available when the run ends" : undefined\}/.test(foot),
+    "414b · and says when it will be available rather than only refusing to be pressed");
+  check(/className=\{runInProgress \? "btn xv-action ag-run-close" : "btn xv-action ag-run-close ag-run-close-ready"\}/.test(foot),
+    "414c · taking its active class from the same value, so the look and the state cannot disagree");
+  check(/addEventListener\("cancel", hold\)/.test(page) && /if \(runInProgress\) event\.preventDefault\(\);/.test(page),
+    "414d · and Escape is held for that same window, since a modal closes on it without asking");
+  check(/removeEventListener\("cancel", hold\)/.test(page), "414d2 · released when the run ends rather than for the page's life");
+  const footRule = /\.ag-run-dialog-foot\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/justify-content:\s*center/.test(footRule), `414e · drawn at the centre of the foot (${footRule.replace(/\s+/g, " ").trim()})`);
+  const readyRule = /\.ag-run-close-ready\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/xvCloseReady\s+220ms/.test(readyRule), `414f · arriving into its active state in one pass under 300ms (${readyRule.replace(/\s+/g, " ").trim().slice(0, 70)})`);
+  check(/xvClosePulse/.test(readyRule), "414g · and breathing after it, so the eye finds it");
+  const closeFrames = [...sheetRoll.matchAll(/@keyframes (xvCloseReady|xvClosePulse)\s*\{([\s\S]*?)\n\}/g)].map(m => m[2]);
+  check(closeFrames.length === 2, `414h · both its frames are found (negative control for the read, ${closeFrames.length})`);
+  const closeMoves = [...new Set(closeFrames.join(" ").match(/^\s*([a-z-]+):/gm)?.map(x => x.trim().replace(":", "")) ?? [])];
+  check(closeMoves.length > 0 && closeMoves.every(prop => prop === "opacity" || prop === "transform"),
+    `414i · which move transform and opacity and nothing that paints (${closeMoves.join(", ") || "none"})`);
+  const reducedClose = /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.ag-run-close-ready\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/animation:\s*none/.test(reducedClose) && /opacity:\s*1/.test(reducedClose),
+    `414j · and under reduced motion it is in its active state and does not breathe (${reducedClose.replace(/\s+/g, " ").trim()})`);
+
+  /*
+   * The line runs the height the card beside it runs, with the cap gone. It was
+   * capped and scrolled, so on a tall dialog it stopped short of the card and a
+   * long run hid its own first states behind a scroll nobody saw.
+   */
+  const stepsRule = /\.ag-steps\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(stepsRule.length > 0, `414k · the line's own rule is found (negative control for the read, ${stepsRule.length})`);
+  check(/height:\s*100%/.test(stepsRule) && !/max-height/.test(stepsRule),
+    `414l · it takes the height it is given and is capped at nothing (${stepsRule.replace(/\s+/g, " ").trim().slice(0, 80)})`);
+  check(!/overflow-y:\s*auto/.test(stepsRule), "414m · so no run hides its own first states behind a scroll");
+  check(/grid-auto-rows:\s*1fr/.test(stepsRule), "414n · and its nodes spread over that height rather than sitting at the top");
+  // The base rule, anchored at the start of its own line: the failed node's label
+  // rule is written above it and a bare match read that one's `opacity: 1`.
+  const labelRule = /\n\.ag-steps-label\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(/opacity:\s*0\.[1-9]/.test(labelRule), `414o · every node carries its title rather than one at a time (${/opacity:[^;]*/.exec(labelRule)?.[0] ?? "none"})`);
 
   check(/\{onboarded && \(/.test(page), "289 · the strip is absent until the onboarding is done");
   check(/const enrolment = enrolmentState\(\{ address, registration, skipped \}\);/.test(page) &&

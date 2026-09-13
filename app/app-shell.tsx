@@ -16,6 +16,7 @@ import {
 } from "~~/lib/agent/browser";
 import { MAX_PER_PAYMENT } from "~~/lib/agent/spend";
 import type { RunStep } from "~~/lib/agent/run";
+import { refusalSentence } from "~~/lib/agent/refusal";
 import { BOARD_SPECIES } from "~~/lib/windows/types";
 import { recoverConfirmer } from "~~/lib/anchor/confirmation";
 import { decisionCode } from "~~/lib/anchor/schema";
@@ -125,7 +126,61 @@ export type Line = {
   tone: "working" | "good" | "stopped" | "supply";
   actor: Actor;
   object?: Drawn;
+  /** What would change this, on a line that stopped the run. One sentence from
+   *  one map, in the present tense: a run that failed has to tell a person what to
+   *  do about it, and *what would change it* is a fact rather than a promise. */
+  next?: string;
 };
+
+/**
+ * What would change a stop, by the run's own name for it.
+ *
+ * One map and no conditional future. Every entry says something a person can do
+ * now, or says plainly that nothing changes this one, because a stop with no way
+ * out is still an answer and pretending otherwise is worse than saying so.
+ */
+export const NEXT_STEP: Record<string, string> = {
+  insufficient_funds: "Fund this wallet with USDC on Base Sepolia, or verify with World ID for the free reads of the day.",
+  "no-credential": "Verify with World ID. A credential is minted for a wallet somebody stands behind, and a proposal is made under it.",
+  unconfigured: "Nothing here changes this: the deployment holds no ingest route to propose to.",
+  duplicate: "Nothing changes this one: the window is already a clip. Another cell has other windows.",
+  rejected: "Nothing changes this one: a person looked at this window and said no. Another cell has other windows.",
+  throttled: "Wait. The credential is rate limited and the limit is a window rather than a refusal.",
+  refused: "Nothing here changes this: the ingest route refused the proposal.",
+  error: "Run it again. An error is not an answer about the window.",
+};
+
+/** The sentence for a stop, or nothing where the run did not stop. */
+export function nextStepFor(key: string | undefined): string | undefined {
+  return key === undefined ? undefined : NEXT_STEP[key];
+}
+
+/**
+ * Where the run stopped, on the line beside the cards.
+ *
+ * The first line drawn in the stopped tone, because a run ends at its stop: what
+ * follows it on the rail has not happened, whatever the wheel's cursor has reached.
+ * A duplicate is supply rather than a stop and is not a failure, which is the same
+ * distinction the tone carries everywhere else on this page.
+ */
+export function failedAt(lines: Line[]): number | null {
+  const i = lines.findIndex(l => l.tone === "stopped");
+  return i === -1 ? null : i;
+}
+
+/**
+ * What a node on the line is, with a failure taken into account.
+ *
+ * A node after a failure is not ahead of a cursor, it is unreached, and drawing it
+ * as a state the run is on its way to would say the run is still going. The node
+ * that failed keeps its mark whatever the wheel is showing.
+ */
+export function stepState(index: number, at: number, failed: number | null): "done" | "at" | "ahead" | "failed" {
+  if (failed !== null && index === failed) return "failed";
+  if (failed !== null && index > failed) return "ahead";
+  if (index === at) return "at";
+  return index < at ? "done" : "ahead";
+}
 
 /** The status Xovi answers when the credential does not cover the submitter. */
 export const CREDENTIAL_REFUSED = 403;
@@ -138,7 +193,17 @@ export function lineFor(step: RunStep): Line {
     case "presenting":
       return { text: "Presenting the signed authorization", tone: "working", actor: "agent" };
     case "payment-refused":
-      return { text: "The paid route refused the payment", detail: step.detail, tone: "stopped", actor: "agent" };
+      // The facilitator's own code as a sentence where this deployment has seen
+      // it, and its words where it has not: a person reading "insufficient_funds"
+      // learns nothing they can act on, and a guessed sentence for an unseen code
+      // would be the page explaining a failure it has never met.
+      return {
+        text: "The paid route refused the payment",
+        detail: refusalSentence(step.detail),
+        tone: "stopped",
+        actor: "agent",
+        next: nextStepFor(step.detail.trim()),
+      };
     case "unavailable":
       return { text: "The route cannot serve right now", detail: step.detail, tone: "stopped", actor: "agent" };
     case "paid":
@@ -234,6 +299,7 @@ export function lineFor(step: RunStep): Line {
       return {
         text: `The proposal was declined: ${step.kind}`,
         detail: step.status === undefined ? step.detail : `${step.detail} (HTTP ${step.status})`,
+        next: nextStepFor(step.kind),
         // A rejection is the one refusal that is a person's judgement rather than
         // a machine's answer: someone looked at this window and said no. It is
         // marked as their activity, which is the whole point of the two hues.
@@ -247,7 +313,7 @@ export function lineFor(step: RunStep): Line {
       // stopped. The sentence is the run's own, taken from the step rather than
       // looked up again here, so the two cannot drift; the machine's word for the
       // reason goes in the detail lane.
-      return { text: step.detail, detail: step.reason, tone: "stopped", actor: "agent" };
+      return { text: step.detail, detail: step.reason, tone: "stopped", actor: "agent", next: nextStepFor(step.reason) };
     case "done":
       return { text: "Run finished", tone: "good", actor: "system" };
   }
@@ -465,8 +531,14 @@ export const NOT_SEEN_REASON =
  * those apart. Saying the second would publish a decision nobody made. Stopped is
  * different and is the run's own report of itself: the run ended before proposing
  * and said why.
+ *
+ * **Not reached is not not seen.** A run that never proposed has no clip for the
+ * list to carry or the chain to anchor, so those two sources have nothing to do
+ * with it and saying they did not see it suggests they looked. The stages after a
+ * stop are not reached, and they carry no reason, because there is nothing about
+ * the list to explain.
  */
-export type StageState = "done" | "stopped" | "not seen";
+export type StageState = "done" | "stopped" | "not seen" | "not reached";
 
 /** Why a run ended without a proposal, in the run's own vocabulary, so the board
  *  and the run cannot end up with two. A run whose outcome is not one of these
@@ -493,8 +565,9 @@ export function lifecycleOf(
   const stages: StageState[] = [
     "done",
     proposed ? "done" : stopReason(read.outcome) !== null ? "stopped" : "not seen",
-    "not seen",
-    "not seen",
+    // Not seen until a proposal exists for the two later sources to have missed.
+    proposed ? "not seen" : "not reached",
+    proposed ? "not seen" : "not reached",
   ];
   if (!proposed) return stages;
   /*
@@ -518,6 +591,20 @@ export function lifecycleOf(
   // confirmed, so an unread list leaves the stage where an absent row leaves it.
   if (confirmed !== null && confirmed.has(read.clipId as number)) stages[2] = "done";
   return stages;
+}
+
+/**
+ * Which stage carries the reason, and it is at most one of them.
+ *
+ * The confirmation is the only stage the public list could have filled, so it is
+ * the only one the list's own reason belongs to. The anchor stage being unseen is
+ * the anchor store's silence and not the list's, and a run that never proposed
+ * has nothing for either to have missed. Said once, so a screen reader hears the
+ * sentence once and a keyboard focus draws one tooltip.
+ */
+export function reasonForStage(stages: StageState[], index: number): string | undefined {
+  const confirmed = LIFECYCLE.indexOf("confirmed");
+  return index === confirmed && stages[confirmed] === "not seen" ? NOT_SEEN_REASON : undefined;
 }
 
 /**
@@ -1103,16 +1190,77 @@ export function identityChips(input: {
   };
 }
 
-function IdentityChips({ chips, onName }: { chips: { name: string | null; registration: string | null; credential: string | null }; onName: () => void }) {
+/**
+ * Where a chip's claim can be checked, and each of these answered on 2026-09-13.
+ *
+ * Links and nothing more: no request leaves this page for any of these hosts, so
+ * the page loads no origin it does not serve and a chip that names a third party
+ * does not become a third party watching the page. They open in the same tab, as
+ * every other explorer link on this surface does.
+ */
+export const WORLDSCAN_ADDRESS = "https://worldscan.org/address/";
+/** The same value `lib/human/registry.ts` reads AgentBook at, held here so the
+ *  link cannot point at a registry the lookup does not use. A check compares them. */
+export const AGENTBOOK_ON_WORLD_CHAIN = "0xA23aB2712eA7BBa896930544C7d6636a96b944dA";
+/** World's own page about World ID. Not this wallet's record: World publishes no
+ *  per wallet page, and the link's title says which of the two it opens. */
+export const WORLD_ID_PAGE = "https://world.org/world-id";
+/** The ENS app for Sepolia, the one `docs/ens-runbook.md` names for registering
+ *  and for the switch, so a name is read where it is administered. */
+export const ENS_APP = "https://app.ens.dev/";
+
+/** Where a registration can be checked, which depends on which source answered. */
+export function registrationHref(source: RegistrationSource | null): string | null {
+  if (source === "agentbook") return `${WORLDSCAN_ADDRESS}${AGENTBOOK_ON_WORLD_CHAIN}`;
+  return source === "worldid" ? WORLD_ID_PAGE : null;
+}
+
+/** What that link opens, said where the two differ: a registry holding this
+ *  wallet's own row, or a page about the credential and not about this wallet. */
+export function registrationHrefTitle(source: RegistrationSource | null): string | undefined {
+  if (source === "agentbook") return "The AgentBook registry on World Chain, which holds the registration";
+  return source === "worldid" ? "World's page about World ID. It is not a record of this wallet" : undefined;
+}
+
+function IdentityChips({
+  chips,
+  source,
+  name,
+  credential,
+  onName,
+}: {
+  chips: { name: string | null; registration: string | null; credential: string | null };
+  source: RegistrationSource | null;
+  name: string | null;
+  /** Drawn in the account and not in the header, where the founder read three
+   *  chips over every screen as one thing too many. The state itself is unchanged
+   *  and is on the enrolment card as well. */
+  credential: boolean;
+  onName: () => void;
+}) {
+  const registeredAt = registrationHref(source);
   return (
     <>
-      {chips.registration !== null && <span className="ag-chip ag-chip-good">{chips.registration}</span>}
-      {chips.credential !== null && <span className="ag-chip ag-chip-idle">{chips.credential}</span>}
+      {chips.registration !== null &&
+        (registeredAt === null ? (
+          <span className="ag-chip ag-chip-good">{chips.registration}</span>
+        ) : (
+          <a className="ag-chip ag-chip-good ag-chip-link" href={registeredAt} title={registrationHrefTitle(source)}>
+            {chips.registration}
+          </a>
+        ))}
+      {credential && chips.credential !== null && <span className="ag-chip ag-chip-idle">{chips.credential}</span>}
       {/* The name is offered here rather than required before the board. A wallet
           with one is told; a wallet without one is offered the request and may
           ignore it for as long as it likes. */}
       {chips.name !== null ? (
-        <span className="ag-chip ag-chip-idle">{chips.name}</span>
+        name === null ? (
+          <span className="ag-chip ag-chip-idle">{chips.name}</span>
+        ) : (
+          <a className="ag-chip ag-chip-idle ag-chip-link" href={`${ENS_APP}${name}`} title="This name in the ENS app on Sepolia">
+            {chips.name}
+          </a>
+        )
       ) : (
         <button type="button" className="ag-chip ag-chip-idle ag-chip-do" onClick={onName}>
           no name · get one
@@ -1145,27 +1293,6 @@ export function namePill(state: NameState, mark: StepMark): string {
  * site's own rule at its narrow breakpoint, for the reason it gives: partial
  * opacity on text being read is a contrast loss and not a flourish.
  */
-/**
- * Where each card sits on the wheel.
- *
- * Four slots and only three are drawn. The card being read is level and at full
- * opacity, its two neighbours are faded and tipped away above and below so the
- * sequence reads as a wheel rather than as a swap, and everything else is away.
- * Only the neighbours: every other card faded would be a stack of ghosts behind a
- * sentence somebody is trying to read.
- *
- * At the first state nothing is above and at the last nothing is below, which
- * falls out of the arithmetic rather than being special cased.
- */
-export type RollPosition = "current" | "previous" | "next" | "away";
-
-export function rollPosition(index: number, at: number): RollPosition {
-  if (index === at) return "current";
-  if (index === at - 1) return "previous";
-  if (index === at + 1) return "next";
-  return "away";
-}
-
 /** How long each state holds the middle before the wheel turns. Steps arrive in a
  *  burst, so without a dwell most of them are never seen; the log behind the
  *  disclosure keeps arriving live either way, and the pager overrides it. */
@@ -1173,11 +1300,17 @@ export const ROLL_DWELL_MS = 900;
 
 function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to: number) => void }) {
   if (lines.length === 0) return null;
+  // Where the run stopped, read once and given to both halves, so the mark on the
+  // line and the card in the stage cannot disagree about whether it failed.
+  const failed = failedAt(lines);
   return (
     <div className="ag-roll">
-      {/* The line of states. The spine, the node, the label that appears on the one
-          being read and the 300ms transitions are the site's section rail, copied
-          from `components/nav/rail.css`. **The mark is not ported and is new**: that
+      {/* The line of states. The spine, the node, the label and the 300ms
+          transitions are the site's section rail, copied from
+          `components/nav/rail.css`. Every node carries its own title here, where
+          the site shows one on the section being read: the sequence is what this
+          rail is for, and a run of five states whose names appear one at a time is
+          a list a person has to walk to read. **The mark is not ported and is new**: that
           checkout carries no checkmark on any branch, so a state already read is
           drawn here in two strokes rather than taken from somewhere it does not
           exist. It replaces a Back, n of N, Forward pager, which said where a person
@@ -1189,7 +1322,7 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
             key={i}
             type="button"
             className="ag-steps-item"
-            data-state={i < at ? "done" : i === at ? "at" : "ahead"}
+            data-state={stepState(i, at, failed)}
             aria-current={i === at ? "step" : undefined}
             onClick={() => onStep(i)}
           >
@@ -1199,43 +1332,32 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
         ))}
       </nav>
 
+      {/* One card, and it is the one being read. The two neighbours were drawn
+          faded above and below it, close enough to compete with the sentence a
+          person is on and too faint to read as anything: two titles nobody could
+          use. The sequence is on the line beside them, where every node carries
+          its own, so nothing is lost by the card area holding one thing. */}
       <div className="ag-roll-stage">
-        {lines.map((line, i) => {
-          const position = rollPosition(i, at);
-          const current = position === "current";
-          if (position === "away") return null;
-          return (
-            <article
-              key={i}
-              className={`ag-roll-card ag-tone-${line.tone} ag-actor-${line.actor}`}
-              data-position={position}
-              // The neighbours are scenery: read by nobody's screen reader and
-              // reachable by nobody's keyboard, so a link inside one cannot be
-              // tabbed into behind the card in front of it.
-              aria-hidden={current ? undefined : "true"}
-              inert={!current}
-            >
-              {current ? (
-                <>
-                  <header className="ag-roll-head">
-                    {/* The dot alone. The tone is a hue and a weight everywhere
-                        else on the page, and the word was one more label on a card
-                        that should be quiet. */}
-                    <span className="ag-roll-dot" aria-hidden="true" />
-                  </header>
-                  <p className="ag-roll-name">{line.text}</p>
-                  {line.detail !== undefined && <p className="ag-roll-line">{line.detail}</p>}
-                  {line.object !== undefined && <Drawing object={line.object} />}
-                </>
-              ) : (
-                // A neighbour is a title and nothing else. Drawn whole, they
-                // overlapped the state being read and competed with it for the
-                // sentence a person is actually on.
-                <p className="ag-roll-title">{line.text}</p>
-              )}
+        {lines.map((line, i) =>
+          i !== at ? null : (
+            <article key={i} className={`ag-roll-card ag-tone-${line.tone} ag-actor-${line.actor}`}>
+              <header className="ag-roll-head">
+                {/* The dot alone. The tone is a hue and a weight everywhere else
+                    on the page, and the word was one more label on a card that
+                    should be quiet. */}
+                <span className="ag-roll-dot" aria-hidden="true" />
+              </header>
+              <p className="ag-roll-name">{line.text}</p>
+              {line.detail !== undefined && <p className="ag-roll-line">{line.detail}</p>}
+              {/* What would change it, under the reason and only where the run
+                  stopped. One sentence from one map: a person who reads that a
+                  payment was refused needs to know what to do about it, and the
+                  page saying nothing there is the page shrugging. */}
+              {line.next !== undefined && <p className="ag-roll-next">{line.next}</p>}
+              {line.object !== undefined && <Drawing object={line.object} />}
             </article>
-          );
-        })}
+          ),
+        )}
       </div>
     </div>
   );
@@ -1390,7 +1512,7 @@ function Enrol({
       </nav>
 
       <div className="ag-roll-stage ag-enrol-stage">
-        <article className="ag-roll-card ag-actor-human" data-position="current">
+        <article className="ag-roll-card ag-actor-human">
           <h3 className="ag-panel-title">A person behind the agent</h3>
           <span className={registration === "registered" ? "ag-chip ag-chip-good" : "ag-chip ag-chip-idle"}>
             {registrationPill(registration === "registered" ? "done" : "todo", source)}
@@ -1436,7 +1558,7 @@ function Enrol({
 function WayBack({ address, onRegistered }: { address: `0x${string}` | null; onRegistered: () => void }) {
   return (
     <div className="ag-roll-stage ag-enrol-stage">
-      <article className="ag-roll-card ag-actor-human" data-position="current">
+      <article className="ag-roll-card ag-actor-human">
         <h3 className="ag-panel-title">Verify with World ID</h3>
         <span className="ag-chip ag-chip-idle">went on without it</span>
         <p className="ag-sub">
@@ -1569,13 +1691,14 @@ function Board({
                             key={stage}
                             className="ag-life-seg"
                             data-state={stages[i]}
-                            title={stages[i] === "not seen" ? NOT_SEEN_REASON : undefined}
+                            title={reasonForStage(stages, i)}
                           >
                             {/* Words rather than an aria-label, because this sits
                                 inside the cell's own button and a button's name is
                                 built from the words its contents carry. */}
                             <span className="ag-said">
-                              {stages[i] === "not seen" ? `${stage}: ${NOT_SEEN_REASON}` : `${stage}: ${stages[i]}`}
+                              {`${stage}: ${stages[i]}`}
+                              {reasonForStage(stages, i) === undefined ? "" : `. ${NOT_SEEN_REASON}`}
                             </span>
                           </span>
                         ))}
@@ -2600,6 +2723,24 @@ export function AppShell() {
   // A run lasts from the signature to its last step. The strip carries Run for
   // exactly that long, and the chip carries how it ended afterwards.
   const runInProgress = phase === "signing" || phase === "running";
+
+  /*
+   * NEITHER WAY OUT IS OPEN WHILE THE RUN IS IN PROGRESS.
+   *
+   * A modal dialog closes on Escape by itself, so disabling the button alone
+   * would have left one way out open and called the dialog held. The cancel event
+   * is prevented for exactly the window the button is disabled for, and released
+   * the moment the run ends, so the two agree by reading the same value.
+   */
+  useEffect(() => {
+    const dialog = runDialog.current;
+    if (dialog === null) return;
+    const hold = (event: Event) => {
+      if (runInProgress) event.preventDefault();
+    };
+    dialog.addEventListener("cancel", hold);
+    return () => dialog.removeEventListener("cancel", hold);
+  }, [runInProgress]);
   // Read off the steps rather than off the sentences, so the state is the run's
   // and not a phrase match over its narration.
   const supply = running ? null : supplyFrom(steps);
@@ -2634,7 +2775,13 @@ export function AppShell() {
                 <StatusChip phase={phase} why={stoppedWhy} />
                 {/* Who the agent is, on every destination and not only on the cards
                     that set it up. Drawn from the same two reads the onboarding used. */}
-                <IdentityChips chips={identity} onName={() => nameDialog.current?.showModal()} />
+                <IdentityChips
+                  chips={identity}
+                  source={source}
+                  name={issuedName}
+                  credential={false}
+                  onName={() => nameDialog.current?.showModal()}
+                />
                 <AccountChip
                   address={address}
                   chain={chain}
@@ -2723,7 +2870,13 @@ export function AppShell() {
               ) : screen === "account" ? (
                 <div className="ag-account-body">
                   <div className="ag-identity">
-                    <IdentityChips chips={identity} onName={() => nameDialog.current?.showModal()} />
+                    <IdentityChips
+                      chips={identity}
+                      source={source}
+                      name={issuedName}
+                      credential
+                      onName={() => nameDialog.current?.showModal()}
+                    />
                   </div>
                   {enrolment === "skipped" && <WayBack address={address} onRegistered={() => setReadAgain(n => n + 1)} />}
                   <nav className="ag-tabs" aria-label="Account" style={{ "--xv-strip-n": ACCOUNT_TABS.length } as React.CSSProperties}>
@@ -2834,9 +2987,6 @@ export function AppShell() {
                 ))}
               </ol>
             </div>
-            <form method="dialog">
-              <button className="ag-rail-item">Close</button>
-            </form>
           </div>
 
           <div className="ag-run-dialog-body">
@@ -2860,6 +3010,23 @@ export function AppShell() {
             )}
           </div>
 
+          {/* The way out, where a person looks for it, and it says when it is
+              available rather than sitting there refusing to be pressed. Escape
+              is prevented for the same window, because a modal dialog closes on
+              it by itself and a disabled button would leave one way out open and
+              call it closed. */}
+          <div className="ag-run-dialog-foot">
+            <form method="dialog">
+              <button
+                type="submit"
+                className={runInProgress ? "btn xv-action ag-run-close" : "btn xv-action ag-run-close ag-run-close-ready"}
+                disabled={runInProgress}
+                aria-label={runInProgress ? "Close, available when the run ends" : undefined}
+              >
+                Close
+              </button>
+            </form>
+          </div>
         </dialog>
       </main>
     </>

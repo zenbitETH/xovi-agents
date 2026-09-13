@@ -1,5 +1,7 @@
 import { memoryLedger } from "./ledger";
 import { UnproposableWindow, propose, toProposal } from "./propose";
+export { REFUSAL_SENTENCE, refusalSentence } from "./refusal";
+
 import type { CandidateWindow } from "../windows/types";
 import { windowProblems } from "../windows/types";
 
