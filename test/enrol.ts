@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { concatBytes, keccak256, recoverMessageAddress, toBytes, toHex } from "viem";
+import { concatBytes, isAddress, keccak256, recoverMessageAddress, toBytes, toHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { GET as registrationGET, POST as registrationPOST } from "../app/api/agent/registration/route";
 import { GET as requestGET } from "../app/api/agent/registration/request/route";
@@ -8,29 +8,39 @@ import { setCapForTest } from "../lib/human/cap";
 import { setClockForTest } from "../lib/human/clock";
 import { deriveIdentifier } from "../lib/human/derive";
 import { setRegistryForTest } from "../lib/human/registry";
-import { ENROLLMENT_CALLS_PER_MINUTE, ENROLLMENT_WINDOW_MS, enrollmentThrottle } from "../lib/human/throttle";
+import { ENROLLMENT_CALLS_CEILING, ENROLLMENT_CALLS_PER_MINUTE, ENROLLMENT_WINDOW_MS, enrollmentThrottle } from "../lib/human/throttle";
 import {
   ALREADY_USED,
   ANOTHER_PERSON,
   ANOTHER_WALLET,
+  ENROLMENT_MESSAGE_PREFIX,
+  NOT_SIGNED,
   OTHER_WALLET,
   SIGNATURE_TTL_SECONDS,
   VERIFY_ORIGIN,
   type Verifier,
+  enrolmentMessage,
   setVerifierForTest,
   signalHashesFor,
-  verifyEnrollment,
 } from "../lib/human/worldid";
 import { HUMAN_A, fakeRegistry, fakeStore, fakeVerifications } from "./human";
 
 type Check = (ok: boolean, label: string) => void;
 
 /** The founder's recording wallet, which AgentBook knows and which must pass
- *  exactly as before, and two wallets it does not. */
+ *  exactly as before and signs nothing here; and three wallets it does not,
+ *  each from a scratch key so it can sign for itself. */
 const RECORDING = "0xC0686ae97FDf62A37F081922c2a92537862E0B95";
-const WALLET_A = "0x2Be7e36bA6aE468733c5a03A5cB9f9F1296d73fe";
-const WALLET_B = "0xeCB4C1245665e8A1F43826355aaB0Dd6bF336e05";
-const WALLET_C = "0x1111111111111111111111111111111111111111";
+const KEYS = {
+  a: privateKeyToAccount(`0x${"a1".repeat(32)}`),
+  b: privateKeyToAccount(`0x${"b2".repeat(32)}`),
+  c: privateKeyToAccount(`0x${"c3".repeat(32)}`),
+  capped: privateKeyToAccount(`0x${"d4".repeat(32)}`),
+};
+const WALLET_A = KEYS.a.address;
+const WALLET_B = KEYS.b.address;
+const WALLET_C = KEYS.c.address;
+const keyOf = (wallet: string) => Object.values(KEYS).find(k => k.address.toLowerCase() === wallet.toLowerCase());
 
 /** Planted, of known bytes, so a sweep can look for it. Invented: a real one
  *  belongs to the person it identifies. */
@@ -101,13 +111,14 @@ function fakeVerifier() {
     calls: [] as { url: string; headers: Record<string, string>; body: string }[],
     mode: "accept" as "accept" | "refuse" | "throw" | "outage",
     nullifier: NULLIFIER,
+    code: "all_verifications_failed",
   };
   const verifier: Verifier = async (url, init) => {
     if (state.mode === "throw") throw new Error("connection refused");
     state.calls.push({ url, headers: init.headers, body: init.body });
     if (state.mode === "outage") return new Response("bad gateway", { status: 502 });
     if (state.mode === "refuse") {
-      return Response.json({ success: false, code: "all_verifications_failed", detail: "All proof verifications failed." }, { status: 400 });
+      return Response.json({ success: false, code: state.code, detail: "All proof verifications failed." }, { status: 400 });
     }
     return Response.json({
       success: true,
@@ -127,8 +138,20 @@ export async function enrolChecks(check: Check) {
   for (const k of Object.keys(ENV)) envBefore[k] = process.env[k];
   Object.assign(process.env, ENV);
 
-  const post = (body: unknown) =>
-    registrationPOST(new Request("http://127.0.0.1/api/agent/registration", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+  /** Posts as the card does: the wallet's key signs the sentence built from the
+   *  result's nonce, unless the caller supplies a signature of its own or asks
+   *  for none. The recording wallet has no key here and never signs. */
+  const post = async (body: { payer: string; result?: { nonce?: string }; signature?: string | null }) => {
+    const key = keyOf(body.payer);
+    const signature =
+      body.signature === null ? undefined
+      : body.signature !== undefined ? body.signature
+      : key && body.result?.nonce ? await key.signMessage({ message: enrolmentMessage(body.result.nonce) })
+      : undefined;
+    const { signature: _drop, ...rest } = body;
+    void _drop;
+    return registrationPOST(new Request("http://127.0.0.1/api/agent/registration", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(signature === undefined ? rest : { ...rest, signature }) }));
+  };
   const read = (payer: string) => registrationGET(new Request(`http://127.0.0.1/api/agent/registration?payer=${payer}`));
   const ask = (query: string) => requestGET(new Request(`http://127.0.0.1/api/agent/registration/request${query}`));
 
@@ -164,8 +187,10 @@ export async function enrolChecks(check: Check) {
   check((await keep(await ask("?payer=nonsense"))).status === 400, "300a · and refuses one that is not an address");
   const ctx = await keep(await ask(`?payer=${WALLET_A}`));
   const ctxBody = (await ctx.clone().json()) as Record<string, unknown>;
-  check(ctx.status === 200 && Object.keys(ctxBody).sort().join(",") === "created_at,expires_at,nonce,rp_id,signature",
-    `301 · the context carries the widget's five names and nothing else (${Object.keys(ctxBody).sort().join(",")})`);
+  check(ctx.status === 200 && Object.keys(ctxBody).sort().join(",") === "created_at,expires_at,message,nonce,rp_id,signature",
+    `301 · the context carries the widget's five names and the sentence to sign, nothing else (${Object.keys(ctxBody).sort().join(",")})`);
+  check(ctxBody.message === `${ENROLMENT_MESSAGE_PREFIX}${ctxBody.nonce}` && ctxBody.message === enrolmentMessage(String(ctxBody.nonce)),
+    "301e · the sentence is one server function of the nonce, the same one the verify route rebuilds");
   // The signature is checked rather than believed: recovered over the message the
   // installed package builds from these fields and the configured action.
   // The builder itself against the published vector first, so 301a rests on it.
@@ -223,6 +248,11 @@ export async function enrolChecks(check: Check) {
   check(row?.nullifierDigest === deriveIdentifier(BigInt(NULLIFIER), ENV), "306g · holding the keyed digest of the nullifier, the derivation the cap already uses");
   check(row?.expiresAt.getTime() === T0.getTime() + 30 * 86_400_000, "306h · and lapsing thirty days after it was made, the period the notice declares");
   check(accepted.headers.get("cache-control") === "private, no-store", "306i · not cacheable");
+  check(Object.keys(acceptedBody).sort().join(",") === "credential,expiresAt,source,state",
+    `321 · the answer carries four named fields and nothing the verifier said (${Object.keys(acceptedBody).sort().join(",")})`);
+  const acceptedText = (await accepted.clone().text()) + [...accepted.headers.entries()].map(([k, v]) => `${k}: ${v}`).join("\n");
+  check(!acceptedText.includes(NULLIFIER) && !acceptedText.includes(NULLIFIER.slice(2)) && !acceptedText.includes(BigInt(NULLIFIER).toString()),
+    "321a · and the nullifier the verifier answered with is in no part of it");
 
   // The same result, posted under another wallet. Refused before the forward:
   // the fake's count is the evidence.
@@ -246,6 +276,42 @@ export async function enrolChecks(check: Check) {
     "307f · the bytes hash of the recording wallet is the value the widget's wasm was measured producing");
   check(signalHashesFor(RECORDING)[0] !== signalHashesFor(RECORDING)[1] && signalHashesFor(RECORDING)[0] !== signalHashesFor(WALLET_A)[0],
     "307g · the two encodings differ from each other and from another wallet's (negative control)");
+
+  /*
+   * Control of the wallet. A result names a wallet as its signal and proves
+   * nothing about who is posting it; the signature over the served sentence is
+   * what does. Every refusal here is before the forward: the count holds it.
+   */
+  const callsAtSign = state.calls.length;
+  const forA = resultFor(WALLET_A, {}, "nonce-sign");
+  const byB = await KEYS.b.signMessage({ message: enrolmentMessage("nonce-sign") });
+  const otherKey = await keep(await post({ payer: WALLET_A, result: forA, signature: byB }));
+  check(otherKey.status === 403 && ((await otherKey.clone().json()) as { error: string }).error === NOT_SIGNED,
+    `320 · a signature by another key is refused with the fixed sentence (${otherKey.status})`);
+  check(state.calls.length === callsAtSign, "320a · before any call to the verifier");
+  // The control for "compares, never catches": that signature recovers to a
+  // valid address, B's, so the refusal came from the comparison and not from a
+  // throw. A recovery wrapped so that only a throw refuses would pass it.
+  const recoveredOther = await recoverMessageAddress({ message: enrolmentMessage("nonce-sign"), signature: byB }).catch(() => null);
+  check(recoveredOther !== null && isAddress(recoveredOther) && recoveredOther.toLowerCase() === WALLET_B.toLowerCase(),
+    "320b · while that signature recovers to a valid other address, so the refusal is the comparison (control)");
+  const otherNonce = await KEYS.a.signMessage({ message: enrolmentMessage("nonce-elsewhere") });
+  check((await keep(await post({ payer: WALLET_A, result: forA, signature: otherNonce }))).status === 403 && state.calls.length === callsAtSign,
+    "320c · the payer's key over another nonce's sentence is refused, so a signature is good for one request");
+  const unsigned = await keep(await post({ payer: WALLET_A, result: forA, signature: null }));
+  const short = await keep(await post({ payer: WALLET_A, result: forA, signature: `0x${"ab".repeat(60)}` }));
+  const badV = await keep(await post({ payer: WALLET_A, result: forA, signature: `${byB.slice(0, -2)}00` }));
+  check([unsigned.status, short.status, badV.status].every(st => st === 400 || st === 403) && state.calls.length === callsAtSign,
+    `320d · no signature, a 60 byte one and a 65 byte one with a bad recovery id are 400 or 403, never 500, and nothing is forwarded (${unsigned.status}, ${short.status}, ${badV.status})`);
+  const ownText = "Xovi Agents enrolment nonce-sign but written by the client";
+  const overOwnText = await KEYS.a.signMessage({ message: ownText });
+  // Planted in both places a client could put it, beside the result and inside it.
+  const withOwnText = await keep(await post({ payer: WALLET_A, result: { ...forA, message: ownText }, signature: overOwnText, message: ownText } as never));
+  check(withOwnText.status === 403 && state.calls.length === callsAtSign,
+    `320e · a body supplying its own sentence, signed by the payer, does not move the binding (${withOwnText.status})`);
+  const signedRight = await keep(await post({ payer: WALLET_A, result: forA }));
+  check(signedRight.status === 200 && state.calls.length === callsAtSign + 1,
+    `320f · the payer's own signature over the served sentence enrols, with one verifier call (negative control, ${signedRight.status})`);
 
   // Replay. The same result twice, then the same proof under a fresh nonce.
   const callsBefore = state.calls.length;
@@ -279,6 +345,12 @@ export async function enrolChecks(check: Check) {
   const refused = await keep(await post({ payer: WALLET_C, result: resultFor(WALLET_C, {}, "nonce-refused") }));
   check(refused.status === 400 && /refused: all_verifications_failed/.test(((await refused.clone().json()) as { error: string }).error),
     `311 · a result the verifier refuses is refused with its code word (${refused.status})`);
+  state.code = "<b onload=x>fetch</b>";
+  const markup = await keep(await post({ payer: WALLET_C, result: resultFor(WALLET_C, {}, "nonce-markup") }));
+  const markupBody = ((await markup.clone().json()) as { error: string }).error;
+  check(markup.status === 400 && markupBody === "the verifier refused" && !markupBody.includes("<"),
+    `323 · a code outside the known list is answered with the fixed sentence and never repeated (${JSON.stringify(markupBody)})`);
+  state.code = "all_verifications_failed";
   const refusedAgain = await keep(await post({ payer: WALLET_C, result: resultFor(WALLET_C, {}, "nonce-refused") }));
   check(refusedAgain.status === 409, "311a · and stays used: the same result is not forwarded a second time");
   state.mode = "throw";
@@ -313,10 +385,9 @@ export async function enrolChecks(check: Check) {
   check((await bodyOf(WALLET_A)).source === "worldid", "312c · a chain that does not answer does not hide a row the table holds");
   check((await bodyOf("0x9999999999999999999999999999999999999999")).state === "unread", "312d · and with no row either it is unread, not not registered");
   registry.reset();
-  // A wallet in both answers AgentBook, stated: enrol the recording wallet too.
-  state.nullifier = `0x${"8d".repeat(32)}`;
-  await keep(await post({ payer: RECORDING, result: resultFor(RECORDING, {}, "nonce-recording") }));
-  state.nullifier = NULLIFIER;
+  // A wallet in both answers AgentBook, stated: a row planted for the recording
+  // wallet, which has no key here and signs nothing.
+  table.rows.set(RECORDING.toLowerCase(), { payer: RECORDING.toLowerCase(), action: "enrol-agent", nullifierDigest: "planted", credential: "proof_of_human", verifiedAt: T0, expiresAt: new Date(T0.getTime() + 30 * 86_400_000) });
   check((await bodyOf(RECORDING)).source === "agentbook", "312e · a wallet in both sources answers AgentBook");
   table.rows.delete(RECORDING.toLowerCase());
 
@@ -324,7 +395,7 @@ export async function enrolChecks(check: Check) {
    * Both routes capped, on one counter, seen red with the clock.
    */
   enrollmentThrottle.reset();
-  const CAPPED = "0x4444444444444444444444444444444444444444";
+  const CAPPED = KEYS.capped.address;
   let last: Response = new Response(null);
   for (let i = 0; i < ENROLLMENT_CALLS_PER_MINUTE; i++) last = await keep(await ask(`?payer=${CAPPED}`));
   check(last.status === 200, `316 · the ${ENROLLMENT_CALLS_PER_MINUTE}th request in a minute is answered`);
@@ -336,6 +407,8 @@ export async function enrolChecks(check: Check) {
   clock = new Date(T0.getTime() + ENROLLMENT_WINDOW_MS + 1);
   check((await keep(await ask(`?payer=${CAPPED}`))).status === 200, "316c · a minute later the same wallet is answered again (negative control)");
   check((await keep(await ask(`?payer=${WALLET_B}`))).status === 200, "316d · and another wallet was never held (negative control)");
+  check(ENROLLMENT_CALLS_PER_MINUTE >= 3 && ENROLLMENT_CALLS_PER_MINUTE <= ENROLLMENT_CALLS_CEILING && ENROLLMENT_CALLS_CEILING <= 20,
+    `322 · the per wallet limit is bounded, since wallets are free and each fresh one can have a result forwarded that many times a minute (${ENROLLMENT_CALLS_PER_MINUTE} of ${ENROLLMENT_CALLS_CEILING})`);
   clock = T0;
 
   /*
