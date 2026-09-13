@@ -38,6 +38,8 @@ A person delegates to an agent identified by an ENS name. The agent pays USDC ov
 
 > **Note, 2026-09-07.** Superseded. The credential columns and the guard both exist, and the guard resolves the responsible human through the credential rather than through a wallet lookup, so the failing-open behaviour described above is no longer live. The test still has to be run against an issued credential, which does not exist yet.
 
+> **Note, 2026-09-12.** The credential exists and has been used: clip 259 was proposed through one and confirmed. So the closing clause of the note above expired, and it expired the way the others in this repository did, by somebody else acting rather than by anything here changing. What is still owed is the test, not the credential.
+
 ### I4. Payment never becomes authorisation
 
 - **Mechanism:** no capability resolver reads a balance; no tier confirms faster.
@@ -54,7 +56,7 @@ A person delegates to an agent identified by an ENS name. The agent pays USDC ov
 
 ### I5. Names resolve to roles, not to subjects
 
-An agent's ENS records may name a role and a payment endpoint. No record resolves to an individual animal or a registry of them. Note the enforcement honestly: name access control authorises *writers*, not *values*, so this is a commitment Zenbit keeps, not a property the resolver enforces.
+The ENS records issued to an agent may name a role and a payment endpoint. No record resolves to an individual animal or a registry of them. Note the enforcement honestly: name access control authorises *writers*, not *values*, so this is a commitment Zenbit keeps, not a property the resolver enforces.
 
 ### I5b. A failed settlement is retried, and the authorization is never signed again
 

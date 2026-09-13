@@ -22,6 +22,14 @@ A nonzero identifier with allowance left means serve and count the usage, and do
 
 Usage is written only when a read was served free. A receipt is written only when a settlement succeeded. Nothing writes both.
 
+## The second source, added 2026-09-13
+
+The identifier reaches this system two ways now. AgentBook holds registrations made outside this page, and a World ID verification made in the page holds its own in a `verifications` table. Both answer the one question the cap asks, whether a person stands behind this wallet, and the route that answers it names which source did.
+
+**The two are not one person's one identifier.** AgentBook keeps the nullifier of the registration tool's own action and the table keeps a digest of the nullifier World scopes to this relying party and this action, so the two cannot be joined and a person holding both holds two digests and therefore two allowances. That is a property of the identifiers rather than of this code, and it is why the table refuses a second wallet for one person on its own key: the sybil bound the table can enforce is the one it enforces, and the bound across both sources is the weaker claim.
+
+Everything else in this document holds unchanged: the identifier is never stored, the derivation is keyed, the retention is thirty days on the request path, and every failure still collapses to paying.
+
 ## What the registry actually says
 
 Measured against the deployment rather than read from a summary. `lookupHuman(address)` returns `0` for an address that has never registered, and does not revert. A deliberately wrong selector on the same contract does revert, which is what makes those zeros evidence rather than an artefact of a contract that answers everything with zero.
