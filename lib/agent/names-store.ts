@@ -80,40 +80,24 @@ export type NamesStore = {
  */
 export const PARENT = "xovi.eth";
 
-/** A label is `agent` and a positive integer, and nothing else may be assigned. */
-export const LABEL_RE = /^agent([1-9][0-9]*)$/;
-
-export function labelNumber(label: string): number | null {
-  const m = LABEL_RE.exec(label);
-  return m ? Number(m[1]) : null;
-}
-
-/**
- * The first label number that is free on chain.
+/*
+ * `chainFloor`, `labelNumber` and `LABEL_RE` lived here and are gone.
  *
- * Walks up from 1 and stops at the first label whose address record is empty. It
- * keys on the ADDRESS RECORD and never on the resolver, and that is not a detail:
- * the parent's resolver is a wildcard, measured, so every subname of `xovi.eth`
- * returns a resolver whether or not it has ever been issued. Asking "does this name
- * have a resolver" answers yes for every label there will ever be, so a floor built
- * on it would never advance and every name would look taken.
+ * They belonged to the first design, where the next label was `max(label) + 1` with a
+ * floor walked up from the chain. The sequence replaced that because a maximum goes
+ * backwards when a row is deleted, and the walk-up floor was wrong for a second
+ * reason of its own: it stops at the first gap, so with `agent1` and `agent3` issued
+ * and `agent2` never taken it reports one and `agent3` reads as free.
  *
- * The walk stops at the first gap rather than scanning for the highest, because a gap
- * means nothing was issued past it by this scheme; the table's own maximum covers
- * anything requested but not yet on chain.
+ * Nothing in production called them afterwards. What remained was a rejected
+ * approach sitting in a library with two checks that existed only to demonstrate its
+ * flaw, which is a worse thing to leave behind than the flaw: a later reader finds a
+ * helper, an export and a passing check, and has no way to know none of it is used.
+ *
+ * The property those checks protected, that a label is judged by its ADDRESS RECORD
+ * and never by its resolver, is now held where it belongs: through the real route,
+ * which releases a label the chain already holds and takes the next number.
  */
-export async function chainFloor(
-  resolve: (name: string) => Promise<string | null>,
-  parent: string,
-  zero: string,
-  max = 64,
-): Promise<number> {
-  for (let n = 1; n <= max; n++) {
-    const addr = await resolve(`agent${n}.${parent}`);
-    if (addr === null || addr === zero) return n - 1;
-  }
-  return max;
-}
 
 let injected: NamesStore | null | undefined;
 

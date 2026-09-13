@@ -110,7 +110,33 @@ async function main(argv: string[]) {
       address: RESOLVER, abi: RESOLVER_ABI, functionName: "setAddr",
       args: [node, row.payer as `0x${string}`],
     });
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+
+    /*
+     * THE HASH IS PRINTED BEFORE THE WAIT, and the wait is allowed to fail.
+     *
+     * A transaction has left the machine by this line. If `waitForTransactionReceipt`
+     * throws, on a timeout or a dropped connection, the row stays pending with no hash
+     * and the only record of a real, possibly successful transaction is gone. The next
+     * run then re-simulates and re-sends: harmless on chain, since setting the same
+     * record twice is the same record, but it spends gas discovering what nobody
+     * wrote down.
+     *
+     * So the hash goes to the operator first, and a failed wait says so plainly with
+     * the hash in hand, which is enough to read the receipt later or mark the row by
+     * hand. The row is still only marked on a SUCCESS receipt: a hash recorded for a
+     * reverted transaction would make the row read issued while the chain holds
+     * nothing, and that is the one claim the read path must never be able to make.
+     */
+    console.log(`  sent     ${name} -> ${row.payer}  ${hash}`);
+
+    let receipt;
+    try {
+      receipt = await publicClient.waitForTransactionReceipt({ hash });
+    } catch (err) {
+      console.log(`  UNCONFIRMED ${name}  ${hash}  the wait failed: ${err instanceof Error ? err.name : "error"}`);
+      console.log(`              the transaction was sent. Read that hash before running again.`);
+      continue;
+    }
     if (receipt.status !== "success") {
       console.log(`  FAILED   ${name}  ${hash}`);
       continue;

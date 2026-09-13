@@ -87,8 +87,13 @@ export function NameCard({
 
       {state === "none" && (
         <p className="ag-sub">
+          {/* NOT "ask for one and Zenbit issues it". That reads as a promise that the
+              request produces a name, and it does not: issuance is the founder running
+              the script by hand, with his own key, when he chooses. The reviewer's
+              wording is used verbatim rather than paraphrased, because the thing being
+              corrected is exactly a paraphrase that drifted into a commitment. */}
           {canRequest
-            ? "A name is issued into a parent Zenbit owns. Ask for one and Zenbit issues it."
+            ? "A name is issued into a parent Zenbit owns. Zenbit issues names by hand from its own key."
             : "A name is issued into a parent Zenbit owns, to a wallet with a person behind it."}
         </p>
       )}
