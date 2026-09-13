@@ -16,7 +16,7 @@ import { capFrom, setCapForTest, standingBehind, takeFreeRead } from "../lib/hum
 import { ensureCredential } from "../lib/agent/credentials";
 import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
-import { CREDENTIAL_REFUSED, PROCESS, clearSkipped, readSkipped, writeSkipped, newestRecording, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, screensFor } from "../app/app-shell";
+import { CREDENTIAL_REFUSED, PROCESS, clearSkipped, readSkipped, writeSkipped, NO_CREDENTIAL, enrolmentState, opensTheBoard, ROLL_DWELL_MS, SCREENS, credentialPill, identityChips, lineFor, namePill, registrationLine, registrationPill, screensFor } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellRecording, cellState, loadSnapshot, servedCell } from "../lib/windows/snapshot";
 import { UNKNOWN_REFUSAL } from "../lib/agent/refusal";
 import { NOT_SUBMITTED_SENTENCE, environmentCredentialCovers, namesACell, windowsUrlFor as runWindowsUrlFor } from "../lib/agent/run";
@@ -666,104 +666,61 @@ export async function boardChecks(check: Check) {
    * embed draws a dead player whenever the museum is not broadcasting, and a page
    * whose first element is broken says something about the rest of it.
    */
+  /*
+   * 325 to 325k3 are retired with the recording and the five cards.
+   *
+   * They held a home that embedded the newest recording on offer and drew five
+   * cards saying what this is: the tie rule for a day with two recordings, the
+   * caption that had to say "a" rather than "the", the card titles against their
+   * descriptions, and the state words no card was allowed to carry. The founder
+   * read that as a page explaining itself to somebody who had not asked yet. The
+   * root is three things now and they are held below. `newestRecording` goes with
+   * them, and with it the only third party this page loaded at rest.
+   */
   const homeStart = page.indexOf("function Home(");
-  const homeEnd = page.indexOf("function Enrol(");
-  check(homeStart > 0 && homeEnd > homeStart, "325 · the home is found (negative control for the slice)");
-  const home = page.slice(homeStart, homeEnd);
+  const homeEnd = page.indexOf("/**\n * The one step between a connected wallet and the board.");
+  const home = homeStart > 0 && homeEnd > homeStart ? page.slice(homeStart, homeEnd) : "";
+  check(home.length > 0 && home.length < page.length / 8, `325 · the root is found and is a block (negative control for the slice, ${home.length})`);
   /*
-   * The condition tied to the element rather than found somewhere on the page.
+   * THREE THINGS, AND THE MARK IS THE HEADER'S OWN.
    *
-   * `address === null` occurs more than once, so a first version matched another
-   * branch entirely and stayed green while the home was rendered by nothing.
+   * Counted over the elements the root draws rather than named one at a time, so a
+   * fourth cannot arrive without this going red.
    */
-  const homeAt = page.indexOf("<Home newest={newestRecording(board.cells)} />");
-  check(homeAt > 0, "325a0 · the home is rendered (negative control for the read)");
-  check(/address === null \? \($/.test(page.slice(Math.max(0, homeAt - 400), homeAt).replace(/[\s\S]*?(address === null \? \()/, "$1").split("\n")[0]) ||
-    /address === null \? \(/.test(page.slice(Math.max(0, homeAt - 400), homeAt)),
-    "325a · drawn when no wallet is connected, and its recording read off the board");
-  check(!/live_stream/.test(page), "325b · with the live channel embedded nowhere");
-  check(/youtube-nocookie\.com\/embed\/\$\{newest\.videoId\}/.test(home), "325c · and the recording on the host that sets no cookie");
-  const newest = newestRecording([
-    { day: "2026-09-04", onOffer: true, videoId: "older" },
-    { day: "2026-09-09", onOffer: true, videoId: "newest" },
-    { day: "2026-09-12", onOffer: false, videoId: "notOnOffer" },
-  ]);
-  check(newest?.videoId === "newest" && newest.day === "2026-09-09", `325d · the newest recording on offer is the one embedded (${JSON.stringify(newest)})`);
-  check(newestRecording([{ day: "2026-09-04", onOffer: true }]) === null,
-    "325e · and a board that serves no recording embeds none rather than guessing one");
+  // Every element open, the wrapper included, because excluding a tag by name is
+  // how a fourth thing arrives in the one tag the count ignores. Six: the wrapper,
+  // the brand with its two words, the line and the way in.
+  const rootElements = (home.match(/<(?:span|p|button|div|a|img|iframe|ol|ul|h\d)\b/g) ?? []).length;
+  check(rootElements === 6, `325a · the root draws its wrapper, the brand with its two words, the line and the way in, and nothing else (${rootElements})`);
+  check(/<Mark \/>/.test(home), "325b · the mark is the component the header draws, not a second copy of its paths");
+  const markCopies = (page.match(/viewBox="0 0 1080 1080"/g) ?? []).length;
+  check(markCopies === 1, `325b2 · which exists once in the file (${markCopies})`);
+  check(/Built at ETH Online 2026/.test(home), "325c · the line says where it was built");
+  check(/Connect wallet/.test(home) && /onClick=\{onConnect\}/.test(home), "325d · and the way in is the only thing to press");
   /*
-   * A DAY CAN CARRY MORE THAN ONE RECORDING, AND THE TIE IS A RULE.
+   * AND NOTHING IS LOADED FROM ANYWHERE AT REST.
    *
-   * The days are cut per species, so the snapshot this deployment serves holds two
-   * for 2026-09-09. The reduce takes a strictly later day, so the earliest cell of
-   * the newest day survives every comparison, which is the first species in the
-   * board's own row order that has one. Driven on a fixture with the tie in it,
-   * because a fixture with one recording per day cannot tell the rule from an
-   * accident, and `>=` in that reduce passes such a fixture.
+   * The recording was the one third party this page reached before a person did
+   * anything. With it gone the root loads no origin Zenbit does not serve, which
+   * is what DISCLOSURE now states and what 253f to 253h hold it to.
    */
-  const tied = [
-    { day: "2026-09-04", onOffer: true, videoId: "older" },
-    { day: "2026-09-09", onOffer: true, videoId: "firstOfTheDay" },
-    { day: "2026-09-09", onOffer: true, videoId: "secondOfTheDay" },
-  ];
-  check(newestRecording(tied)?.videoId === "firstOfTheDay",
-    `325e2 · a tie goes to the first cell in the board's row order (${newestRecording(tied)?.videoId ?? "none"})`);
-  check(newestRecording([...tied].reverse())?.videoId === "secondOfTheDay",
-    `325e3 · which is the cell order and not a property of the ids (negative control, ${newestRecording([...tied].reverse())?.videoId ?? "none"})`);
+  check(!/<iframe/.test(home) && !/<img/.test(home), "325e · the root embeds nothing");
+  check(!/youtube/i.test(home) && !/ytimg/i.test(home), "325e2 · and names no third party host");
+  check(/youtube/i.test('<iframe src="https://www.youtube-nocookie.com/embed/x" />'), "325e3 · the host check can see one (negative control)");
+  check(!/newestRecording/.test(page), "325f · the recording chooser is gone rather than left unrendered");
   /*
-   * And the caption says so. "The recording of that day" is a claim the board
-   * contradicts one screen later, where the same day carries another.
+   * And the mark is the big thing on the screen, which is the whole of the root's
+   * design. Shrinking it to the header's size broke nothing until this was here:
+   * one component drawn at two sizes only says something if the two differ.
    */
-  const captions = [...home.matchAll(/recording of \{newest\.day\}|recording of \$\{newest\.day\}/gi)].length;
-  check(captions === 2, `325e4 · the day is named twice on the home, in the frame's title and in the line under it (${captions})`);
-  check(!/[Tt]he recording of \{newest\.day\}/.test(home) && !/[Tt]he recording of \$\{newest\.day\}/.test(home),
-    "325e5 · and neither calls it the recording of that day, where the board serves two");
-  check(/[Tt]he recording of \$\{newest\.day\}/.test("title={`The recording of ${newest.day}`}"),
-    "325e6 · the caption check can see the definite article (negative control)");
-  const cards = (home.match(/ag-process-card/g) ?? []).length;
-  /*
-   * The array itself, imported rather than read out of the file.
-   *
-   * Counting `title:` across the page found nine, none of them these, so the read
-   * was narrowed to the array's own source; then the reasons the copy is worded
-   * as it is were written above two of the cards and 325h went red on the word
-   * "issued" in a comment. 325f0, the control for that read, is retired with it:
-   * an imported array that is empty fails 325f on its own.
-   */
-  check(PROCESS.length >= 3 && PROCESS.length <= 5, `325f · the process is three to five cards (${PROCESS.length})`);
-  check(cards === 1 && /PROCESS\.map/.test(home), "325g · drawn from one card of one kind");
-  /*
-   * No state on any of them, meaning no state of the person reading: these cards
-   * know nothing about a wallet. A cell being on offer is the board's own
-   * vocabulary rather than a state of anybody, so it is not among these.
-   */
-  const stateWords = PROCESS.flatMap(c => [c.title, c.line]).join(" ").match(/\b(not yet|waiting|done|registered|issued|requested|skipped|enrolled)\b/gi) ?? [];
-  check(stateWords.length === 0, `325h · and says nothing about the reader's state (${stateWords.join(", ") || "none"})`);
-  check(/\bnot yet\b/i.test("a card saying not yet"), "325i · the state check can see one (negative control)");
-  /*
-   * THE DESCRIPTIONS WENT UP, AND A TITLE IS LARGER THAN WHAT IT INTRODUCES.
-   *
-   * This pass first took every description a step down, to 0.75rem, and the
-   * founder read the result as small. The page's own scale steps by 0.0625rem and
-   * the descriptions now sit a step above where this interface started, at
-   * 0.875rem. A title under that has to be larger than the words it introduces,
-   * which `.ag-panel-title` was not: it is an uppercase label at label size, and a
-   * description a step larger left the heading smaller than its own paragraph.
-   *
-   * Read as numbers rather than as patterns, so the relationship is what is held
-   * and either can move as long as the gap survives.
-   */
-  const STEP = 0.0625;
-  const sizeOf = (rule: string) => Number(/font-size:\s*([0-9.]+)rem/.exec(rule)?.[1] ?? NaN);
-  const subRule = /\.ag-sub\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
-  const titleRule = /\.ag-process-title\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
-  check(sizeOf(subRule) === 0.875, `325j · a description is one step above where this interface started (${sizeOf(subRule)}rem)`);
-  check(Number.isFinite(sizeOf(titleRule)), `325j2 · the home's card title has a size of its own (negative control for the read, ${sizeOf(titleRule)})`);
-  check(sizeOf(titleRule) >= sizeOf(subRule) + 2 * STEP,
-    `325k · and a card title is at least two steps above its description (${sizeOf(titleRule)}rem over ${sizeOf(subRule)}rem)`);
-  check(!(0.75 >= 0.875 + 2 * STEP), "325k2 · the ratio check can see a title that is not (negative control)");
-  check(/<h3 className="ag-process-title">\{step\.title\}<\/h3>/.test(home),
-    "325k3 · which is the class the home's cards actually carry, not one measured beside them");
+  const remOf = (rule: string) => Number(/width:\s*([0-9.]+)rem/.exec(rule)?.[1] ?? NaN);
+  const rootMark = /\.ag-home-brand svg\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  const headerMark = /\.ag-brand svg\s*\{([^}]*)\}/.exec(sheetRoll)?.[1] ?? "";
+  check(Number.isFinite(remOf(rootMark)) && Number.isFinite(remOf(headerMark)),
+    `325g · both marks are sized in the stylesheet (negative control for the reads, ${remOf(rootMark)} and ${remOf(headerMark)})`);
+  check(remOf(rootMark) >= remOf(headerMark) * 2,
+    `325g2 · and the root's is at least twice the header's, so the logo is the screen rather than a repeat of the chrome (${remOf(rootMark)}rem over ${remOf(headerMark)}rem)`);
+  check(!(2.25 >= 2 * 2), "325g3 · the size check can see one that is not (negative control)");
   /*
    * Three rows, so a neighbour cannot sit on the state being read.
    *
@@ -1693,9 +1650,11 @@ export async function boardChecks(check: Check) {
   // quietly, which is the only reason it was caught here.
   const embedStart = page.indexOf("<iframe");
   const embed = page.slice(embedStart, page.indexOf("/>", embedStart) + 2);
-  check(/youtube-nocookie\.com/.test(embed), "293 · the stream loads from the host that sets no cookie");
-  check(!/\/\/www\.youtube\.com/.test(page), "293a · and the one that sets three appears nowhere");
-  check(/\/\/www\.youtube\.com/.test("https://www.youtube.com/embed"), "293b · the host check can see it (negative control)");
+  /*
+   * 293 to 293b are retired with the embed they were about. The root loads
+   * nothing now, so there is no host to prefer and none to refuse; 325e and 325e2
+   * hold that there is no embed at all, which is the stronger claim.
+   */
 
 
   /*
@@ -2523,9 +2482,11 @@ export async function boardChecks(check: Check) {
    * motion on arrival.
    */
   const embedSrc = /className="ag-stream-frame"[\s\S]*?src=\{`([^`]*)`\}/.exec(home)?.[1] ?? "";
-  check(embedSrc.endsWith("${newest.videoId}"), `329 · the embed src ends at the recording's id (${embedSrc || "none"})`);
-  check(!embedSrc.includes("?"), `329a · so it carries no parameter and nothing plays on arrival (${embedSrc || "none"})`);
-  check("https://www.youtube-nocookie.com/embed/x?autoplay=1".includes("?"), "329b · the parameter check can see one (negative control)");
+  /*
+   * 329 to 329b are retired with the embed. They held its src to the recording's
+   * id and to no parameter, so that nothing played on arrival; nothing plays
+   * because nothing is embedded.
+   */
 
   if (before === undefined) delete process.env.WINDOWS_SNAPSHOT;
   else process.env.WINDOWS_SNAPSHOT = before;

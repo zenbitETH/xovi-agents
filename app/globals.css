@@ -638,6 +638,60 @@ body::after {
 }
 
 /* ---------------------------------------------------------------------------
+   The root, before a wallet is connected.
+
+   Three things and a lot of air: the mark, where it was built, and the way in.
+   Centred on both axes because there is nothing else on the screen to align to,
+   and the mark is sized here rather than in the markup so the header and this
+   share one component.
+--------------------------------------------------------------------------- */
+.ag-home {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.ag-home-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  color: inherit;
+}
+
+/* The header's mark at the header's size, and this one large. One component,
+   two sizes, so the paths are written once. */
+.ag-home-brand svg {
+  width: 5.5rem;
+  height: 5.5rem;
+  align-self: center;
+}
+
+.ag-home-brand .ag-wordmark {
+  font-size: 3.25rem;
+}
+
+.ag-home-brand .ag-wordmark-sub {
+  font-size: 1.5rem;
+}
+
+.ag-home-built {
+  margin: 0;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.9375rem;
+  opacity: 0.7;
+}
+
+.ag-home-do {
+  min-width: 12rem;
+}
+
+/* ---------------------------------------------------------------------------
    The account, in the header.
 
    Identity, chain and the way out, in the place every wallet interface puts them.
@@ -1430,34 +1484,6 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   line-height: 1.15;
 }
 
-/* ---------------------------------------------------------------------------
-   Settings as a checklist: one state per card, in order.
-
-   Three cards in a row where there is room and stacked where there is not. Each
-   says its own state as a mark and carries the way to meet it, rather than being
-   a label over a sentence.
---------------------------------------------------------------------------- */
-/* The stream, above the steps. 16 by 9 and never taller than a third of the
-   region, so the steps are on screen with it. */
-.ag-stream {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  width: 100%;
-}
-
-.ag-stream-frame {
-  width: 100%;
-  max-width: 100%;
-  aspect-ratio: 16 / 9;
-  /* Both, so the box shrinks rather than letterboxing: with only a max height the
-     width stayed full and the player padded itself with black. */
-  max-height: 32vh;
-  max-width: calc(32vh * 16 / 9);
-  align-self: flex-start;
-  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
-  border-radius: 0.75rem;
-}
 
 .ag-setup {
   display: flex;
@@ -1524,52 +1550,10 @@ body:has(.ag-run-dialog[open]) .ag-surface {
   margin-bottom: 0.75rem;
 }
 
-/* The default home: a recording that plays and the five cards saying what this is. */
-.ag-home {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
 
-/* One kind of card, filling the width, stacking on a phone. The order is the
-   point, so the cards are numbered and the number is drawn quietly. */
-.ag-process {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: 0.75rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
 
-/* The home's card titles read as titles. `.ag-panel-title` is an uppercase label
-   at label size, which under a description a step larger than it left the title
-   smaller than the words it introduces. Three steps above the description here,
-   in the display face, because these five cards are what a visitor reads first. */
-.ag-process-title {
-  margin: 0;
-  font-family: var(--font-display), system-ui, sans-serif;
-  font-size: 1.0625rem;
-  font-weight: 600;
-  line-height: 1.2;
-}
 
-.ag-process-card {
-  position: relative;
-  padding: 0.875rem 1rem;
-  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
-  border-radius: 0.75rem;
-  background-color: color-mix(in srgb, var(--color-base-content) 4%, transparent);
-}
 
-.ag-process-n {
-  display: block;
-  margin-bottom: 0.25rem;
-  color: var(--color-xv-gold);
-  font-family: var(--font-display), system-ui, sans-serif;
-  font-size: 0.9375rem;
-  line-height: 1;
-}
 
 /* The one step before the board, drawn as the run is drawn. */
 .ag-enrol {

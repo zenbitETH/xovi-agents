@@ -1449,35 +1449,6 @@ function Rolodex({ lines, at, onStep }: { lines: Line[]; at: number; onStep: (to
   );
 }
 
-/**
- * The newest recording on offer, read off the board rather than from anywhere new.
- *
- * The home embeds a recording rather than the live channel, because the channel's
- * live embed draws a dead player whenever the museum is not broadcasting, and a
- * page whose first element is broken says something about the rest of it. The
- * newest day on offer is the closest thing to live that is certainly playable.
- *
- * The id is already a served field on a cell, so nothing new crosses the wire and
- * nothing new enters the tree for this.
- *
- * **A day can carry more than one recording, and one of them is drawn.** The days
- * are cut per species, so 2026-09-09 holds two on the snapshot this deployment
- * serves. The tie goes to the first cell in the board's own row order, which is
- * the first species in `BOARD_SPECIES` that has a recording that day: the reduce
- * below takes a strictly later day, so the earliest cell of the newest day
- * survives every comparison. That is a rule rather than an accident and the
- * caption says "a recording of that day" rather than "the recording", because the
- * home shows one of two and naming it as the day's own would be a claim the board
- * contradicts one screen later.
- */
-export function newestRecording(cells: { day: string; onOffer: boolean; videoId?: string }[]): { day: string; videoId: string } | null {
-  const playable = cells.filter(c => c.onOffer && c.videoId !== undefined && c.day !== "");
-  if (playable.length === 0) return null;
-  // Strictly later, so a tie keeps the earlier cell: the first species in the
-  // board's row order that has one. `>=` here would silently take the last.
-  const newest = playable.reduce((a, b) => (b.day > a.day ? b : a));
-  return { day: newest.day, videoId: newest.videoId as string };
-}
 
 /**
  * What happens here, at the highest level, for somebody who has just arrived.
@@ -1505,47 +1476,30 @@ export const PROCESS: { title: string; line: string }[] = [
 ];
 
 /**
- * The default home, before a wallet is connected.
+ * The root, before a wallet is connected.
  *
- * The onboarding's own cards are not here: they are about a wallet and there is
- * none yet, and a checklist a person cannot act on is a wall with steps drawn on
- * it. What is here is a recording that plays and five cards saying what this is.
+ * Three things: the mark, where it was built, and the way in. It carried a
+ * recording of the museum's own stream and five cards describing the process,
+ * and the founder read that as a page explaining itself to somebody who had not
+ * asked yet. The five cards said what the surfaces behind the button already
+ * say, and the recording was the only third party this page loaded at rest.
+ *
+ * **The same mark the header draws**, the component rather than a second copy of
+ * its paths, sized by the stylesheet. Nothing here reaches an origin Zenbit does
+ * not serve, which is what `DISCLOSURE.md` now states of the page at rest.
  */
-function Home({ newest }: { newest: { day: string; videoId: string } | null }) {
+function Home({ onConnect, connecting }: { onConnect: () => void; connecting: boolean }) {
   return (
     <div className="ag-home">
-      {newest !== null && (
-        <div className="ag-stream">
-          <iframe
-            className="ag-stream-frame"
-            src={`https://www.youtube-nocookie.com/embed/${newest.videoId}`}
-            title={`A recording of ${newest.day}`}
-            loading="lazy"
-            allow="encrypted-media; picture-in-picture"
-            referrerPolicy="strict-origin-when-cross-origin"
-          />
-          <p className="ag-sub">
-            A recording of {newest.day}, from the museum's own stream. The windows on offer are spans of recordings
-            like this one that a machine thinks a person should look at. The clips a person has confirmed are public:{" "}
-            <a className="ag-link" href="https://xovi.axolodao.org/galeria">
-              the gallery
-            </a>
-            .
-          </p>
-        </div>
-      )}
-
-      <ol className="ag-process">
-        {PROCESS.map((step, i) => (
-          <li key={step.title} className="ag-process-card">
-            <span className="ag-process-n" aria-hidden="true">
-              {i + 1}
-            </span>
-            <h3 className="ag-process-title">{step.title}</h3>
-            <p className="ag-sub">{step.line}</p>
-          </li>
-        ))}
-      </ol>
+      <span className="ag-home-brand">
+        <Mark />
+        <span className="ag-wordmark">xovi</span>
+        <span className="ag-wordmark-sub">agents</span>
+      </span>
+      <p className="ag-home-built">Built at ETH Online 2026</p>
+      <button className="btn xv-action ag-primary ag-home-do" onClick={onConnect} disabled={connecting}>
+        {connecting ? "Connecting" : "Connect wallet"}
+      </button>
     </div>
   );
 }
@@ -2852,11 +2806,11 @@ export function AppShell() {
             <span className="ag-wordmark-sub">agents</span>
           </a>
           <div className="ag-header-right">
-            {address === null ? (
-              <button className="btn xv-action ag-primary" onClick={onConnect} disabled={phase === "connecting"}>
-                {phase === "connecting" ? "Connecting" : "Connect wallet"}
-              </button>
-            ) : (
+            {/* Nothing here before a wallet connects. The root is the mark, the
+                line and the way in, and a second Connect wallet in the header
+                would be the same action twice on a screen that holds three
+                things. Check 279e requires exactly one of it on the page. */}
+            {address === null ? null : (
               <>
                 <StatusChip phase={phase} why={stoppedWhy} />
                 {/* Who the agent is, on every destination and not only on the cards
@@ -2927,7 +2881,7 @@ export function AppShell() {
                 // The default home. The onboarding's cards are about a wallet and
                 // there is none yet, so they are not drawn: a checklist nobody can
                 // act on is a wall with steps painted on it.
-                <Home newest={newestRecording(board.cells)} />
+                <Home onConnect={() => void onConnect()} connecting={phase === "connecting"} />
               ) : !onboarded ? (
                 <Enrol
                   address={address}

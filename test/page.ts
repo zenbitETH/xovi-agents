@@ -553,13 +553,13 @@ export async function pageChecks(check: Check) {
    * found something else. Bound to the home rather than stated alone, so the day
    * one of the two moves the other is what goes red.
    */
-  const restSentence = (disclosure.match(/At rest it loads one: [^.]*\./) ?? [])[0] ?? "";
+  const restSentence = (disclosure.match(/At rest it loads[^.]*\./) ?? [])[0] ?? "";
   check(restSentence.length > 0, `253f · DISCLOSURE says what the page loads at rest (${restSentence || "none"})`);
-  check(!/livestream|live channel|live_stream/.test(restSentence) && /recording/.test(restSentence),
-    `253g · naming a recording rather than the live channel (${restSentence})`);
-  const homeBlock = ui.slice(ui.indexOf("function Home("), ui.indexOf("function Enrol("));
-  const restFrames = (homeBlock.match(/<iframe/g) ?? []).length;
-  check(homeBlock.length > 0 && restFrames === 1, `253h · and the home embeds exactly the one it names (${restFrames})`);
+  check(/nothing/i.test(restSentence) && !/recording|livestream|live channel/.test(restSentence),
+    `253g · and what it says is nothing, since the recording that was the one third party is gone (${restSentence})`);
+  const homeBlock = ui.slice(ui.indexOf("function Home("), ui.indexOf("/**\n * The one step between a connected wallet and the board."));
+  const restFrames = (homeBlock.match(/<iframe|<img/g) ?? []).length;
+  check(homeBlock.length > 0 && restFrames === 0, `253h · and the root embeds nothing, so the sentence and the page agree (${restFrames})`);
 
   /*
    * 254 to 257b are retired with the fold they held.
