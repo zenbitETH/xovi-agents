@@ -459,7 +459,7 @@ export function registrationLine(state: Registration, source: RegistrationSource
 /** The pill, which credits a source or none, and never a source it was not given. */
 export function registrationPill(mark: StepMark, source: RegistrationSource | null): string {
   if (mark === "done") {
-    return source === "agentbook" ? "registered by AgentBook" : source === "worldid" ? "registered by World ID" : "registered";
+    return source === "agentbook" ? "registered in AgentBook" : source === "worldid" ? "registered by World ID" : "registered";
   }
   return mark === "waiting" ? "waiting" : "not yet";
 }
@@ -906,6 +906,44 @@ export type Step = { id: StepId; mark: StepMark };
 
 /** What the name route answers, and the card's three states are its three. */
 export type NameState = "none" | "requested" | "issued";
+
+/**
+ * Who this agent is, as the two facts the page can stand behind.
+ *
+ * Once the onboarding is done it disappears, and with it everything that said who
+ * the agent was: a person looking at the board saw a wallet chip and nothing about
+ * the name they had just asked for or the registration they had just made. These
+ * are drawn on every render from the two routes, never remembered, so a name that
+ * stops resolving or a verification that lapses takes its chip with it.
+ *
+ * Null where there is nothing true to say. A wallet with no name gets no name chip
+ * rather than an empty one, and an unregistered wallet gets no pill rather than a
+ * pill saying no.
+ */
+export function identityChips(input: {
+  registration: Registration;
+  source: RegistrationSource | null;
+  nameState: NameState;
+  name: string | null;
+}): { name: string | null; registration: string | null } {
+  return {
+    // The route serves a name only to the wallet it belongs to, so a name in hand
+    // here is this wallet's own. The state travels with it because requested and
+    // issued are two different facts and a chip that flattened them would say a
+    // record exists where only a row does.
+    name: input.nameState !== "none" && input.name !== null ? `${input.name} · ${input.nameState}` : null,
+    registration: input.registration === "registered" ? registrationPill("done", input.source) : null,
+  };
+}
+
+function IdentityChips({ chips }: { chips: { name: string | null; registration: string | null } }) {
+  return (
+    <>
+      {chips.registration !== null && <span className="ag-chip ag-chip-good">{chips.registration}</span>}
+      {chips.name !== null && <span className="ag-chip ag-chip-idle">{chips.name}</span>}
+    </>
+  );
+}
 
 /** The pill for the name card. Waiting is about the step before it, never about the name. */
 export function namePill(state: NameState, mark: StepMark): string {
@@ -1670,6 +1708,9 @@ export function AppShell() {
   const [chain, setChain] = useState<string | null>(null);
   const [issuedName, setIssuedName] = useState<string | null>(null);
   const [nameState, setNameState] = useState<NameState>("none");
+  /** The name the route served this wallet, which it serves only to the wallet it
+   *  belongs to. `issuedName` stays the one drawn on a match alone. */
+  const [routeName, setRouteName] = useState<string | null>(null);
   const [nameLabel, setNameLabel] = useState<string | null>(null);
   const [nameRead, setNameRead] = useState(false);
   /** Bumped when the name card records a request, so the read runs again and the
@@ -1777,6 +1818,7 @@ export function AppShell() {
       setIssuedName(null);
       setNameState("none");
       setNameLabel(null);
+      setRouteName(null);
       setNameRead(false);
       return;
     }
@@ -1800,6 +1842,7 @@ export function AppShell() {
         // nothing claimed either way.
         setNameState(answer === null ? "none" : answer.state);
         setNameLabel(answer === null ? null : answer.label);
+        setRouteName(answer === null ? null : answer.name);
         setNameRead(true);
       })
       .catch(() => {
@@ -1807,6 +1850,7 @@ export function AppShell() {
         setIssuedName(null);
         setNameState("none");
         setNameLabel(null);
+        setRouteName(null);
         setNameRead(true);
       });
     return () => {
@@ -2060,6 +2104,7 @@ export function AppShell() {
   // acknowledgement never stands in for a registration that is no longer there.
   const onboarded = onboardingFrom({ address, chain, registration, nameState }).done;
   const at = pinned === null ? Math.max(0, lines.length - 1) : Math.min(pinned, Math.max(0, lines.length - 1));
+  const identity = identityChips({ registration, source, nameState, name: routeName });
 
   return (
     <>
@@ -2078,6 +2123,9 @@ export function AppShell() {
             ) : (
               <>
                 <StatusChip phase={phase} why={stoppedWhy} />
+                {/* Who the agent is, on every destination and not only on the cards
+                    that set it up. Drawn from the same two reads the onboarding used. */}
+                <IdentityChips chips={identity} />
                 <AccountChip
                   address={address}
                   chain={chain}
@@ -2172,6 +2220,9 @@ export function AppShell() {
                 />
               ) : screen === "account" ? (
                 <div className="ag-account-body">
+                  <div className="ag-identity">
+                    <IdentityChips chips={identity} />
+                  </div>
                   <nav className="ag-tabs" aria-label="Account" style={{ "--xv-strip-n": ACCOUNT_TABS.length } as React.CSSProperties}>
                     <span
                       className="ag-tabs-indicator"

@@ -12,7 +12,7 @@ import { setRegistryForTest } from "../lib/human/registry";
 import { setCapForTest } from "../lib/human/cap";
 import { enrolledSeam, setEnrolledForTest } from "../lib/agent/enrolled";
 import { fakeStore, fakeVerifications } from "./human";
-import { SCREENS, namePill, onboardingFrom, registrationLine, registrationPill } from "../app/app-shell";
+import { SCREENS, identityChips, namePill, onboardingFrom, registrationLine, registrationPill } from "../app/app-shell";
 import { BOARD_SPECIES, DayUnknown, boardFrom, cellOf, cellState, loadSnapshot } from "../lib/windows/snapshot";
 import { resetServerForTest } from "../lib/x402";
 
@@ -333,7 +333,7 @@ export async function boardChecks(check: Check) {
    * chain badge that read Base Sepolia when no chain had answered, and this is the
    * same shape one card along. Null credits nobody.
    */
-  check(registrationPill("done", "agentbook") === "registered by AgentBook", "294 · the pill credits AgentBook where AgentBook answered");
+  check(registrationPill("done", "agentbook") === "registered in AgentBook", "294 · the pill credits AgentBook where AgentBook answered");
   check(registrationPill("done", "worldid") === "registered by World ID", "294a · and World ID where the page enrolled the wallet");
   check(registrationPill("done", null) === "registered", "294b · and names no source at all where the answer named none");
   check(registrationPill("todo", "worldid") === "not yet" && registrationPill("waiting", "agentbook") === "waiting",
@@ -434,6 +434,42 @@ export async function boardChecks(check: Check) {
   const press = /\.ag-setup-do:active\s*\{[^}]*transform:\s*scale\(0?\.9[0-9]\)/.test(sheet);
   const stillUnderReduced = /prefers-reduced-motion[^{]*\{[\s\S]*?\.ag-setup-do:active\s*\{[^}]*transform:\s*none/.test(sheet);
   check(press && stillUnderReduced, `309e · the controls press and stop pressing where movement is refused (${press}, ${stillUnderReduced})`);
+
+  /*
+   * WHO THE AGENT IS, AFTER THE CARDS THAT SET IT UP HAVE GONE.
+   *
+   * The onboarding disappears when it completes and took with it everything that
+   * said who the agent was, so a person on the board saw a wallet and nothing
+   * about the name they had just asked for or the registration they had just made.
+   * Both are derived on every render from the two routes rather than remembered,
+   * which is what makes a lapsed verification or a name that stops resolving take
+   * its chip with it.
+   */
+  const enrolled = identityChips({ registration: "registered", source: "worldid", nameState: "issued", name: "agent2.xovi.eth" });
+  check(enrolled.registration === "registered by World ID" && enrolled.name === "agent2.xovi.eth · issued",
+    `310 · an enrolled wallet carries its registration and its name with its state (${enrolled.registration}, ${enrolled.name})`);
+  const requested = identityChips({ registration: "registered", source: "agentbook", nameState: "requested", name: "agent2.xovi.eth" });
+  check(requested.name === "agent2.xovi.eth · requested" && requested.registration === "registered in AgentBook",
+    `310a · a requested name says requested and never issued, and AgentBook is named as the source (${requested.name}, ${requested.registration})`);
+  const stranger = identityChips({ registration: "not-registered", source: null, nameState: "none", name: null });
+  check(stranger.name === null && stranger.registration === null,
+    "310b · a wallet that is not enrolled carries neither, rather than a chip saying no");
+  const unreadChips = identityChips({ registration: "unread", source: null, nameState: "none", name: null });
+  check(unreadChips.registration === null, "310c · and an unread registry draws no registration either (negative control)");
+  const noName = identityChips({ registration: "registered", source: "worldid", nameState: "issued", name: null });
+  check(noName.name === null && noName.registration !== null,
+    "310d · a registered wallet the name route told nothing gets the pill and no name chip");
+
+  // Both places, each block found before it is read.
+  const headerStart = page.indexOf('<header className="ag-header"');
+  // Searched from the header's own start: `</header>` occurs earlier in the file
+  // than the element does, so an unanchored search put the end before the
+  // beginning and the slice was empty. The guard below is what showed it.
+  const headerEnd = page.indexOf("</header>", headerStart);
+  const accountStart = page.indexOf('<div className="ag-account-body">');
+  check(headerStart > 0 && headerEnd > headerStart && accountStart > 0, "311 · the header and the account body are found (negative control for the slices)");
+  check(/<IdentityChips chips=\{identity\} \/>/.test(page.slice(headerStart, headerEnd)), "311a · the header carries them on every destination");
+  check(/<IdentityChips chips=\{identity\} \/>/.test(page.slice(accountStart, accountStart + 400)), "311b · and the account body opens with the same two");
   // A rung and not a button: the settings screen has the connect and the board
   // actions and no third that would do nothing.
   const settingsBlock = page.slice(page.indexOf("function Onboarding("), page.indexOf("function Board("));

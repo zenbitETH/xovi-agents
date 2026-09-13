@@ -194,7 +194,7 @@ export async function enrolChecks(check: Check) {
     "331e · the sentence is one server function of the nonce, the same one the verify route rebuilds");
   // The signature is checked rather than believed: recovered over the message the
   // installed package builds from these fields and the configured action.
-  // The builder itself against the published vector first, so 301a rests on it.
+  // The builder itself against the published vector first, so 331a rests on it.
   check(
     toHex(rpMessage("0x008ae1aa597fa146ebd3aa2ceddf360668dea5e526567e92b0321816a4e895bd", 1700000000, 1700000300, "test-action")) ===
       "0x01008ae1aa597fa146ebd3aa2ceddf360668dea5e526567e92b0321816a4e895bd000000006553f100000000006553f22c00aa0ce59768ae5b1c52f07a9387f14f09f277422c0d2f8a268c7bad0c60a46a",
@@ -379,7 +379,7 @@ export async function enrolChecks(check: Check) {
   state.mode = "accept";
   state.nullifier = `0x${"7c".repeat(32)}`;
   check((await keep(await post({ payer: WALLET_C, result: resultFor(WALLET_C, {}, "nonce-down") }))).status === 200,
-    "341d · while the result it never saw can be posted again once it answers (negative control for 311a)");
+    "341d · while the result it never saw can be posted again once it answers (negative control for 341a)");
   state.nullifier = NULLIFIER;
   const wrongAction2 = await keep(await post({ payer: WALLET_C, result: resultFor(WALLET_C, { action: "other-action" }, "nonce-action") }));
   const wrongEnv = await keep(await post({ payer: WALLET_C, result: resultFor(WALLET_C, { environment: "production" }, "nonce-env") }));

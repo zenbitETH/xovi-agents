@@ -1300,6 +1300,15 @@ body:has(.ag-run-dialog[open]) .ag-surface {
    card and the outlined form for the one that only reads again, which is the same
    pair the header and the run already use. The press feedback lives here rather
    than on `.btn`, so the merged controls elsewhere are not restyled by this. */
+/* The two identity facts where the account body begins, the same pair the header
+   carries, so a person reading the account meets them without looking up. */
+.ag-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-bottom: 0.75rem;
+}
+
 .ag-setup-do {
   align-self: flex-start;
   transition:
