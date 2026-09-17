@@ -42,6 +42,7 @@ import { verificationChecks } from "./verifications";
 import { nameChecks } from "./name";
 import { namesChecks } from "./names";
 import { proposalsChecks } from "./proposals";
+import { noteNoticeChecks } from "./note-notice";
 import { receiptsChecks } from "./receipts";
 
 let n = 0;
@@ -784,6 +785,7 @@ async function main() {
   await verificationChecks(check);
   await enrolChecks(check);
   await credentialChecks(check);
+  await noteNoticeChecks(check);
   await ensChecks(check);
 
   await pageChecks(check);
