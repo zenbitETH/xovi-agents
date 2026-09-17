@@ -22,6 +22,7 @@ import { recoverConfirmer } from "~~/lib/anchor/confirmation";
 import { decisionCode } from "~~/lib/anchor/schema";
 import { ANCHOR_259, CONFIRMATION_259 } from "~~/lib/anchor/confirmation-259";
 import { KEEPS_SENTENCE, WorldIdCard } from "./world-id-card";
+import { NOTE_NOTICE, NOTE_NOTICE_URL } from "~~/lib/agent/note-notice";
 import { NameCard } from "./name-card";
 
 const REPO = "https://github.com/zenbitETH/xovi-agents";
@@ -1579,6 +1580,17 @@ function Enrol({
         <div className="ag-run-dialog-body">
           <p className="ag-sub">World ID asserts that one person stands behind this wallet.</p>
           <p className="ag-sub">{KEEPS_SENTENCE}</p>
+          {/* This step is where the credential is obtained, and every proposal made under
+              it carries a note the reviewing application publishes. The words are the
+              module's, drawn whole: the field in code, the link as a link. */}
+          <p className="ag-sub">
+            {NOTE_NOTICE.slice(0, NOTE_NOTICE.indexOf(NOTE_NOTICE_URL))
+              .split("`")
+              .map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : part))}
+            <a className="ag-link" href={NOTE_NOTICE_URL}>
+              {NOTE_NOTICE_URL.replace(/^https:\/\//, "")}
+            </a>
+          </p>
           <p className="ag-sub">{registrationLine(registration, source)}</p>
           {credential !== null && <p className="ag-account-address">World ID credential: {credential}</p>}
           <p className="ag-sub">
