@@ -24,7 +24,7 @@ Computer vision produces candidates, not conclusions. Measured on 2026-08-28 aga
 
 The date and the bank size are part of the claim, not decoration. That bank grows as more footage is verified, so a later figure is a new measurement rather than a correction of this one, and a reader who finds a different number should be able to tell which.
 
-So the thing worth selling is not the observation. Observations are public: confirmed water readings are rendered on a live overlay over a public stream, and the biological record is headed for open scientific archives under CC BY. What is scarce is derivation and provenance. The candidate windows are never public. The join between an onchain anchor and the human confirmation behind it cannot be reconstructed from a video frame. That join is the product.
+So the thing worth selling is not the observation. Observations are public: confirmed water readings are rendered on a live overlay over a public stream, and the confirmed record is intended for open scientific archives under CC BY once the rights of those who produced it are cleared, with free-text notes left out unless their authors license them. What is scarce is derivation and provenance. The candidate windows are never public. The join between an onchain anchor and the human confirmation behind it cannot be reconstructed from a video frame. That join is the product.
 
 ## How it works
 

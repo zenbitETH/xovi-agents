@@ -12,6 +12,10 @@ Ten fields go. The names match what the ingest route already calls them, so noth
 | `behaviorTag` | `"other"`, unconditionally | the enum belongs to the receiving route and the detector cannot classify behaviour, so a tag the producer invented is deliberately **not** forwarded: it would put a word from one vocabulary into a field governed by another. It also keeps the note always required and always persisted, since that route force-nulls the note for catalog tags |
 | `reason` | `behaviorNote` | required at three characters or more precisely because the tag is `other`, and capped at 280 on both sides |
 
+The note is the one field a person reads as written, and it is published with the clip once the clip is confirmed. The notice that goes with it, the same words the page draws from `lib/agent/note-notice.ts`:
+
+> The note (`behaviorNote`) is published with the clip once the clip is confirmed. Do not send other people's personal data. More information: https://zenbit.mx/en/privacy#xovi-notas
+
 Seven fields are dropped because the clip record does not model them: the schema version, the window id, the candidate roster, the detector version, the time it was produced, and the two truncation booleans. The window id is not sent and is not lost: it is the key the local refusal ledger uses, and the reason it can be that key is below.
 
 Two fields are never sent, which is a different thing from being dropped. `source` is accepted by the route only so that it can be refused, and a machine claiming human provenance is refused rather than silently overwritten so that a caller which tried finds out that it tried. `submitterAddress` is derived from the credential and folded into the clip hash, so a machine able to name its own submitter could attribute its work to a person and forge clip identity at the same time.
