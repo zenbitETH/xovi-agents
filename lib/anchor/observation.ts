@@ -1,5 +1,6 @@
 import { encodeAbiParameters } from "viem";
 import { UnanchorableClip, decisionCode } from "./schema";
+import { neverAnchor } from "./select";
 
 /**
  * The ten fields, in the order the schema fixes them.
@@ -72,6 +73,9 @@ export function toObservation(row: Record<string, unknown>): Observation {
   };
   if (row.status !== "verified") throw new UnanchorableClip(`clip ${row.id}: status is ${row.status}, not verified`);
   if (row.source !== "cv") throw new UnanchorableClip(`clip ${row.id}: source is ${row.source}, not a machine proposal`);
+
+  const never = neverAnchor(row);
+  if (never !== null) throw new UnanchorableClip(`clip ${row.id}: never anchored, ${never}`);
 
   const clipHash = need("clipHash");
   const nonce = need("verifierNonce");

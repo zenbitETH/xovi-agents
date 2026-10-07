@@ -1,11 +1,11 @@
 /**
  * Anchors confirmed machine proposals, one attestation each.
  *
- * Pulls from the reviewing application's public list, so nothing on that side
- * changes and nothing here needs a credential to read it. Filters to confirmed
+ * Pulls from the reviewing application's list of clips cleared for anchoring, read with a
+ * key (`ANCHOR_API_KEY`, from the environment, never from an argument). Filters to confirmed
  * rows a machine proposed, refuses anything else, and writes two records per clip:
  * an offchain attestation that is the record, and an onchain pair so it can be
- * found.
+ * found. A clip with a clinical tag, an animal's alias or participants is never anchored.
  *
  * Dry run by default. `--execute` is what sends, and it only sends the clips named by
  * `--clip 279,321`: a count says nothing about which clips a person cleared.
@@ -41,8 +41,10 @@ async function main() {
   assertMayExecute(execute, clips);
   const rpc = process.env.ANCHOR_RPC_URL;
   const clipsUrl = process.env.XOVI_CLIPS_URL;
+  const apiKey = process.env.ANCHOR_API_KEY;
   if (!rpc) throw new Error("ANCHOR_RPC_URL is not set");
   if (!clipsUrl) throw new Error("XOVI_CLIPS_URL is not set");
+  if (!apiKey) throw new Error("ANCHOR_API_KEY is not set: the list of clips cleared for anchoring is read with a key");
 
   const store = storeFrom();
   if (!store) throw new Error("DATABASE_URL is not set, and the row is the guard that stops a repeat being attempted");
@@ -52,7 +54,7 @@ async function main() {
   const version = await domainVersion(pub);
   const schema = schemaUid();
 
-  const res = await fetch(clipsUrl);
+  const res = await fetch(clipsUrl, { headers: { authorization: `Bearer ${apiKey}` } });
   if (!res.ok) throw new Error(`the clips list answered ${res.status}`);
   const rows = (await res.json()) as Record<string, unknown>[];
   const candidates = selectCandidates(rows, { limit, clips });

@@ -5,6 +5,11 @@
  * verifier's address to a public chain, and whether that may happen is decided clip by
  * clip, so a count ("the first seven") is not a decision a person made about any of
  * them. The dry run may look at everything; `--execute` may not.
+ *
+ * Some clips are never anchored, however they are named: one with a clinical tag, one that names an
+ * animal (`specimenAlias`), one that lists other animals (`participants`). That is a standing rule, not
+ * a choice made run by run, so it is a function of its own that both the selector and the observation
+ * builder call.
  */
 
 export class UnselectableClip extends Error {}
@@ -34,6 +39,39 @@ export function assertMayExecute(execute: boolean, clips: number[] | null): void
 
 type Row = Record<string, unknown>;
 
+/** The tags of the Xovi catalog's health category (Salud y bienestar). A clip tagged with one is never anchored. */
+export const CLINICAL_TAGS: readonly string[] = [
+  "regeneration",
+  "lethargy",
+  "abnormal_breathing",
+  "abnormal_buoyancy",
+  "inflammation",
+  "convulsions",
+  "gill_collapse",
+  "skin_lesion",
+  "body_spiral",
+  "gill_fungus",
+  "gill_mucus",
+  "skin_shedding",
+  "appendage_injury",
+  "pruritus",
+];
+
+/**
+ * Why a row may never be anchored, or null. A field the list does not carry counts as not set; only a value
+ * counts, so a list that withholds `specimenAlias` is not refused for it. With `requireTag`, a row with no
+ * `behaviorTag` is refused too, because its tag cannot be checked: the selector asks for that, the observation
+ * builder (which also reads trimmed fixtures) does not.
+ */
+export function neverAnchor(row: Row, opts: { requireTag?: boolean } = {}): string | null {
+  const tag = row.behaviorTag;
+  if (typeof tag === "string" && CLINICAL_TAGS.includes(tag)) return `clinical tag ${tag}`;
+  if (opts.requireTag && (typeof tag !== "string" || tag.length === 0)) return "no behaviorTag to check";
+  if (row.specimenAlias != null) return "specimenAlias is set";
+  if (row.participants != null) return "participants is set";
+  return null;
+}
+
 /**
  * The confirmed machine proposals of a list. With `clips`, exactly those, in the list's order, and a
  * named clip that is not one is an error rather than a skip: a clip somebody cleared and the run
@@ -42,10 +80,16 @@ type Row = Record<string, unknown>;
  */
 export function selectCandidates(rows: Row[], opts: { limit: number; clips: number[] | null }): Row[] {
   const proposals = rows.filter(r => r.source === "cv" && r.status === "verified");
-  if (opts.clips === null) return proposals.slice(0, opts.limit);
+  if (opts.clips === null) return proposals.filter(r => neverAnchor(r, { requireTag: true }) === null).slice(0, opts.limit);
   const missing = opts.clips.filter(id => !proposals.some(r => r.id === id));
   if (missing.length > 0) {
     throw new UnselectableClip(`clip ${missing.join(", ")} is not a confirmed machine proposal in this list`);
   }
-  return proposals.filter(r => opts.clips!.includes(r.id as number));
+  const named = proposals.filter(r => opts.clips!.includes(r.id as number));
+  const never = named.flatMap(r => {
+    const why = neverAnchor(r, { requireTag: true });
+    return why === null ? [] : [`clip ${r.id} is never anchored: ${why}`];
+  });
+  if (never.length > 0) throw new UnselectableClip(never.join("; "));
+  return named;
 }
