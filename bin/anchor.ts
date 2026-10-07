@@ -7,7 +7,8 @@
  * an offchain attestation that is the record, and an onchain pair so it can be
  * found.
  *
- * Dry run by default. `--execute` is what sends.
+ * Dry run by default. `--execute` is what sends, and it only sends the clips named by
+ * `--clip 279,321`: a count says nothing about which clips a person cleared.
  */
 import { privateKeyToAccount } from "viem/accounts";
 import {
@@ -24,6 +25,7 @@ import { signedBy } from "../lib/anchor/confirmation";
 import { encodeObservation, toObservation } from "../lib/anchor/observation";
 import { OFFCHAIN_DOMAIN_NAME, ZERO_ADDRESS, ZERO_BYTES32, randomSalt, signObservation } from "../lib/anchor/offchain";
 import { UnanchorableClip, schemaUid } from "../lib/anchor/schema";
+import { assertMayExecute, parseClipIds, selectCandidates } from "../lib/anchor/select";
 import { nextAction, storeFrom } from "../lib/anchor/store";
 
 function arg(name: string, fallback?: string): string | undefined {
@@ -35,6 +37,8 @@ async function main() {
   const execute = process.argv.includes("--execute");
   const anyChain = process.argv.includes("--any-chain");
   const limit = Number(arg("--limit", "1"));
+  const clips = parseClipIds(arg("--clip"));
+  assertMayExecute(execute, clips);
   const rpc = process.env.ANCHOR_RPC_URL;
   const clipsUrl = process.env.XOVI_CLIPS_URL;
   if (!rpc) throw new Error("ANCHOR_RPC_URL is not set");
@@ -51,7 +55,7 @@ async function main() {
   const res = await fetch(clipsUrl);
   if (!res.ok) throw new Error(`the clips list answered ${res.status}`);
   const rows = (await res.json()) as Record<string, unknown>[];
-  const candidates = rows.filter(r => r.source === "cv" && r.status === "verified").slice(0, limit);
+  const candidates = selectCandidates(rows, { limit, clips });
   console.log(`\n  ${rows.length} rows, ${candidates.length} to anchor, chain ${chainId}, domain version ${version}\n`);
 
   for (const row of candidates) {

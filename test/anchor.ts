@@ -17,6 +17,7 @@ import {
   verifyObservation,
 } from "../lib/anchor/offchain";
 import { SCHEMA, UnanchorableClip, decisionCode, schemaUid } from "../lib/anchor/schema";
+import { UnselectableClip, assertMayExecute, parseClipIds, selectCandidates } from "../lib/anchor/select";
 import { type AnchorRow, type AnchorStore, nextAction, serialiseSigned, setStoreForTest } from "../lib/anchor/store";
 import { sdkAccepts, sdkUid } from "./oracle";
 
@@ -278,4 +279,42 @@ export async function anchorChecks(check: Check) {
     badWord = e instanceof UnanchorableClip;
   }
   check(badWord, "147 · and any other word is refused rather than guessed at");
+
+  // A run that sends names the clips it sends. The count it replaced said how many, never
+  // which, and anchoring writes a verifier's address to a public chain.
+  const refusesWith = (fn: () => unknown) => {
+    try {
+      fn();
+      return false;
+    } catch (e) {
+      return e instanceof UnselectableClip;
+    }
+  };
+  const list = [
+    { id: 334, source: "cv", status: "verified" },
+    { id: 333, source: "cv", status: "verified" },
+    { id: 400, source: "human", status: "verified" },
+    { id: 322, source: "cv", status: "rejected" },
+    { id: 279, source: "cv", status: "verified" },
+  ];
+  check(refusesWith(() => assertMayExecute(true, null)),
+    "167 · a run that sends and names no clip is refused");
+  check(!refusesWith(() => assertMayExecute(true, [279])) && !refusesWith(() => assertMayExecute(false, null)),
+    "167a · while a run that names its clips and a dry run that names none are not (negative control)");
+  check(JSON.stringify(parseClipIds("279, 333")) === "[279,333]" && parseClipIds(undefined) === null,
+    "168 · the clip list reads whole numbers, and its absence is null rather than empty");
+  check(["", "279,", "abc", "0", "-5", "1.5", "279,279"].every(bad => refusesWith(() => parseClipIds(bad))),
+    "168a · and a blank, a fraction, a zero, a negative or a repeat is refused rather than read");
+  check(JSON.stringify(selectCandidates(list, { limit: 1, clips: [279, 334] }).map(r => r.id)) === "[334,279]",
+    "169 · naming clips takes exactly those, in the list's order, whatever the limit says");
+  check(JSON.stringify(selectCandidates(list, { limit: 2, clips: null }).map(r => r.id)) === "[334,333]",
+    "169a · and with none named the first limit's worth is taken, which is only used to look");
+  check(refusesWith(() => selectCandidates(list, { limit: 1, clips: [279, 999] })),
+    "169b · a named clip that is not in the list is an error, not a clip skipped quietly");
+  check(refusesWith(() => selectCandidates(list, { limit: 1, clips: [400] })) &&
+    refusesWith(() => selectCandidates(list, { limit: 1, clips: [322] })),
+    "169c · and so is a named clip a person submitted or one that was rejected");
+  const source = readFileSync(join(process.cwd(), "bin/anchor.ts"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  check(/assertMayExecute\(execute, clips\)/.test(source) && /selectCandidates\(rows, \{ limit, clips \}\)/.test(source),
+    "170 · the command asks both before it reads a key, and takes its clips from the selector (the command's own source)");
 }
