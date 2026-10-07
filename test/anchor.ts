@@ -19,7 +19,7 @@ import {
 import { SCHEMA, UnanchorableClip, decisionCode, schemaUid } from "../lib/anchor/schema";
 import { UnselectableClip, assertMayExecute, parseClipIds, selectCandidates } from "../lib/anchor/select";
 import { type AnchorRow, type AnchorStore, nextAction, serialiseSigned, setStoreForTest } from "../lib/anchor/store";
-import { sdkAccepts, sdkUid } from "./oracle";
+import { sdkAccepts, sdkUid } from "./reference";
 
 type Check = (ok: boolean, label: string) => void;
 
@@ -95,10 +95,10 @@ export async function anchorChecks(check: Check) {
   // The instrument that is not this repository's own code. Everything above this
   // line is this repository's code agreeing with itself, which is exactly what
   // cannot detect a wrong domain.
-  check(sdkAccepts(signed), "135b · and the attestation library, as an independent oracle, accepts the object this repository produced");
+  check(sdkAccepts(signed), "135b · and the attestation library, as an independent reference implementation, accepts the object this repository produced");
   check(sdkUid(signed) === signed.uid, "135c · and computes the same identifier for it, byte for byte");
 
-  // The failure this oracle exists for, in the shape it would have shipped in.
+  // The failure this reference exists for, in the shape it would have shipped in.
   // Signed under the contract's own domain name rather than the offchain one: it
   // still re-derives from itself, so this repository's own invariant stays green, and the library
   // and every explorer that uses it reject it.
@@ -106,7 +106,7 @@ export async function anchorChecks(check: Check) {
   check(await verifyObservation(wrongDomain),
     "135d · an object signed under the contract's own domain still satisfies this repository's own re-derivation (negative control, and the reason self-consistency is not evidence)");
   check(!sdkAccepts(wrongDomain),
-    "135e · and the oracle rejects it, which is the only check here that would have caught it (seen to fail)");
+    "135e · and the reference rejects it, which is the only check here that would have caught it (seen to fail)");
 
   check(offchainUid({ ...message, salt: ZERO_BYTES32 }) !== signed.uid,
     "136 · dropping the salt changes the identifier, which is why the whole object is persisted (seen to fail)");
