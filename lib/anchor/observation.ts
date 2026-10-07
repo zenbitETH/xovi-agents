@@ -66,6 +66,16 @@ export function encodeObservation(o: Observation): `0x${string}` {
  * either into a default would produce a record about a decision that was never made.
  */
 export function toObservation(row: Record<string, unknown>): Observation {
+  const never = neverAnchor(row, { hash: false });
+  if (never !== null) throw new UnanchorableClip(`clip ${row.id}: never anchored, ${never}`);
+  return buildObservation(row);
+}
+
+/**
+ * The same conversion without the never-anchor guard, for the one caller that is not anchoring: bin/fork-proof.ts re-verifies the signature
+ * of a clip that is already onchain, on a fork. Anything that sends goes through toObservation.
+ */
+export function buildObservation(row: Record<string, unknown>): Observation {
   const need = (k: string): string => {
     const v = row[k];
     if (typeof v !== "string" || v.length === 0) throw new UnanchorableClip(`clip ${row.id}: ${k} is missing`);
@@ -73,9 +83,6 @@ export function toObservation(row: Record<string, unknown>): Observation {
   };
   if (row.status !== "verified") throw new UnanchorableClip(`clip ${row.id}: status is ${row.status}, not verified`);
   if (row.source !== "cv") throw new UnanchorableClip(`clip ${row.id}: source is ${row.source}, not a machine proposal`);
-
-  const never = neverAnchor(row);
-  if (never !== null) throw new UnanchorableClip(`clip ${row.id}: never anchored, ${never}`);
 
   const clipHash = need("clipHash");
   const nonce = need("verifierNonce");

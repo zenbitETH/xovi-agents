@@ -28,7 +28,7 @@ import {
   timestampOf,
   walletClientFor,
 } from "../lib/anchor/eas";
-import { OBSERVATION_ABI, encodeObservation, toObservation } from "../lib/anchor/observation";
+import { OBSERVATION_ABI, buildObservation, encodeObservation } from "../lib/anchor/observation";
 import { signedBy } from "../lib/anchor/confirmation";
 import { OFFCHAIN_DOMAIN_NAME, ZERO_ADDRESS, ZERO_BYTES32, randomSalt, signObservation, verifyObservation } from "../lib/anchor/offchain";
 import { RESOLVER, REVOCABLE, SCHEMA, schemaUid } from "../lib/anchor/schema";
@@ -87,7 +87,9 @@ async function main() {
   // A real confirmation, carried rather than derived. The signature is genuine and
   // the reviewer's chain is the row's own, not this fork's.
   const row = JSON.parse(readFileSync(join(process.cwd(), "fixtures/confirmation.259.json"), "utf8"));
-  const o = toObservation(row);
+  // buildObservation, not toObservation: this re-verifies a clip already onchain on a fork, it anchors nothing, so the never-anchor selector
+  // does not apply to it. The fixture stays exactly as it is.
+  const o = buildObservation(row);
   check(o.verifierChainId === 11155111 && chainId === 11155111,
     "R5 · the verifier's chain is carried from the row (it equals the anchor chain today, which is what would hide a derivation)");
 

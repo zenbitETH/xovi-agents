@@ -12,6 +12,8 @@
  * builder call.
  */
 
+import { encodePacked, keccak256 } from "viem";
+
 export class UnselectableClip extends Error {}
 
 /** `279,321` into `[279, 321]`. A repeat, a blank or anything but a whole number is refused. */
@@ -38,6 +40,25 @@ export function assertMayExecute(execute: boolean, clips: number[] | null): void
 }
 
 type Row = Record<string, unknown>;
+
+/**
+ * The clip hash as Xovi makes it, recomputed from the fields the list serves: channel, video, the span in milliseconds, the tag, the species,
+ * the station, the alias (served as null, so ""), and the submitter's address. A row whose hash is not this was hashed with something else (a
+ * health tag, an alias) than what the list shows, and the hash is what would go onchain. Null when the fields are not all there.
+ */
+export function expectedClipHash(row: Row): `0x${string}` | null {
+  const text = (k: string) => (typeof row[k] === "string" && (row[k] as string).length > 0 ? (row[k] as string) : null);
+  const num = (k: string) => (typeof row[k] === "number" && Number.isFinite(row[k] as number) ? (row[k] as number) : null);
+  const [channelId, videoId, tag, species, station, submitter] = ["channelId", "videoId", "behaviorTag", "speciesCode", "stationId", "submitterAddress"].map(text);
+  const [start, end] = [num("startTime"), num("endTime")];
+  if (!channelId || !videoId || !tag || !species || !station || !submitter || !/^0x[0-9a-fA-F]{40}$/.test(submitter) || start === null || end === null) return null;
+  return keccak256(
+    encodePacked(
+      ["string", "string", "uint64", "uint64", "string", "string", "string", "string", "address"],
+      [channelId, videoId, BigInt(Math.round(start * 1000)), BigInt(Math.round(end * 1000)), tag, species, station, "", submitter as `0x${string}`],
+    ),
+  );
+}
 
 /**
  * The tags a clip may carry and still be anchored: the Xovi catalog's tags outside its health category (Salud y bienestar). An allow-list,
@@ -77,7 +98,7 @@ export const PUBLIC_TAGS: readonly string[] = [
  * and null (a list that withholds them is refused, because an alias anchored once is recoverable forever from the onchain hash), and the
  * list's own statement that both addresses that will appear onchain have consented. Absent is never "fine".
  */
-export function neverAnchor(row: Row): string | null {
+export function neverAnchor(row: Row, opts: { hash?: boolean } = {}): string | null {
   const tag = row.behaviorTag;
   if (typeof tag !== "string" || tag.length === 0) return "no behaviorTag to check";
   if (!PUBLIC_TAGS.includes(tag)) return `tag ${tag} is not a public tag`;
@@ -85,6 +106,13 @@ export function neverAnchor(row: Row): string | null {
   if (row.participants !== null) return row.participants === undefined ? "participants is missing from the list" : "participants is set";
   const consent = row.consent as { verifier?: unknown; submitter?: unknown } | undefined;
   if (consent?.verifier !== true || consent?.submitter !== true) return "the list does not say both addresses have consented";
+  // The selector recomputes the hash; the observation builder is also fed the trimmed fixture of an already anchored clip, which carries no
+  // fields to recompute it from, and always runs after the selector in the command.
+  if (opts.hash !== false) {
+    const want = expectedClipHash(row);
+    if (want === null) return "the list does not carry the fields the clip hash is made of";
+    if (typeof row.clipHash !== "string" || row.clipHash.toLowerCase() !== want.toLowerCase()) return "the clip hash is not the hash of the fields shown";
+  }
   return null;
 }
 
