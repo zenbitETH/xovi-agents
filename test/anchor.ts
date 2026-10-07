@@ -17,14 +17,23 @@ import {
   verifyObservation,
 } from "../lib/anchor/offchain";
 import { SCHEMA, UnanchorableClip, decisionCode, schemaUid } from "../lib/anchor/schema";
-import { CLINICAL_TAGS, UnselectableClip, assertMayExecute, parseClipIds, selectCandidates } from "../lib/anchor/select";
+import { PUBLIC_TAGS, UnselectableClip, assertKeySafeUrl, assertMayExecute, neverAnchor, parseClipIds, parseClipList, selectCandidates } from "../lib/anchor/select";
 import { type AnchorRow, type AnchorStore, nextAction, serialiseSigned, setStoreForTest } from "../lib/anchor/store";
 import { sdkAccepts, sdkUid } from "./reference";
 
 type Check = (ok: boolean, label: string) => void;
 
-const FIXTURE = () =>
-  JSON.parse(readFileSync(join(process.cwd(), "fixtures/confirmation.259.json"), "utf8")) as Record<string, unknown>;
+/**
+ * The confirmation as the file holds it (what the observation reads), plus the four fields the guard requires the list to carry and prove:
+ * a public tag, an alias and participants that are present and null, and the list's statement that both addresses consented.
+ */
+const FIXTURE = (): Record<string, unknown> => ({
+  ...(JSON.parse(readFileSync(join(process.cwd(), "fixtures/confirmation.259.json"), "utf8")) as Record<string, unknown>),
+  behaviorTag: "swim",
+  specimenAlias: null,
+  participants: null,
+  consent: { verifier: true, submitter: true },
+});
 
 /** The identifier this repository predicts, pinned. A change to the frozen string
  *  changes this constant, which is the point: it cannot move quietly. */
@@ -290,12 +299,13 @@ export async function anchorChecks(check: Check) {
       return e instanceof UnselectableClip;
     }
   };
+  const PROVES = { specimenAlias: null, participants: null, consent: { verifier: true, submitter: true } };
   const list = [
-    { id: 334, source: "cv", status: "verified", behaviorTag: "swim" },
-    { id: 333, source: "cv", status: "verified", behaviorTag: "feeding" },
-    { id: 400, source: "human", status: "verified", behaviorTag: "swim" },
-    { id: 322, source: "cv", status: "rejected", behaviorTag: "rest" },
-    { id: 279, source: "cv", status: "verified", behaviorTag: "swim" },
+    { id: 334, source: "cv", status: "verified", behaviorTag: "swim", ...PROVES },
+    { id: 333, source: "cv", status: "verified", behaviorTag: "feeding", ...PROVES },
+    { id: 400, source: "human", status: "verified", behaviorTag: "swim", ...PROVES },
+    { id: 322, source: "cv", status: "rejected", behaviorTag: "rest", ...PROVES },
+    { id: 279, source: "cv", status: "verified", behaviorTag: "swim", ...PROVES },
   ];
   check(refusesWith(() => assertMayExecute(true, null)),
     "167 · a run that sends and names no clip is refused");
@@ -318,9 +328,11 @@ export async function anchorChecks(check: Check) {
   check(/assertMayExecute\(execute, clips\)/.test(source) && /selectCandidates\(rows, \{ limit, clips \}\)/.test(source),
     "170 · the command asks both before it reads a key, and takes its clips from the selector (the command's own source)");
 
-  // Standing rule: a clip with a clinical tag, an animal's alias or participants is never anchored, named or not.
+  // Standing rule: a clip is anchored only if it proves it may be. A public tag, an alias and participants present and null, both consents.
   const queued = [279, 321, 322, 323, 325, 333, 334];
-  const ok = (id: number, over: Record<string, unknown> = {}) => ({ id, source: "cv", status: "verified", behaviorTag: "swim", ...over });
+  const ok = (id: number, over: Record<string, unknown> = {}) => ({
+    id, source: "cv", status: "verified", behaviorTag: "swim", specimenAlias: null, participants: null, consent: { verifier: true, submitter: true }, ...over,
+  });
   const reasonOf = (fn: () => unknown) => {
     try {
       fn();
@@ -329,47 +341,70 @@ export async function anchorChecks(check: Check) {
       return e instanceof UnselectableClip ? e.message : `other: ${e}`;
     }
   };
-  const seven = queued.map(id => ok(id, { specimenAlias: null, participants: null }));
-  check(JSON.stringify(selectCandidates(seven, { limit: 1, clips: queued }).map(r => r.id)) === JSON.stringify(queued),
-    "424 · the seven queued clips, with no alias and no participants, are all taken when named");
-  check(/appendage_injury/.test(reasonOf(() => selectCandidates([ok(12, { behaviorTag: "appendage_injury" })], { limit: 1, clips: [12] }))) &&
-    /clip 12 is never anchored/.test(reasonOf(() => selectCandidates([ok(12, { behaviorTag: "appendage_injury" })], { limit: 1, clips: [12] }))),
+  const named = (row: Record<string, unknown>) => reasonOf(() => selectCandidates([row], { limit: 1, clips: [row.id as number] }));
+  const without = (row: Record<string, unknown>, key: string) => {
+    const { [key]: _gone, ...rest } = row;
+    return rest;
+  };
+  check(JSON.stringify(selectCandidates(queued.map(id => ok(id)), { limit: 1, clips: queued }).map(r => r.id)) === JSON.stringify(queued),
+    "424 · the seven queued clips, with a public tag, no alias, no participants and both consents, are all taken when named");
+  check(/clip 12 is never anchored: tag appendage_injury is not a public tag/.test(named(ok(12, { behaviorTag: "appendage_injury" }))),
     "425 · a named clip with a clinical tag is refused, by number and by tag");
-  check(/specimenAlias is set/.test(reasonOf(() => selectCandidates([ok(13, { specimenAlias: "Lupita" })], { limit: 1, clips: [13] }))),
-    "426 · and one with an alias is refused, saying so");
-  check(/participants is set/.test(reasonOf(() => selectCandidates([ok(14, { participants: [{ alias: "x", role: null }] })], { limit: 1, clips: [14] }))) &&
-    /participants is set/.test(reasonOf(() => selectCandidates([ok(14, { participants: [] })], { limit: 1, clips: [14] }))),
-    "427 · and one with participants, even an empty list");
+  check(/tag brand_new_health_tag is not a public tag/.test(named(ok(12, { behaviorTag: "brand_new_health_tag" }))),
+    "425a · and so is a tag nobody listed: the list of tags is an allow-list, so a health tag added later is out until it is added here on purpose");
+  check(/no behaviorTag/.test(named(without(ok(12), "behaviorTag"))) && /no behaviorTag/.test(named(ok(12, { behaviorTag: "" }))),
+    "425b · a clip with no tag cannot be checked, so it is refused");
+  check(/specimenAlias is set/.test(named(ok(13, { specimenAlias: "Lupita" }))) && /specimenAlias is set/.test(named(ok(13, { specimenAlias: "" }))),
+    "426 · a clip with an alias is refused, saying so");
+  check(/specimenAlias is missing from the list/.test(named(without(ok(13), "specimenAlias"))),
+    "426a · and one whose list withholds the field is refused too: absent is not null");
+  check(/participants is set/.test(named(ok(14, { participants: [{ alias: "x", role: null }] }))) && /participants is set/.test(named(ok(14, { participants: [] }))) &&
+    /participants is missing from the list/.test(named(without(ok(14), "participants"))),
+    "427 · participants: set, an empty list and a missing field are each refused");
   check(/clip 12 is never anchored/.test(reasonOf(() => selectCandidates([ok(12, { behaviorTag: "gill_fungus" }), ok(13)], { limit: 2, clips: [12, 13] }))),
     "428 · a clip that may be anchored beside one that may not does not rescue it");
-  check(JSON.stringify(selectCandidates([ok(12, { behaviorTag: "pruritus" }), ok(13), ok(14, { specimenAlias: "x" }), ok(15)], { limit: 5, clips: null }).map(r => r.id)) === "[13,15]",
+  check(JSON.stringify(selectCandidates([ok(12, { behaviorTag: "pruritus" }), ok(13), ok(14, { specimenAlias: "x" }), ok(15), ok(16, { consent: undefined })], { limit: 5, clips: null }).map(r => r.id)) === "[13,15]",
     "429 · a run that only looks leaves those clips out of what it would anchor");
-  check(CLINICAL_TAGS.length > 0 && CLINICAL_TAGS.every(t => reasonOf(() => selectCandidates([ok(1, { behaviorTag: t })], { limit: 1, clips: [1] })).includes(t)),
-    "430 · every tag of the health category is refused (the list is not empty)");
-  check(["pruritus", "appendage_injury", "gill_fungus", "lethargy", "abnormal_breathing", "abnormal_buoyancy", "inflammation", "skin_shedding", "convulsions"]
-    .every(t => CLINICAL_TAGS.includes(t)),
-    "431 · and the nine tags that were named for exclusion are in it");
-  check(/no behaviorTag/.test(reasonOf(() => selectCandidates([{ id: 5, source: "cv", status: "verified" }], { limit: 1, clips: [5] }))) &&
-    selectCandidates([{ id: 5, source: "cv", status: "verified" }], { limit: 1, clips: null }).length === 0,
-    "432 · a row with no tag cannot be checked, so the selector refuses it");
-  const refused = (over: Record<string, unknown>) => {
+  const CLINICAL = ["pruritus", "appendage_injury", "gill_fungus", "lethargy", "abnormal_breathing", "abnormal_buoyancy", "inflammation", "skin_shedding", "convulsions",
+    "gill_collapse", "skin_lesion", "body_spiral", "gill_mucus", "regeneration"];
+  check(CLINICAL.length === 14 && CLINICAL.every(t => /is not a public tag/.test(named(ok(1, { behaviorTag: t })))),
+    "430 · each of the fourteen health tags is refused (the list is not empty)");
+  check(PUBLIC_TAGS.length === 25 && PUBLIC_TAGS.every(t => neverAnchor(ok(1, { behaviorTag: t })) === null) && !PUBLIC_TAGS.some(t => CLINICAL.includes(t)),
+    "431 · and each of the twenty five public tags passes (negative control), with none of the health tags among them");
+  check([undefined, null, {}, { verifier: true }, { submitter: true }, { verifier: true, submitter: false }, { verifier: "yes", submitter: true }, "yes"].every(c => /have consented/.test(named(ok(1, { consent: c })))),
+    "432 · a clip whose list does not say both addresses consented is refused, whatever else is written there");
+  const refused = (over: Record<string, unknown>, drop?: string) => {
     try {
-      toObservation({ ...FIXTURE(), ...over });
+      toObservation(drop ? without({ ...FIXTURE(), ...over }, drop) : { ...FIXTURE(), ...over });
       return false;
     } catch (e) {
       return e instanceof UnanchorableClip && /never anchored/.test(e.message);
     }
   };
-  check(refused({ behaviorTag: "appendage_injury" }) && refused({ specimenAlias: "x" }) && refused({ participants: [] }),
-    "433 · the observation builder refuses the same three, whoever calls it");
-  check(!refused({ behaviorTag: "swim", specimenAlias: null, participants: null }) && !refused({}),
-    "434 · and builds the fixture clip, with or without a tag, alias or participants set to null (negative control)");
+  check(refused({ behaviorTag: "appendage_injury" }) && refused({ specimenAlias: "x" }) && refused({ participants: [] }) && refused({}, "behaviorTag") &&
+    refused({}, "specimenAlias") && refused({}, "participants") && refused({ consent: { verifier: true } }),
+    "433 · the observation builder refuses the same, whoever calls it, including a field the list withholds");
+  check(!refused({}), "434 · and builds the fixture clip when it proves itself (negative control)");
+  const clipList = { publicTags: [...PUBLIC_TAGS], clips: [ok(1)] };
+  check(parseClipList(clipList).length === 1, "435 · the list is read when it is { publicTags, clips } with exactly this script's tags");
+  check(!reasonOf(() => parseClipList([ok(1)])).includes("other:") && reasonOf(() => parseClipList([ok(1)])) !== "" && reasonOf(() => parseClipList({ clips: [] })) !== "" &&
+    reasonOf(() => parseClipList({ publicTags: [...PUBLIC_TAGS, "lethargy"], clips: [] })) !== "" && reasonOf(() => parseClipList({ publicTags: PUBLIC_TAGS.slice(1), clips: [] })) !== "" &&
+    reasonOf(() => parseClipList(null)) !== "",
+    "436 · and refused when it is a bare array, has no tags, names one more health tag or one fewer public tag, or is null");
+  const urlRefused = (u: string) => reasonOf(() => assertKeySafeUrl(u)) !== "";
+  check(!urlRefused("https://testxovi.axolodao.org/api/anchor/clips") && !urlRefused("http://localhost:3000/api/anchor/clips") && !urlRefused("http://127.0.0.1:3000/x"),
+    "437 · the key goes to an https address or to this machine (negative control)");
+  check(["http://testxovi.axolodao.org/api/anchor/clips", "http://localhost.evil.example/x", "ftp://localhost/x", "not a url", ""].every(urlRefused),
+    "438 · and not to plain http on another host, a host that only starts with localhost, another scheme or nothing");
+  check(/redirect: "error"/.test(source) && /assertKeySafeUrl\(clipsUrl\)/.test(source) && /parseClipList\(await res\.json\(\)\)/.test(source) &&
+    source.indexOf("assertKeySafeUrl(clipsUrl)") < source.indexOf("fetch(clipsUrl"),
+    "439 · the command checks the address first, fetches without following redirects, and reads the list through the one parser (its source)");
   const obs = readFileSync(join(process.cwd(), "lib/anchor/observation.ts"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
-  check(/neverAnchor\(row\)/.test(obs) && /neverAnchor\(r, \{ requireTag: true \}\)/.test(readFileSync(join(process.cwd(), "lib/anchor/select.ts"), "utf8")),
-    "435 · the builder and the selector both call the one rule (the sources)");
+  check(/neverAnchor\(row\)/.test(obs) && /neverAnchor\(r\)/.test(readFileSync(join(process.cwd(), "lib/anchor/select.ts"), "utf8")),
+    "440 · the builder and the selector both call the one rule (the sources)");
   check(/process\.env\.ANCHOR_API_KEY/.test(source) && /ANCHOR_API_KEY is not set/.test(source) && !/process\.argv.*ANCHOR_API_KEY|arg\("--key"/.test(source) &&
     /authorization: `Bearer \$\{apiKey\}`/.test(source),
-    "436 · the command reads its key from the environment, refuses without it, and never takes one from an argument");
+    "441 · the command reads its key from the environment, refuses without it, and never takes one from an argument");
   check(source.indexOf("ANCHOR_API_KEY is not set") < source.indexOf("fetch(clipsUrl"),
-    "437 · and checks for it before it fetches anything");
+    "442 · and checks for it before it fetches anything");
 }

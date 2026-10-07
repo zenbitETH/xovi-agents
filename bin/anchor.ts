@@ -25,7 +25,7 @@ import { signedBy } from "../lib/anchor/confirmation";
 import { encodeObservation, toObservation } from "../lib/anchor/observation";
 import { OFFCHAIN_DOMAIN_NAME, ZERO_ADDRESS, ZERO_BYTES32, randomSalt, signObservation } from "../lib/anchor/offchain";
 import { UnanchorableClip, schemaUid } from "../lib/anchor/schema";
-import { assertMayExecute, parseClipIds, selectCandidates } from "../lib/anchor/select";
+import { assertKeySafeUrl, assertMayExecute, parseClipIds, parseClipList, selectCandidates } from "../lib/anchor/select";
 import { nextAction, storeFrom } from "../lib/anchor/store";
 
 function arg(name: string, fallback?: string): string | undefined {
@@ -45,6 +45,7 @@ async function main() {
   if (!rpc) throw new Error("ANCHOR_RPC_URL is not set");
   if (!clipsUrl) throw new Error("XOVI_CLIPS_URL is not set");
   if (!apiKey) throw new Error("ANCHOR_API_KEY is not set: the list of clips cleared for anchoring is read with a key");
+  assertKeySafeUrl(clipsUrl);
 
   const store = storeFrom();
   if (!store) throw new Error("DATABASE_URL is not set, and the row is the guard that stops a repeat being attempted");
@@ -54,9 +55,10 @@ async function main() {
   const version = await domainVersion(pub);
   const schema = schemaUid();
 
-  const res = await fetch(clipsUrl, { headers: { authorization: `Bearer ${apiKey}` } });
+  // redirect: "error": the key is sent to the address in XOVI_CLIPS_URL and to no other host a redirect might name.
+  const res = await fetch(clipsUrl, { headers: { authorization: `Bearer ${apiKey}` }, redirect: "error" });
   if (!res.ok) throw new Error(`the clips list answered ${res.status}`);
-  const rows = (await res.json()) as Record<string, unknown>[];
+  const rows = parseClipList(await res.json());
   const candidates = selectCandidates(rows, { limit, clips });
   console.log(`\n  ${rows.length} rows, ${candidates.length} to anchor, chain ${chainId}, domain version ${version}\n`);
 
