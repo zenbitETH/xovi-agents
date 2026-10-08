@@ -85,9 +85,9 @@ The identifier is `keccak256` over the packed encoding of the version as `uint16
 
 Every check written here before this section was this repository's code agreeing with this repository's code, and that cannot be evidence about an encoding somebody else defined. The failure it misses is specific and it is the expensive one: an object signed under the wrong domain still re-derives its own identifier, so the invariant that says the record re-derives passes, the suite is green, and an explorer rejects the record on the one screen a reader will actually use.
 
-So the attestation library is a development dependency, pinned, used by one check that asks it to accept an object this repository produced and to compute its identifier independently. It is never in the shipped path: the runtime is viem and no attestation library at all, which is the whole reason a second chain library's weight never reaches a deployment. The negative control signs under the contract's own domain name and asserts both halves at once, that this repository's own re-derivation still passes and that the library rejects it. That pair is the argument for having an oracle, written as a check rather than as a paragraph.
+So the attestation library is a development dependency, pinned, used by one check that asks it to accept an object this repository produced and to compute its identifier independently. It is never in the shipped path: the runtime is viem and no attestation library at all, which is the whole reason a second chain library's weight never reaches a deployment. The negative control signs under the contract's own domain name and asserts both halves at once, that this repository's own re-derivation still passes and that the library rejects it. That pair is the argument for having a reference implementation, written as a check rather than as a paragraph.
 
-An oracle that can change underneath a green check is not an oracle, which is why the version is exact rather than a range.
+A reference that can change underneath a green check is not a reference, which is why the version is exact rather than a range.
 
 ## The trust boundary, which the record must not invite a reader to cross
 

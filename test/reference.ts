@@ -2,7 +2,7 @@
 // project has no `type` field. Its `exports` map sends `import` to an ESM build
 // whose typed-data module does `import { isEqual } from "lodash"`, a named import
 // from a CommonJS package that Node's ESM loader refuses. So an ESM migration
-// breaks this oracle at import time, and it would break silently for anyone not
+// breaks this reference at import time, and it would break silently for anyone not
 // running the suite, which is the one property an instrument must not have.
 import { Offchain, OffchainAttestationVersion } from "@ethereum-attestation-service/eas-sdk";
 import { parseSignature } from "viem";
@@ -20,12 +20,12 @@ import type { SignedObservation } from "../lib/anchor/offchain";
  * The attestation library is a devDependency for exactly this and is never in the
  * shipped path: the runtime is viem with no eas library at all, which is why the
  * weight of a second chain library never reaches a deployment. It is pinned rather
- * than floated, because an oracle that can change underneath a green check is not
- * an oracle.
+ * than floated, because a reference that can change underneath a green check is not
+ * a reference.
  */
 export function sdkOffchain(chainId: number, version: string, verifyingContract: string) {
   // The third argument is only read when the library is asked to verify against a
-  // chain, which nothing here does, so an oracle that needs no network can be built
+  // chain, which nothing here does, so a reference that needs no network can be built
   // from a stub. This is the one place a cast like that is the honest option.
   return new Offchain({ address: verifyingContract, version, chainId: BigInt(chainId) }, OffchainAttestationVersion.Version2, {} as never);
 }
