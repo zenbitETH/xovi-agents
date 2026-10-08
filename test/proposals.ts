@@ -137,6 +137,21 @@ export async function proposalsChecks(check: Check) {
   check(!failedBody.includes("AM 1") && !failedBody.includes("clave"), "244a · and its words do not travel through");
   await broken.close();
 
+  // A list that does not name submitters cannot be filtered to a wallet. It must not read as "you proposed nothing".
+  const { submitterAddress: _dropped, ...unnamed } = wholeRow(MINE, 5);
+  const anonymous = await startFakeList(() => [unnamed, { ...unnamed, id: 6 }]);
+  process.env.XOVI_PUBLIC_URL = anonymous.url;
+  const unfiltered = await ask(`?submitter=${MINE}`);
+  const unfilteredBody = JSON.stringify(await unfiltered.json());
+  check(unfiltered.status === 502, "244b · a list whose rows name no submitter is 502, not an empty list");
+  check(!unfilteredBody.includes("proposals") && !unfilteredBody.includes("clipHash"), "244c · and the answer carries no proposals and no hash");
+  await anonymous.close();
+  const empty = await startFakeList(() => []);
+  process.env.XOVI_PUBLIC_URL = empty.url;
+  const emptied = await ask(`?submitter=${MINE}`);
+  check(emptied.status === 200 && JSON.stringify(await emptied.json()) === '{"proposals":[]}', "244d · an empty list is still an empty answer (negative control)");
+  await empty.close();
+
   if (before === undefined) delete process.env.XOVI_PUBLIC_URL;
   else process.env.XOVI_PUBLIC_URL = before;
 }
