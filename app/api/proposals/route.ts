@@ -37,6 +37,10 @@ const KEEP = ["id", "clipHash", "status", "submittedAt", "verifiedAt"] as const;
  * machine proposals no person has looked at, on a public route, which is a product
  * decision with an embargo behind it and not a query parameter.
  *
+ * Needs the list to name each clip's submitter. When it does not (rows with no such
+ * field), the answer is 502 and not an empty list: an empty list reads as "you
+ * proposed nothing", which is a claim this route could not check.
+ *
  * Read only by construction. This module exports one method, the call it makes is
  * a GET, and there is nothing here that could be handed a body. A check holds that
  * shape rather than a comment asking for it.
@@ -65,6 +69,14 @@ export async function GET(request: Request) {
     return refuse(502, "the public list could not be reached");
   }
   if (!Array.isArray(rows)) return refuse(502, "the public list did not answer with a list");
+
+  // The reviewing application's public list no longer names the submitter of a clip. A list that has rows and none of them carries
+  // the field cannot be filtered to a wallet, and answering it with an empty list would read as "you proposed nothing". Say that the
+  // list cannot answer this question instead, in this route's words.
+  const names = (row: unknown) => typeof row === "object" && row !== null && "submitterAddress" in row;
+  if (rows.length > 0 && !rows.some(names)) {
+    return refuse(502, "the public list does not name submitters, so it cannot be filtered to a wallet");
+  }
 
   const wanted = getAddress(submitter);
   const mine = rows.filter(row => {

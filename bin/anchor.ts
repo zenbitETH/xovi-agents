@@ -1,13 +1,14 @@
 /**
  * Anchors confirmed machine proposals, one attestation each.
  *
- * Pulls from the reviewing application's public list, so nothing on that side
- * changes and nothing here needs a credential to read it. Filters to confirmed
+ * Pulls from the reviewing application's list of clips cleared for anchoring, read with a
+ * key (`ANCHOR_API_KEY`, from the environment, never from an argument). Filters to confirmed
  * rows a machine proposed, refuses anything else, and writes two records per clip:
  * an offchain attestation that is the record, and an onchain pair so it can be
- * found.
+ * found. A clip with a clinical tag, an animal's alias or participants is never anchored.
  *
- * Dry run by default. `--execute` is what sends.
+ * Dry run by default. `--execute` is what sends, and it only sends the clips named by
+ * `--clip 279,321`: a count says nothing about which clips a person cleared.
  */
 import { privateKeyToAccount } from "viem/accounts";
 import {
@@ -24,6 +25,7 @@ import { signedBy } from "../lib/anchor/confirmation";
 import { encodeObservation, toObservation } from "../lib/anchor/observation";
 import { OFFCHAIN_DOMAIN_NAME, ZERO_ADDRESS, ZERO_BYTES32, randomSalt, signObservation } from "../lib/anchor/offchain";
 import { UnanchorableClip, schemaUid } from "../lib/anchor/schema";
+import { assertKeySafeUrl, assertMayExecute, parseClipIds, parseClipList, selectCandidates } from "../lib/anchor/select";
 import { nextAction, storeFrom } from "../lib/anchor/store";
 
 function arg(name: string, fallback?: string): string | undefined {
@@ -35,10 +37,15 @@ async function main() {
   const execute = process.argv.includes("--execute");
   const anyChain = process.argv.includes("--any-chain");
   const limit = Number(arg("--limit", "1"));
+  const clips = parseClipIds(arg("--clip"));
+  assertMayExecute(execute, clips);
   const rpc = process.env.ANCHOR_RPC_URL;
   const clipsUrl = process.env.XOVI_CLIPS_URL;
+  const apiKey = process.env.ANCHOR_API_KEY;
   if (!rpc) throw new Error("ANCHOR_RPC_URL is not set");
   if (!clipsUrl) throw new Error("XOVI_CLIPS_URL is not set");
+  if (!apiKey) throw new Error("ANCHOR_API_KEY is not set: the list of clips cleared for anchoring is read with a key");
+  assertKeySafeUrl(clipsUrl);
 
   const store = storeFrom();
   if (!store) throw new Error("DATABASE_URL is not set, and the row is the guard that stops a repeat being attempted");
@@ -48,10 +55,11 @@ async function main() {
   const version = await domainVersion(pub);
   const schema = schemaUid();
 
-  const res = await fetch(clipsUrl);
+  // redirect: "error": the key is sent to the address in XOVI_CLIPS_URL and to no other host a redirect might name.
+  const res = await fetch(clipsUrl, { headers: { authorization: `Bearer ${apiKey}` }, redirect: "error" });
   if (!res.ok) throw new Error(`the clips list answered ${res.status}`);
-  const rows = (await res.json()) as Record<string, unknown>[];
-  const candidates = rows.filter(r => r.source === "cv" && r.status === "verified").slice(0, limit);
+  const rows = parseClipList(await res.json());
+  const candidates = selectCandidates(rows, { limit, clips });
   console.log(`\n  ${rows.length} rows, ${candidates.length} to anchor, chain ${chainId}, domain version ${version}\n`);
 
   for (const row of candidates) {
