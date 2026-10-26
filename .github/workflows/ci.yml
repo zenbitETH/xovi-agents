@@ -28,6 +28,11 @@ jobs:
       # going public, and a moved tag would run code nobody here reviewed. The
       # version is in the comment so the pin can be read and updated by a person.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The checkout token would otherwise stay in .git/config for every later
+          # step, including whatever a dependency runs during npm ci. Nothing here
+          # pushes, so nothing needs it after the clone.
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -36,9 +41,19 @@ jobs:
           # major. @types/node stays at 22 for now and moves together with an
           # engines field once this repository actually has a Vercel project.
           node-version: 24
+          # A runner's cached 24.x can trail a security release by days (the
+          # 2026-10-21 one fixed a brotli out-of-bounds write in node:zlib), and
+          # without this the cached build wins.
+          check-latest: true
           cache: npm
 
       - run: npm ci
+
+      # The October 2026 npm worm shipped as preinstall hooks in versions that were
+      # live for hours. These are the names it reached; append new ones as they
+      # are published rather than trusting that a lockfile review would spot them.
+      - name: Lockfile carries no known-compromised package
+        run: "! grep -nE '\"node_modules/(tensorlake|@subql/common)\"' package-lock.json"
 
       - name: Types
         run: npm run check-types
@@ -68,6 +83,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          persist-credentials: false
 
       - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:

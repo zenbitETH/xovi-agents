@@ -1,0 +1,39 @@
+# Dependabot keeps the npm tree and the pinned Actions current. There is no dev
+# branch here, so PRs target main and CI (ci.yml) is the review signal.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    # .npmrc refuses anything younger than min-release-age (7 days); Dependabot's
+    # default cooldown is 3, so a release between 3 and 7 days old would fail the
+    # whole group. One day above the gate, as Xovi does.
+    cooldown:
+      default-days: 8
+
+  # The Actions are pinned to commits (ci.yml); this is what moves those pins.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        update-types:
+          - "minor"
+          - "patch"
+    cooldown:
+      default-days: 8
