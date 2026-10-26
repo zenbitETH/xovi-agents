@@ -43,7 +43,7 @@
     "@ethereum-attestation-service/eas-sdk": "2.10.0",
     "@graphprotocol/graph-cli": "^0.98.1",
     "@graphprotocol/graph-ts": "^0.38.2",
-    "@types/node": "22.10.2",
+    "@types/node": "26.6.5",
     "@types/react": "19.1.1",
     "tsx": "4.19.2",
     "typescript": "5.7.2"
